@@ -48,13 +48,11 @@ exports.sendOTP = async (req, res) => {
     await redisClient.setOTP(email, otp, purpose);
     
     // Send email
-    const emailSent = await sendOTPEmail(email, otp, purpose);
-    console.log(`📧 Email sent: ${emailSent ? '✅' : '❌'}`);
+    await sendOTPEmail(email, otp, purpose);
 
     res.json({
       success: true,
       message: 'OTP sent successfully to your email',
-      otp: otp, // For debugging only - remove in production
       expiresIn: '5 minutes'
     });
   } catch (error) {
@@ -64,7 +62,7 @@ exports.sendOTP = async (req, res) => {
 };
 
 // ============================================
-// VERIFY OTP
+// VERIFY OTP (Only verifies, doesn't delete)
 // ============================================
 exports.verifyOTP = async (req, res) => {
   try {
@@ -98,17 +96,28 @@ exports.verifyOTP = async (req, res) => {
     // Compare OTP
     console.log(`🔑 Comparing: ${stored.otp} vs ${otp}`);
     if (stored.otp !== otp) {
-      const attempts = await redisClient.incrementOTPAttempts(email, purpose);
-      const remaining = 2 - attempts;
+      await redisClient.incrementOTPAttempts(email, purpose);
+      const attempts = await redisClient.getOTPAttempts(email, purpose);
+      const remaining = 3 - attempts;
       return res.status(400).json({
         success: false,
         message: `Invalid OTP. ${remaining} attempts remaining.`
       });
     }
 
-    // Success - delete OTP
-    await redisClient.deleteOTP(email, purpose);
-    console.log(`✅ OTP verified successfully for ${email}`);
+    // ✅ OTP is verified - KEEP IT IN REDIS for signup
+    // Just mark it as verified in Redis
+    stored.verified = true;
+    const ttl = await redisClient.client.ttl(`otp:${purpose}:${email}`);
+    if (ttl > 0) {
+      await redisClient.client.set(
+        `otp:${purpose}:${email}`, 
+        JSON.stringify(stored), 
+        'EX', 
+        ttl
+      );
+    }
+    console.log(`✅ OTP verified successfully for ${email}, kept in Redis for signup`);
 
     res.json({
       success: true,
@@ -122,7 +131,15 @@ exports.verifyOTP = async (req, res) => {
 };
 
 // ============================================
-// SIGNUP
+// GET OTP ATTEMPTS (Helper)
+// ============================================
+exports.getOTPAttempts = async (email, purpose = 'signup') => {
+  const stored = await redisClient.getOTP(email, purpose);
+  return stored ? stored.attempts || 0 : 0;
+};
+
+// ============================================
+// SIGNUP (Uses the verified OTP)
 // ============================================
 exports.signup = async (req, res) => {
   try {
@@ -146,14 +163,28 @@ exports.signup = async (req, res) => {
       return res.status(400).json({ success: false, message: 'User already exists' });
     }
 
-    // Verify OTP from Redis
+    // Check if OTP is verified in Redis
     const stored = await redisClient.getOTP(email, 'signup');
     console.log(`🔍 Stored OTP for signup:`, stored);
 
-    if (!stored || stored.otp !== otp) {
+    if (!stored) {
       return res.status(400).json({ 
         success: false, 
-        message: 'Invalid or expired OTP. Please request a new one.' 
+        message: 'OTP expired. Please request a new one.' 
+      });
+    }
+
+    if (!stored.verified) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'OTP not verified. Please verify your OTP first.' 
+      });
+    }
+
+    if (stored.otp !== otp) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid OTP. Please request a new one.' 
       });
     }
 
@@ -174,6 +205,7 @@ exports.signup = async (req, res) => {
 
     // Delete OTP after successful signup
     await redisClient.deleteOTP(email, 'signup');
+    console.log(`✅ OTP deleted after successful signup for ${email}`);
 
     if (role === 'hod') {
       return res.status(201).json({
@@ -347,14 +379,26 @@ exports.verifyResetOTP = async (req, res) => {
 
     if (stored.otp !== otp) {
       await redisClient.incrementOTPAttempts(email, 'forgot');
-      const remaining = 2 - stored.attempts;
+      const attempts = await redisClient.getOTPAttempts(email, 'forgot');
+      const remaining = 3 - attempts;
       return res.status(400).json({
         success: false,
         message: `Invalid OTP. ${remaining} attempts remaining.`
       });
     }
 
-    await redisClient.deleteOTP(email, 'forgot');
+    // Mark as verified
+    stored.verified = true;
+    const ttl = await redisClient.client.ttl(`otp:forgot:${email}`);
+    if (ttl > 0) {
+      await redisClient.client.set(
+        `otp:forgot:${email}`, 
+        JSON.stringify(stored), 
+        'EX', 
+        ttl
+      );
+    }
+
     const resetToken = jwt.sign(
       { email },
       process.env.JWT_SECRET + 'reset',
@@ -418,6 +462,7 @@ exports.resetPassword = async (req, res) => {
     user.password = newPassword;
     await user.save();
 
+    await redisClient.deleteOTP(email, 'forgot');
     await sendPasswordResetSuccessEmail(email, user.name);
 
     res.json({
