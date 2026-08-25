@@ -95,13 +95,13 @@ const OTPSchema = new mongoose.Schema({
   },
   purpose: {
     type: String,
-    enum: ['signup', 'login', 'reset'],
+    enum: ['signup', 'login', 'reset', 'forgot'],
     default: 'signup'
   },
   expiresAt: {
     type: Date,
     required: true,
-    default: () => new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+    default: () => new Date(Date.now() + 10 * 60 * 1000)
   },
   attempts: {
     type: Number,
@@ -113,7 +113,6 @@ const OTPSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
-// Auto-delete expired OTPs
 OTPSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 // User Schema
@@ -175,10 +174,11 @@ const UserSchema = new mongoose.Schema({
     type: String,
     enum: ['pending', 'approved', 'rejected'],
     default: 'pending'
-  }
+  },
+  resetPasswordToken: String,
+  resetPasswordExpires: Date
 }, { timestamps: true });
 
-// Hash password before saving
 UserSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
   try {
@@ -225,6 +225,9 @@ const TimetableSchema = new mongoose.Schema({
   version: { type: Number, default: 1 }
 }, { timestamps: true });
 
+TimetableSchema.index({ department: 1, semester: 1, section: 1, day: 1 });
+TimetableSchema.index({ room: 1, day: 1, startTime: 1, endTime: 1 });
+
 // Booking Schema
 const BookingSchema = new mongoose.Schema({
   room: { type: mongoose.Schema.Types.ObjectId, ref: 'Room', required: true, index: true },
@@ -240,6 +243,9 @@ const BookingSchema = new mongoose.Schema({
   conflictMessage: { type: String, default: '' },
   notified: { type: Boolean, default: false }
 }, { timestamps: true });
+
+BookingSchema.index({ room: 1, date: 1, startTime: 1, endTime: 1 }, { unique: true });
+BookingSchema.index({ professor: 1, date: 1, status: 1 });
 
 // Create models
 const User = mongoose.model('User', UserSchema);
@@ -266,9 +272,30 @@ const generateOTP = () => {
   return crypto.randomInt(100000, 999999).toString();
 };
 
-// Send OTP email
+// Send OTP Email
 const sendOTPEmail = async (email, otp, purpose = 'signup') => {
-  const subject = purpose === 'signup' ? 'Verify Your Email - NITRR Room Allocation' : 'OTP Verification - NITRR Room Allocation';
+  const subjects = {
+    signup: 'Verify Your Email - NITRR Room Allocation',
+    forgot: 'Password Reset OTP - NITRR Room Allocation',
+    reset: 'Password Reset Confirmation - NITRR Room Allocation'
+  };
+
+  const titles = {
+    signup: 'Email Verification',
+    forgot: 'Password Reset OTP',
+    reset: 'Password Reset Confirmation'
+  };
+
+  const messages = {
+    signup: 'Thank you for signing up! Please verify your email address.',
+    forgot: 'You requested to reset your password. Use the OTP below.',
+    reset: 'Your password has been reset successfully.'
+  };
+
+  const subject = subjects[purpose] || 'OTP Verification - NITRR Room Allocation';
+  const title = titles[purpose] || 'OTP Verification';
+  const message = messages[purpose] || 'Your OTP for verification is:';
+
   const html = `
     <!DOCTYPE html>
     <html>
@@ -280,16 +307,17 @@ const sendOTPEmail = async (email, otp, purpose = 'signup') => {
         .otp-code { font-size: 32px; font-weight: bold; color: #2563eb; text-align: center; padding: 20px; background: #f0f7ff; border-radius: 8px; letter-spacing: 5px; }
         .footer { text-align: center; padding: 20px 0; color: #6b7280; font-size: 14px; }
         .warning { color: #dc2626; font-size: 14px; text-align: center; margin-top: 10px; }
+        .success { color: #16a34a; }
       </style>
     </head>
     <body>
       <div class="container">
         <div class="header">
           <h1 style="color: #1e40af;">🏫 NITRR Room Allocation</h1>
-          <p style="color: #6b7280;">${purpose === 'signup' ? 'Email Verification' : 'OTP Verification'}</p>
+          <p style="color: #6b7280;">${title}</p>
         </div>
         <p>Hello,</p>
-        <p>${purpose === 'signup' ? 'Thank you for signing up!' : 'Your OTP for verification is:'}</p>
+        <p>${message}</p>
         <div class="otp-code">${otp}</div>
         <p style="text-align: center;">This OTP is valid for <strong>10 minutes</strong>.</p>
         <div class="warning">⚠️ Do not share this OTP with anyone.</div>
@@ -306,6 +334,50 @@ const sendOTPEmail = async (email, otp, purpose = 'signup') => {
     from: process.env.EMAIL_FROM || 'noreply@nitrr.ac.in',
     to: email,
     subject,
+    html
+  };
+
+  await transporter.sendMail(mailOptions);
+};
+
+// Send Password Reset Success Email
+const sendPasswordResetSuccessEmail = async (email, name) => {
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f4f4; }
+        .container { max-width: 500px; margin: 0 auto; padding: 20px; background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .header { text-align: center; padding: 20px 0; }
+        .success { color: #16a34a; text-align: center; padding: 20px; background: #f0fdf4; border-radius: 8px; }
+        .footer { text-align: center; padding: 20px 0; color: #6b7280; font-size: 14px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1 style="color: #1e40af;">🏫 NITRR Room Allocation</h1>
+        </div>
+        <p>Dear <strong>${name}</strong>,</p>
+        <div class="success">
+          <h2>✅ Password Reset Successful</h2>
+          <p>Your password has been successfully reset.</p>
+        </div>
+        <p>If you did not request this password reset, please contact support immediately.</p>
+        <div class="footer">
+          <p>NIT Raipur - Room Allocation System</p>
+          <p>This is an automated email. Please do not reply.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const mailOptions = {
+    from: process.env.EMAIL_FROM || 'noreply@nitrr.ac.in',
+    to: email,
+    subject: '✅ Password Reset Successful - NITRR Room Allocation',
     html
   };
 
@@ -370,6 +442,180 @@ const isOverlapping = (start1, end1, start2, end2) => {
 // AUTH ROUTES
 // ============================================
 
+// ============================================
+// FORGOT PASSWORD ROUTES
+// ============================================
+
+// Request OTP for password reset
+app.post('/api/auth/forgot-password', otpLimiter, async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email is required' });
+    }
+
+    if (!email.endsWith(`@${ALLOWED_DOMAIN}`)) {
+      return res.status(400).json({
+        success: false,
+        message: `Only @${ALLOWED_DOMAIN} email addresses are allowed`
+      });
+    }
+
+    // Check if user exists
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'No account found with this email'
+      });
+    }
+
+    // Delete existing OTPs
+    await OTP.deleteMany({ email, purpose: 'forgot' });
+
+    // Generate new OTP
+    const otp = generateOTP();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    await OTP.create({
+      email,
+      otp,
+      purpose: 'forgot',
+      expiresAt,
+      attempts: 0,
+      verified: false
+    });
+
+    // Send OTP email
+    await sendOTPEmail(email, otp, 'forgot');
+
+    res.json({
+      success: true,
+      message: 'OTP sent to your email for password reset',
+      expiresIn: '10 minutes'
+    });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ success: false, message: 'Failed to send OTP. Please try again.' });
+  }
+});
+
+// Verify OTP for password reset
+app.post('/api/auth/verify-reset-otp', authLimiter, async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({ success: false, message: 'Email and OTP are required' });
+    }
+
+    const otpRecord = await OTP.findOne({ email, otp, purpose: 'forgot' });
+    
+    if (!otpRecord) {
+      return res.status(400).json({ success: false, message: 'Invalid OTP' });
+    }
+
+    if (otpRecord.expiresAt < new Date()) {
+      await OTP.deleteOne({ _id: otpRecord._id });
+      return res.status(400).json({ success: false, message: 'OTP has expired. Please request a new one.' });
+    }
+
+    if (otpRecord.attempts >= 3) {
+      await OTP.deleteOne({ _id: otpRecord._id });
+      return res.status(400).json({ success: false, message: 'Too many failed attempts. Please request a new OTP.' });
+    }
+
+    otpRecord.verified = true;
+    await otpRecord.save();
+
+    // Generate a temporary reset token
+    const resetToken = jwt.sign(
+      { email }, 
+      process.env.JWT_SECRET + 'reset', 
+      { expiresIn: '10m' }
+    );
+
+    res.json({
+      success: true,
+      message: 'OTP verified successfully',
+      resetToken
+    });
+  } catch (error) {
+    console.error('Verify reset OTP error:', error);
+    res.status(500).json({ success: false, message: 'OTP verification failed' });
+  }
+});
+
+// Reset password
+app.post('/api/auth/reset-password', authLimiter, async (req, res) => {
+  try {
+    const { email, resetToken, newPassword, confirmPassword } = req.body;
+
+    if (!email || !resetToken || !newPassword || !confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email, reset token, new password and confirm password are required'
+      });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Passwords do not match'
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters'
+      });
+    }
+
+    // Verify reset token
+    try {
+      jwt.verify(resetToken, process.env.JWT_SECRET + 'reset');
+    } catch (error) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid or expired reset token. Please request a new OTP.'
+      });
+    }
+
+    // Find user
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Update password
+    user.password = newPassword;
+    await user.save();
+
+    // Delete used OTP
+    await OTP.deleteMany({ email, purpose: 'forgot' });
+
+    // Send success email
+    await sendPasswordResetSuccessEmail(email, user.name);
+
+    res.json({
+      success: true,
+      message: 'Password reset successfully. You can now login with your new password.'
+    });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ success: false, message: 'Password reset failed' });
+  }
+});
+
+// ============================================
+// REGULAR AUTH ROUTES
+// ============================================
+
 // Request OTP for signup
 app.post('/api/auth/send-otp', otpLimiter, async (req, res) => {
   try {
@@ -379,7 +625,6 @@ app.post('/api/auth/send-otp', otpLimiter, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email is required' });
     }
 
-    // Validate email domain
     if (!email.endsWith(`@${ALLOWED_DOMAIN}`)) {
       return res.status(400).json({
         success: false,
@@ -387,7 +632,6 @@ app.post('/api/auth/send-otp', otpLimiter, async (req, res) => {
       });
     }
 
-    // Check if user already exists
     if (purpose === 'signup') {
       const existingUser = await User.findOne({ email });
       if (existingUser) {
@@ -398,14 +642,11 @@ app.post('/api/auth/send-otp', otpLimiter, async (req, res) => {
       }
     }
 
-    // Delete existing OTPs for this email
     await OTP.deleteMany({ email, purpose });
 
-    // Generate new OTP
     const otp = generateOTP();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    // Save OTP to database
     await OTP.create({
       email,
       otp,
@@ -415,7 +656,6 @@ app.post('/api/auth/send-otp', otpLimiter, async (req, res) => {
       verified: false
     });
 
-    // Send OTP email
     await sendOTPEmail(email, otp, purpose);
 
     res.json({
@@ -429,7 +669,7 @@ app.post('/api/auth/send-otp', otpLimiter, async (req, res) => {
   }
 });
 
-// Verify OTP
+// Verify OTP for signup
 app.post('/api/auth/verify-otp', authLimiter, async (req, res) => {
   try {
     const { email, otp, purpose = 'signup' } = req.body;
@@ -438,26 +678,22 @@ app.post('/api/auth/verify-otp', authLimiter, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email and OTP are required' });
     }
 
-    // Find OTP
     const otpRecord = await OTP.findOne({ email, otp, purpose });
     
     if (!otpRecord) {
       return res.status(400).json({ success: false, message: 'Invalid OTP' });
     }
 
-    // Check if OTP is expired
     if (otpRecord.expiresAt < new Date()) {
       await OTP.deleteOne({ _id: otpRecord._id });
       return res.status(400).json({ success: false, message: 'OTP has expired. Please request a new one.' });
     }
 
-    // Check attempts
     if (otpRecord.attempts >= 3) {
       await OTP.deleteOne({ _id: otpRecord._id });
       return res.status(400).json({ success: false, message: 'Too many failed attempts. Please request a new OTP.' });
     }
 
-    // Verify OTP
     otpRecord.verified = true;
     await otpRecord.save();
 
@@ -472,20 +708,18 @@ app.post('/api/auth/verify-otp', authLimiter, async (req, res) => {
   }
 });
 
-// Complete signup with OTP verification
+// Complete signup
 app.post('/api/auth/signup', authLimiter, async (req, res) => {
   try {
     const { name, email, password, role, department, employeeId, phone, otp } = req.body;
 
-    // Validate required fields
     if (!name || !email || !password || !department || !employeeId || !phone || !otp) {
       return res.status(400).json({
         success: false,
-        message: 'All fields are required: name, email, password, department, employeeId, phone, otp'
+        message: 'All fields are required'
       });
     }
 
-    // Validate email domain
     if (!email.endsWith(`@${ALLOWED_DOMAIN}`)) {
       return res.status(400).json({
         success: false,
@@ -493,7 +727,6 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
       });
     }
 
-    // Check if user already exists
     const existingUser = await User.findOne({ $or: [{ email }, { employeeId }] });
     if (existingUser) {
       return res.status(400).json({
@@ -502,7 +735,6 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
       });
     }
 
-    // Verify OTP
     const otpRecord = await OTP.findOne({ email, otp, purpose: 'signup', verified: true });
     
     if (!otpRecord) {
@@ -512,7 +744,6 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
       });
     }
 
-    // Check if OTP is expired
     if (otpRecord.expiresAt < new Date()) {
       await OTP.deleteOne({ _id: otpRecord._id });
       return res.status(400).json({
@@ -521,11 +752,9 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
       });
     }
 
-    // Determine role - if user signs up with HOD role, mark as pending approval
     const userRole = role === 'hod' ? 'hod' : 'professor';
     const hodApproval = role === 'hod' ? 'pending' : 'approved';
 
-    // Create user
     const user = await User.create({
       name,
       email,
@@ -538,10 +767,8 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
       hodApproval
     });
 
-    // Delete used OTP
     await OTP.deleteOne({ _id: otpRecord._id });
 
-    // Generate token
     const token = generateToken(user._id);
 
     res.status(201).json({
@@ -574,7 +801,6 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Please provide email and password' });
     }
 
-    // Check email domain
     if (!email.endsWith(`@${ALLOWED_DOMAIN}`)) {
       return res.status(400).json({
         success: false,
@@ -587,7 +813,6 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
-    // Check if HOD is approved
     if (user.role === 'hod' && user.hodApproval === 'pending') {
       return res.status(403).json({
         success: false,
@@ -643,13 +868,11 @@ app.get('/api/auth/me', protect, async (req, res) => {
 });
 
 // ============================================
-// HOD APPROVAL ROUTES (Admin only)
+// HOD APPROVAL ROUTES
 // ============================================
 
-// Get all pending HOD requests (Admin only)
 app.get('/api/auth/hod-requests', protect, authorize('hod'), async (req, res) => {
   try {
-    // Only approved HOD can see pending requests
     const hod = await User.findById(req.user.id);
     if (hod.hodApproval !== 'approved') {
       return res.status(403).json({
@@ -673,10 +896,8 @@ app.get('/api/auth/hod-requests', protect, authorize('hod'), async (req, res) =>
   }
 });
 
-// Approve or reject HOD (Admin only)
 app.put('/api/auth/hod-approve/:id', protect, authorize('hod'), async (req, res) => {
   try {
-    // Only approved HOD can approve others
     const currentHod = await User.findById(req.user.id);
     if (currentHod.hodApproval !== 'approved') {
       return res.status(403).json({
@@ -685,7 +906,7 @@ app.put('/api/auth/hod-approve/:id', protect, authorize('hod'), async (req, res)
       });
     }
 
-    const { status } = req.body; // 'approved' or 'rejected'
+    const { status } = req.body;
     if (!['approved', 'rejected'].includes(status)) {
       return res.status(400).json({
         success: false,
@@ -724,10 +945,9 @@ app.put('/api/auth/hod-approve/:id', protect, authorize('hod'), async (req, res)
 });
 
 // ============================================
-// ROOM ROUTES
+// ROOM ROUTES (Keep existing)
 // ============================================
 
-// Get all rooms
 app.get('/api/rooms', protect, async (req, res) => {
   try {
     const { department, building, floor, limit = 100, page = 1 } = req.query;
@@ -753,7 +973,6 @@ app.get('/api/rooms', protect, async (req, res) => {
   }
 });
 
-// Get available rooms for a time slot
 app.get('/api/rooms/available', protect, async (req, res) => {
   try {
     const { date, startTime, endTime, department } = req.query;
@@ -803,7 +1022,6 @@ app.get('/api/rooms/available', protect, async (req, res) => {
   }
 });
 
-// Create room (HOD only)
 app.post('/api/rooms', protect, authorize('hod'), async (req, res) => {
   try {
     const room = await Room.create(req.body);
@@ -813,7 +1031,6 @@ app.post('/api/rooms', protect, authorize('hod'), async (req, res) => {
   }
 });
 
-// Update room (HOD only)
 app.put('/api/rooms/:id', protect, authorize('hod'), async (req, res) => {
   try {
     const room = await Room.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
@@ -826,7 +1043,6 @@ app.put('/api/rooms/:id', protect, authorize('hod'), async (req, res) => {
   }
 });
 
-// Delete room (HOD only)
 app.delete('/api/rooms/:id', protect, authorize('hod'), async (req, res) => {
   try {
     const room = await Room.findByIdAndDelete(req.params.id);
@@ -840,10 +1056,9 @@ app.delete('/api/rooms/:id', protect, authorize('hod'), async (req, res) => {
 });
 
 // ============================================
-// BOOKING ROUTES
+// BOOKING ROUTES (Keep existing)
 // ============================================
 
-// Book a room
 app.post('/api/bookings', protect, async (req, res) => {
   try {
     const { roomId, date, startTime, endTime, subject, comment } = req.body;
@@ -863,7 +1078,6 @@ app.post('/api/bookings', protect, async (req, res) => {
     const day = getDayOfWeek(date);
     const bookingDate = new Date(date);
 
-    // Check for existing booking
     const existingBooking = await Booking.findOne({
       room: roomId,
       date: bookingDate,
@@ -879,7 +1093,6 @@ app.post('/api/bookings', protect, async (req, res) => {
       });
     }
 
-    // Check timetable conflict
     const timetableConflict = await Timetable.findOne({
       room: roomId,
       day,
@@ -921,7 +1134,6 @@ app.post('/api/bookings', protect, async (req, res) => {
   }
 });
 
-// Get user's bookings
 app.get('/api/bookings/my-bookings', protect, async (req, res) => {
   try {
     const bookings = await Booking.find({ professor: req.user._id })
@@ -957,7 +1169,6 @@ app.get('/api/bookings/my-bookings', protect, async (req, res) => {
   }
 });
 
-// Cancel booking
 app.put('/api/bookings/:id/cancel', protect, async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id);
@@ -977,7 +1188,6 @@ app.put('/api/bookings/:id/cancel', protect, async (req, res) => {
   }
 });
 
-// Get all bookings (HOD only)
 app.get('/api/bookings/all', protect, authorize('hod'), async (req, res) => {
   try {
     const { status, department, date, limit = 50, page = 1 } = req.query;
@@ -1007,10 +1217,9 @@ app.get('/api/bookings/all', protect, authorize('hod'), async (req, res) => {
 });
 
 // ============================================
-// TIMETABLE ROUTES
+// TIMETABLE ROUTES (Keep existing)
 // ============================================
 
-// Create/Update timetable (HOD only)
 app.post('/api/timetable', protect, authorize('hod'), async (req, res) => {
   try {
     const { department, semester, section, entries } = req.body;
@@ -1084,7 +1293,6 @@ app.post('/api/timetable', protect, authorize('hod'), async (req, res) => {
   }
 });
 
-// Get timetable
 app.get('/api/timetable', protect, async (req, res) => {
   try {
     const { department, semester, section } = req.query;
@@ -1127,7 +1335,6 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Root
 app.get('/', (req, res) => {
   res.json({
     success: true,
@@ -1237,8 +1444,10 @@ app.listen(PORT, () => {
   console.log('  HOD: hod@nitrr.ac.in / Hod@12345');
   console.log('  Professor: prof@nitrr.ac.in / Prof@12345');
   console.log('========================================');
-  console.log('📋 New Features:');
+  console.log('📋 Features:');
   console.log('  ✅ OTP Verification via Email');
+  console.log('  ✅ Forgot Password with OTP');
+  console.log('  ✅ Reset Password with OTP');
   console.log('  ✅ HOD Role with Approval System');
   console.log('  ✅ Email Domain Restriction (@nitrr.ac.in)');
   console.log('========================================\n');

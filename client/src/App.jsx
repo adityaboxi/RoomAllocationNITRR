@@ -58,7 +58,7 @@ const AuthProvider = ({ children }) => {
 // ============================================
 // OTP VERIFICATION COMPONENT
 // ============================================
-const OTPVerification = ({ email, onVerify, onResend, onBack }) => {
+const OTPVerification = ({ email, onVerify, onResend, onBack, purpose = 'signup' }) => {
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -82,7 +82,6 @@ const OTPVerification = ({ email, onVerify, onResend, onBack }) => {
     newOtp[index] = value;
     setOtp(newOtp);
     
-    // Auto-focus next input
     if (value && index < 5) {
       const nextInput = document.getElementById(`otp-${index + 1}`);
       if (nextInput) nextInput.focus();
@@ -128,10 +127,22 @@ const OTPVerification = ({ email, onVerify, onResend, onBack }) => {
     }
   };
 
+  const getTitle = () => {
+    if (purpose === 'signup') return 'Verify Your Email';
+    if (purpose === 'forgot') return 'Reset Your Password';
+    return 'OTP Verification';
+  };
+
+  const getMessage = () => {
+    if (purpose === 'signup') return `We've sent a 6-digit OTP to`;
+    if (purpose === 'forgot') return `We've sent a password reset OTP to`;
+    return `We've sent an OTP to`;
+  };
+
   return (
     <div className="space-y-4">
       <div className="text-center">
-        <p className="text-sm text-gray-600">We've sent a 6-digit OTP to</p>
+        <p className="text-sm text-gray-600">{getMessage()}</p>
         <p className="font-semibold text-blue-600">{email}</p>
       </div>
 
@@ -185,8 +196,251 @@ const OTPVerification = ({ email, onVerify, onResend, onBack }) => {
         onClick={onBack}
         className="text-sm text-gray-500 hover:text-gray-700 text-center w-full"
       >
-        ← Back to signup
+        ← Back
       </button>
+    </div>
+  );
+};
+
+// ============================================
+// FORGOT PASSWORD PAGE
+// ============================================
+const ForgotPasswordPage = ({ onBack }) => {
+  const [email, setEmail] = useState('');
+  const [step, setStep] = useState('form'); // 'form' | 'otp' | 'reset'
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [resetToken, setResetToken] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [success, setSuccess] = useState(false);
+
+  const handleSendOTP = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (!email) {
+      setError('Please enter your email');
+      return;
+    }
+
+    if (!email.endsWith(`@${ALLOWED_DOMAIN}`)) {
+      setError(`Only @${ALLOWED_DOMAIN} email addresses are allowed`);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await axios.post('http://localhost:3000/api/auth/forgot-password', { email });
+      setStep('otp');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to send OTP');
+    }
+    setLoading(false);
+  };
+
+  const handleVerifyOTP = async (otp) => {
+    try {
+      const response = await axios.post('http://localhost:3000/api/auth/verify-reset-otp', {
+        email,
+        otp
+      });
+      
+      if (response.data.success) {
+        setResetToken(response.data.resetToken);
+        setStep('reset');
+        return { success: true };
+      }
+      return { success: false, error: 'Verification failed' };
+    } catch (err) {
+      return { 
+        success: false, 
+        error: err.response?.data?.message || 'OTP verification failed' 
+      };
+    }
+  };
+
+  const handleResendOTP = async () => {
+    try {
+      await axios.post('http://localhost:3000/api/auth/forgot-password', { email });
+      return { success: true };
+    } catch (err) {
+      return { 
+        success: false, 
+        error: err.response?.data?.message || 'Failed to resend OTP' 
+      };
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (newPassword.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await axios.post('http://localhost:3000/api/auth/reset-password', {
+        email,
+        resetToken,
+        newPassword,
+        confirmPassword
+      });
+      setSuccess(true);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Password reset failed');
+    }
+    setLoading(false);
+  };
+
+  if (success) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full text-center">
+          <div className="text-6xl mb-4">✅</div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Password Reset Successful!</h2>
+          <p className="text-gray-600 mb-6">Your password has been reset successfully.</p>
+          <button
+            onClick={onBack}
+            className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition"
+          >
+            Back to Login
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 'otp') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
+          <div className="text-center mb-6">
+            <div className="text-4xl mb-2">🔐</div>
+            <h2 className="text-2xl font-bold text-gray-800">Reset Password</h2>
+            <p className="text-sm text-gray-500">Enter the OTP sent to your email</p>
+          </div>
+          <OTPVerification
+            email={email}
+            purpose="forgot"
+            onVerify={handleVerifyOTP}
+            onResend={handleResendOTP}
+            onBack={() => setStep('form')}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 'reset') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
+          <div className="text-center mb-6">
+            <div className="text-4xl mb-2">🔑</div>
+            <h2 className="text-2xl font-bold text-gray-800">Set New Password</h2>
+            <p className="text-sm text-gray-500">Enter your new password below</p>
+          </div>
+
+          <form onSubmit={handleResetPassword}>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Min 6 characters"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Confirm new password"
+                  required
+                />
+              </div>
+            </div>
+
+            {error && (
+              <div className="mt-4 bg-red-50 border-l-4 border-red-500 p-3 rounded">
+                <p className="text-red-700 text-sm">{error}</p>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="mt-6 w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
+            >
+              {loading ? 'Resetting...' : 'Reset Password'}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
+        <div className="text-center mb-8">
+          <div className="text-5xl mb-3">🔐</div>
+          <h1 className="text-2xl font-bold text-gray-800">Forgot Password?</h1>
+          <p className="text-sm text-gray-500 mt-1">Enter your email to reset your password</p>
+        </div>
+
+        <form onSubmit={handleSendOTP}>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder={`you@${ALLOWED_DOMAIN}`}
+              required
+            />
+            <p className="text-xs text-gray-500 mt-1">Must be @{ALLOWED_DOMAIN}</p>
+          </div>
+
+          {error && (
+            <div className="mt-4 bg-red-50 border-l-4 border-red-500 p-3 rounded">
+              <p className="text-red-700 text-sm">{error}</p>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="mt-6 w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
+          >
+            {loading ? 'Sending OTP...' : 'Send Reset OTP'}
+          </button>
+
+          <button
+            type="button"
+            onClick={onBack}
+            className="mt-4 w-full text-sm text-gray-500 hover:text-gray-700"
+          >
+            ← Back to Login
+          </button>
+        </form>
+      </div>
     </div>
   );
 };
@@ -195,7 +449,7 @@ const OTPVerification = ({ email, onVerify, onResend, onBack }) => {
 // SIGNUP PAGE
 // ============================================
 const SignupPage = ({ onSwitchToLogin }) => {
-  const [step, setStep] = useState('form'); // 'form' | 'otp'
+  const [step, setStep] = useState('form');
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -217,7 +471,6 @@ const SignupPage = ({ onSwitchToLogin }) => {
     e.preventDefault();
     setError('');
     
-    // Validate
     if (!formData.name || !formData.email || !formData.password || !formData.department || !formData.employeeId || !formData.phone) {
       setError('All fields are required');
       return;
@@ -253,14 +506,12 @@ const SignupPage = ({ onSwitchToLogin }) => {
 
   const handleVerifyOTP = async (otp) => {
     try {
-      // Verify OTP
       await axios.post('http://localhost:3000/api/auth/verify-otp', {
         email: formData.email,
         otp,
         purpose: 'signup'
       });
 
-      // Complete signup
       const response = await axios.post('http://localhost:3000/api/auth/signup', {
         ...formData,
         otp
@@ -305,6 +556,7 @@ const SignupPage = ({ onSwitchToLogin }) => {
           </div>
           <OTPVerification
             email={formData.email}
+            purpose="signup"
             onVerify={handleVerifyOTP}
             onResend={handleResendOTP}
             onBack={() => setStep('form')}
@@ -480,7 +732,7 @@ const SignupPage = ({ onSwitchToLogin }) => {
 // ============================================
 // LOGIN PAGE
 // ============================================
-const LoginPage = ({ onLogin, onSwitchToSignup }) => {
+const LoginPage = ({ onLogin, onSwitchToSignup, onForgotPassword }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -549,6 +801,16 @@ const LoginPage = ({ onLogin, onSwitchToSignup }) => {
                 required
               />
             </div>
+          </div>
+
+          <div className="text-right mt-2">
+            <button
+              type="button"
+              onClick={onForgotPassword}
+              className="text-sm text-blue-600 hover:text-blue-800"
+            >
+              Forgot Password?
+            </button>
           </div>
 
           {error && (
@@ -1084,6 +1346,7 @@ const DashboardPage = () => {
 function App() {
   const { isAuthenticated, loading } = useAuth();
   const [showSignup, setShowSignup] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
 
   if (loading) {
     return (
@@ -1097,12 +1360,17 @@ function App() {
     return <DashboardPage />;
   }
 
+  if (showForgotPassword) {
+    return <ForgotPasswordPage onBack={() => setShowForgotPassword(false)} />;
+  }
+
   return showSignup ? (
     <SignupPage onSwitchToLogin={() => setShowSignup(false)} />
   ) : (
     <LoginPage 
       onLogin={() => {}} 
-      onSwitchToSignup={() => setShowSignup(true)} 
+      onSwitchToSignup={() => setShowSignup(true)}
+      onForgotPassword={() => setShowForgotPassword(true)}
     />
   );
 }
