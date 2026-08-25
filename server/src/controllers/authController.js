@@ -16,6 +16,8 @@ const generateToken = (userId) => {
 exports.sendOTP = async (req, res) => {
   try {
     const { email, purpose = 'signup' } = req.body;
+    console.log(`📧 Sending OTP to: ${email} for purpose: ${purpose}`);
+    
     if (!email) {
       return res.status(400).json({ success: false, message: 'Email is required' });
     }
@@ -35,14 +37,24 @@ exports.sendOTP = async (req, res) => {
       }
     }
 
+    // Delete existing OTP
     await redisClient.deleteOTP(email, purpose);
+
+    // Generate new OTP
     const otp = generateOTP();
+    console.log(`🔑 Generated OTP: ${otp} for ${email}`);
+
+    // Store in Redis
     await redisClient.setOTP(email, otp, purpose);
-    await sendOTPEmail(email, otp, purpose);
+    
+    // Send email
+    const emailSent = await sendOTPEmail(email, otp, purpose);
+    console.log(`📧 Email sent: ${emailSent ? '✅' : '❌'}`);
 
     res.json({
       success: true,
       message: 'OTP sent successfully to your email',
+      otp: otp, // For debugging only - remove in production
       expiresIn: '5 minutes'
     });
   } catch (error) {
@@ -57,15 +69,24 @@ exports.sendOTP = async (req, res) => {
 exports.verifyOTP = async (req, res) => {
   try {
     const { email, otp, purpose = 'signup' } = req.body;
+    console.log(`🔍 Verifying OTP for: ${email}, OTP: ${otp}, Purpose: ${purpose}`);
+
     if (!email || !otp) {
       return res.status(400).json({ success: false, message: 'Email and OTP are required' });
     }
 
+    // Get stored OTP from Redis
     const stored = await redisClient.getOTP(email, purpose);
+    console.log(`📦 Stored OTP data:`, stored);
+
     if (!stored) {
-      return res.status(400).json({ success: false, message: 'OTP expired. Please request a new one.' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'OTP expired. Please request a new one.' 
+      });
     }
 
+    // Check attempts
     if (stored.attempts >= 3) {
       await redisClient.deleteOTP(email, purpose);
       return res.status(400).json({
@@ -74,16 +95,21 @@ exports.verifyOTP = async (req, res) => {
       });
     }
 
+    // Compare OTP
+    console.log(`🔑 Comparing: ${stored.otp} vs ${otp}`);
     if (stored.otp !== otp) {
-      await redisClient.incrementOTPAttempts(email, purpose);
-      const remaining = 2 - stored.attempts;
+      const attempts = await redisClient.incrementOTPAttempts(email, purpose);
+      const remaining = 2 - attempts;
       return res.status(400).json({
         success: false,
         message: `Invalid OTP. ${remaining} attempts remaining.`
       });
     }
 
+    // Success - delete OTP
     await redisClient.deleteOTP(email, purpose);
+    console.log(`✅ OTP verified successfully for ${email}`);
+
     res.json({
       success: true,
       message: 'OTP verified successfully',
@@ -101,6 +127,7 @@ exports.verifyOTP = async (req, res) => {
 exports.signup = async (req, res) => {
   try {
     const { name, email, password, role, department, employeeId, phone, otp } = req.body;
+    console.log(`📝 Signup attempt for: ${email}`);
 
     if (!name || !email || !password || !department || !employeeId || !phone || !otp) {
       return res.status(400).json({ success: false, message: 'All fields are required' });
@@ -119,9 +146,15 @@ exports.signup = async (req, res) => {
       return res.status(400).json({ success: false, message: 'User already exists' });
     }
 
+    // Verify OTP from Redis
     const stored = await redisClient.getOTP(email, 'signup');
+    console.log(`🔍 Stored OTP for signup:`, stored);
+
     if (!stored || stored.otp !== otp) {
-      return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid or expired OTP. Please request a new one.' 
+      });
     }
 
     const userRole = role === 'hod' ? 'hod' : 'professor';
@@ -139,6 +172,7 @@ exports.signup = async (req, res) => {
       hodApproval
     });
 
+    // Delete OTP after successful signup
     await redisClient.deleteOTP(email, 'signup');
 
     if (role === 'hod') {
@@ -183,6 +217,8 @@ exports.signup = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
+    console.log(`🔑 Login attempt for: ${email}`);
+
     if (!email || !password) {
       return res.status(400).json({ success: false, message: 'Email and password required' });
     }
@@ -206,10 +242,6 @@ exports.login = async (req, res) => {
         message: 'Your HOD account is pending approval. Please wait for admin approval.',
         hodApproval: 'pending'
       });
-    }
-
-    if (!user.isActive) {
-      return res.status(401).json({ success: false, message: 'Account deactivated' });
     }
 
     const isMatch = await user.comparePassword(password);
@@ -247,6 +279,8 @@ exports.login = async (req, res) => {
 exports.forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
+    console.log(`🔐 Forgot password request for: ${email}`);
+
     if (!email) {
       return res.status(400).json({ success: false, message: 'Email required' });
     }
@@ -266,6 +300,7 @@ exports.forgotPassword = async (req, res) => {
 
     await redisClient.deleteOTP(email, 'forgot');
     const otp = generateOTP();
+    console.log(`🔑 Generated reset OTP: ${otp} for ${email}`);
     await redisClient.setOTP(email, otp, 'forgot');
     await sendOTPEmail(email, otp, 'forgot');
 
@@ -286,13 +321,20 @@ exports.forgotPassword = async (req, res) => {
 exports.verifyResetOTP = async (req, res) => {
   try {
     const { email, otp } = req.body;
+    console.log(`🔍 Verifying reset OTP for: ${email}, OTP: ${otp}`);
+
     if (!email || !otp) {
       return res.status(400).json({ success: false, message: 'Email and OTP required' });
     }
 
     const stored = await redisClient.getOTP(email, 'forgot');
+    console.log(`📦 Stored reset OTP:`, stored);
+
     if (!stored) {
-      return res.status(400).json({ success: false, message: 'OTP expired. Please request a new one.' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'OTP expired. Please request a new one.' 
+      });
     }
 
     if (stored.attempts >= 3) {
@@ -336,6 +378,7 @@ exports.verifyResetOTP = async (req, res) => {
 exports.resetPassword = async (req, res) => {
   try {
     const { email, resetToken, newPassword, confirmPassword } = req.body;
+    console.log(`🔑 Reset password for: ${email}`);
 
     if (!email || !resetToken || !newPassword || !confirmPassword) {
       return res.status(400).json({
@@ -455,10 +498,6 @@ exports.approveHOD = async (req, res) => {
 
     user.hodApproval = status;
     await user.save();
-
-    // Send email notification (optional)
-    const { emailService } = require('../services/emailService');
-    await emailService.sendHODApprovalEmail(user, status, req.user.name);
 
     res.json({
       success: true,

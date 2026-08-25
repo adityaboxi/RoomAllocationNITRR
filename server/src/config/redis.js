@@ -1,38 +1,45 @@
-
 const Redis = require('ioredis');
 
 class RedisClient {
   constructor() {
     this.client = null;
     this.isConnected = false;
-    this.connectionAttempts = 0;
   }
 
   async connect() {
     try {
+      // Use REDIS_URL if available, otherwise build from individual configs
+      const redisUrl = process.env.REDIS_URL || `redis://${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`;
+      
+      console.log(`🔄 Connecting to Redis at: ${redisUrl}`);
+
       const options = {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT) || 6379,
-        password: process.env.REDIS_PASSWORD || undefined,
         retryStrategy: (times) => {
-          if (times > 5) {
+          if (times > 10) {
             console.error('❌ Redis max retries reached');
             return null;
           }
-          const delay = Math.min(times * 1000, 3000);
-          console.log(`🔄 Redis retry ${times}/5 in ${delay}ms`);
+          const delay = Math.min(times * 500, 3000);
+          console.log(`🔄 Redis retry ${times}/10 in ${delay}ms`);
           return delay;
         },
-        maxRetriesPerRequest: 3,
+        maxRetriesPerRequest: 5,
         enableReadyCheck: true,
         lazyConnect: false,
         connectTimeout: 10000,
         commandTimeout: 5000,
         keepAlive: 30000,
+        family: 4,
+        db: 0,
       };
 
-      console.log('🔄 Connecting to Redis Docker container...');
-      this.client = new Redis(options);
+      // If password is provided, add it to URL
+      const password = process.env.REDIS_PASSWORD;
+      if (password) {
+        options.password = password;
+      }
+
+      this.client = new Redis(redisUrl, options);
 
       this.client.on('connect', () => {
         this.isConnected = true;
@@ -58,8 +65,10 @@ class RedisClient {
       });
 
       // Test connection
-      await this.client.ping();
-      console.log('✅ Redis ping successful');
+      const pong = await this.client.ping();
+      console.log(`✅ Redis ping: ${pong}`);
+      this.isConnected = true;
+      console.log('✅ Redis ready for OTP storage');
       return this.client;
     } catch (error) {
       console.error(`❌ Redis connection failed: ${error.message}`);
@@ -74,7 +83,8 @@ class RedisClient {
       return false;
     }
     try {
-      await this.client.set(key, JSON.stringify(value), 'EX', ttlSeconds);
+      const result = await this.client.set(key, JSON.stringify(value), 'EX', ttlSeconds);
+      console.log(`✅ Redis set: ${key} (TTL: ${ttlSeconds}s)`);
       return true;
     } catch (error) {
       console.error(`❌ Redis set error: ${error.message}`);
@@ -89,7 +99,12 @@ class RedisClient {
     }
     try {
       const data = await this.client.get(key);
-      return data ? JSON.parse(data) : null;
+      if (data) {
+        console.log(`✅ Redis get: ${key} found`);
+        return JSON.parse(data);
+      }
+      console.log(`❌ Redis get: ${key} not found`);
+      return null;
     } catch (error) {
       console.error(`❌ Redis get error: ${error.message}`);
       return null;
@@ -97,12 +112,10 @@ class RedisClient {
   }
 
   async del(key) {
-    if (!this.isConnected || !this.client) {
-      console.warn('⚠️ Redis not available');
-      return false;
-    }
+    if (!this.isConnected || !this.client) return false;
     try {
       await this.client.del(key);
+      console.log(`✅ Redis del: ${key}`);
       return true;
     } catch (error) {
       console.error(`❌ Redis del error: ${error.message}`);
@@ -111,10 +124,7 @@ class RedisClient {
   }
 
   async exists(key) {
-    if (!this.isConnected || !this.client) {
-      console.warn('⚠️ Redis not available');
-      return false;
-    }
+    if (!this.isConnected || !this.client) return false;
     try {
       const result = await this.client.exists(key);
       return result === 1;
@@ -128,11 +138,13 @@ class RedisClient {
     const key = `otp:${purpose}:${email}`;
     const ttl = parseInt(process.env.REDIS_OTP_EXPIRY) || 300;
     const value = { otp, attempts: 0, createdAt: Date.now() };
+    console.log(`📝 Storing OTP in Redis: ${key} = ${otp}`);
     return this.set(key, value, ttl);
   }
 
   async getOTP(email, purpose = 'signup') {
     const key = `otp:${purpose}:${email}`;
+    console.log(`🔍 Retrieving OTP from Redis: ${key}`);
     return this.get(key);
   }
 
@@ -149,31 +161,11 @@ class RedisClient {
       const remainingTTL = await this.client.ttl(key);
       if (remainingTTL > 0) {
         await this.client.set(key, JSON.stringify(data), 'EX', remainingTTL);
+        console.log(`📝 OTP attempts: ${data.attempts} for ${email}`);
         return data.attempts;
       }
     }
     return 0;
-  }
-
-  async getTTL(key) {
-    if (!this.isConnected || !this.client) return -1;
-    try {
-      return await this.client.ttl(key);
-    } catch {
-      return -1;
-    }
-  }
-
-  async flushAll() {
-    if (!this.isConnected || !this.client) return false;
-    try {
-      await this.client.flushall();
-      console.log('✅ Redis flushed');
-      return true;
-    } catch (error) {
-      console.error(`❌ Redis flush error: ${error.message}`);
-      return false;
-    }
   }
 
   isReady() {
@@ -191,9 +183,20 @@ class RedisClient {
       }
     }
   }
+
+  async flushAll() {
+    if (!this.isConnected || !this.client) return false;
+    try {
+      await this.client.flushall();
+      console.log('✅ Redis flushed');
+      return true;
+    } catch (error) {
+      console.error(`❌ Redis flush error: ${error.message}`);
+      return false;
+    }
+  }
 }
 
-// Singleton instance
 const redisClient = new RedisClient();
 
 module.exports = { redisClient };
