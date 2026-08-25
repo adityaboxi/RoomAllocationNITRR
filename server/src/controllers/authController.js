@@ -1,21 +1,13 @@
 const User = require('../models/User');
-const OTP = require('../models/OTP');
 const jwt = require('jsonwebtoken');
 const { generateOTP } = require('../utils/helpers');
-const { sendOTPEmail } = require('../services/emailService');
+const { sendOTPEmail, sendPasswordResetSuccessEmail } = require('../services/emailService');
+const { redisClient } = require('../config/redis');
 
 const generateToken = (userId) => {
-  return jwt.sign({ userId }, process.env.JWT_SECRET || 'default_secret', {
+  return jwt.sign({ userId }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRE || '7d'
   });
-};
-
-// ============================================
-// CHECK EMAIL DOMAIN (Only Gmail)
-// ============================================
-const validateEmailDomain = (email) => {
-  const allowedDomains = ['gmail.com'];
-  return allowedDomains.some(domain => email.endsWith(`@${domain}`));
 };
 
 // ============================================
@@ -28,44 +20,30 @@ exports.sendOTP = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email is required' });
     }
 
-    // ✅ Only allow Gmail
-    if (!validateEmailDomain(email)) {
+    const ALLOWED_DOMAINS = (process.env.TEST_ALLOWED_DOMAINS || 'gmail.com').split(',');
+    if (!ALLOWED_DOMAINS.some(d => email.endsWith(`@${d.trim()}`))) {
       return res.status(400).json({
         success: false,
-        message: 'Only @gmail.com email addresses are allowed'
+        message: `Only ${ALLOWED_DOMAINS.join(', ')} email addresses are allowed`
       });
     }
 
     if (purpose === 'signup') {
       const existingUser = await User.findOne({ email });
       if (existingUser) {
-        return res.status(400).json({
-          success: false,
-          message: 'User already exists with this email'
-        });
+        return res.status(400).json({ success: false, message: 'User already exists' });
       }
     }
 
-    await OTP.deleteMany({ email, purpose });
-
+    await redisClient.deleteOTP(email, purpose);
     const otp = generateOTP();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-    await OTP.create({
-      email,
-      otp,
-      purpose,
-      expiresAt,
-      attempts: 0,
-      verified: false
-    });
-
+    await redisClient.setOTP(email, otp, purpose);
     await sendOTPEmail(email, otp, purpose);
 
     res.json({
       success: true,
       message: 'OTP sent successfully to your email',
-      expiresIn: '10 minutes'
+      expiresIn: '5 minutes'
     });
   } catch (error) {
     console.error('Send OTP error:', error);
@@ -79,29 +57,33 @@ exports.sendOTP = async (req, res) => {
 exports.verifyOTP = async (req, res) => {
   try {
     const { email, otp, purpose = 'signup' } = req.body;
-
     if (!email || !otp) {
       return res.status(400).json({ success: false, message: 'Email and OTP are required' });
     }
 
-    const otpRecord = await OTP.findOne({ email, otp, purpose });
-    if (!otpRecord) {
-      return res.status(400).json({ success: false, message: 'Invalid OTP' });
+    const stored = await redisClient.getOTP(email, purpose);
+    if (!stored) {
+      return res.status(400).json({ success: false, message: 'OTP expired. Please request a new one.' });
     }
 
-    if (otpRecord.expiresAt < new Date()) {
-      await OTP.deleteOne({ _id: otpRecord._id });
-      return res.status(400).json({ success: false, message: 'OTP has expired' });
+    if (stored.attempts >= 3) {
+      await redisClient.deleteOTP(email, purpose);
+      return res.status(400).json({
+        success: false,
+        message: 'Too many failed attempts. Please request a new OTP.'
+      });
     }
 
-    if (otpRecord.attempts >= 3) {
-      await OTP.deleteOne({ _id: otpRecord._id });
-      return res.status(400).json({ success: false, message: 'Too many failed attempts' });
+    if (stored.otp !== otp) {
+      await redisClient.incrementOTPAttempts(email, purpose);
+      const remaining = 2 - stored.attempts;
+      return res.status(400).json({
+        success: false,
+        message: `Invalid OTP. ${remaining} attempts remaining.`
+      });
     }
 
-    otpRecord.verified = true;
-    await otpRecord.save();
-
+    await redisClient.deleteOTP(email, purpose);
     res.json({
       success: true,
       message: 'OTP verified successfully',
@@ -121,45 +103,27 @@ exports.signup = async (req, res) => {
     const { name, email, password, role, department, employeeId, phone, otp } = req.body;
 
     if (!name || !email || !password || !department || !employeeId || !phone || !otp) {
-      return res.status(400).json({
-        success: false,
-        message: 'All fields are required'
-      });
+      return res.status(400).json({ success: false, message: 'All fields are required' });
     }
 
-    // ✅ Only allow Gmail
-    if (!validateEmailDomain(email)) {
+    const ALLOWED_DOMAINS = (process.env.TEST_ALLOWED_DOMAINS || 'gmail.com').split(',');
+    if (!ALLOWED_DOMAINS.some(d => email.endsWith(`@${d.trim()}`))) {
       return res.status(400).json({
         success: false,
-        message: 'Only @gmail.com email addresses are allowed'
+        message: `Only ${ALLOWED_DOMAINS.join(', ')} email addresses are allowed`
       });
     }
 
     const existingUser = await User.findOne({ $or: [{ email }, { employeeId }] });
     if (existingUser) {
-      return res.status(400).json({
-        success: false,
-        message: 'User already exists with this email or employee ID'
-      });
+      return res.status(400).json({ success: false, message: 'User already exists' });
     }
 
-    const otpRecord = await OTP.findOne({ email, otp, purpose: 'signup', verified: true });
-    if (!otpRecord) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid or unverified OTP'
-      });
+    const stored = await redisClient.getOTP(email, 'signup');
+    if (!stored || stored.otp !== otp) {
+      return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
     }
 
-    if (otpRecord.expiresAt < new Date()) {
-      await OTP.deleteOne({ _id: otpRecord._id });
-      return res.status(400).json({
-        success: false,
-        message: 'OTP has expired'
-      });
-    }
-
-    // If role is HOD, set approval to 'pending'
     const userRole = role === 'hod' ? 'hod' : 'professor';
     const hodApproval = role === 'hod' ? 'pending' : 'approved';
 
@@ -175,11 +139,8 @@ exports.signup = async (req, res) => {
       hodApproval
     });
 
-    await OTP.deleteOne({ _id: otpRecord._id });
+    await redisClient.deleteOTP(email, 'signup');
 
-    const token = generateToken(user._id);
-
-    // If HOD, don't send token, just send message
     if (role === 'hod') {
       return res.status(201).json({
         success: true,
@@ -188,13 +149,14 @@ exports.signup = async (req, res) => {
           id: user._id,
           name: user.name,
           email: user.email,
-          role: user.role,
-          department: user.department,
-          hodApproval: user.hodApproval
+          role: userRole,
+          department,
+          hodApproval
         }
       });
     }
 
+    const token = generateToken(user._id);
     res.status(201).json({
       success: true,
       message: 'User registered successfully',
@@ -203,10 +165,10 @@ exports.signup = async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role,
-        department: user.department,
-        employeeId: user.employeeId,
-        hodApproval: user.hodApproval
+        role: userRole,
+        department,
+        employeeId,
+        hodApproval
       }
     });
   } catch (error) {
@@ -222,14 +184,14 @@ exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
-      return res.status(400).json({ success: false, message: 'Please provide email and password' });
+      return res.status(400).json({ success: false, message: 'Email and password required' });
     }
 
-    // ✅ Only allow Gmail
-    if (!validateEmailDomain(email)) {
+    const ALLOWED_DOMAINS = (process.env.TEST_ALLOWED_DOMAINS || 'gmail.com').split(',');
+    if (!ALLOWED_DOMAINS.some(d => email.endsWith(`@${d.trim()}`))) {
       return res.status(400).json({
         success: false,
-        message: 'Only @gmail.com email addresses are allowed'
+        message: `Only ${ALLOWED_DOMAINS.join(', ')} email addresses are allowed`
       });
     }
 
@@ -238,21 +200,16 @@ exports.login = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
-    // Check HOD approval status
     if (user.role === 'hod' && user.hodApproval === 'pending') {
       return res.status(403).json({
         success: false,
-        message: 'Your HOD account is pending approval. Please wait for an admin to approve your request.',
+        message: 'Your HOD account is pending approval. Please wait for admin approval.',
         hodApproval: 'pending'
       });
     }
 
-    if (user.role === 'hod' && user.hodApproval === 'rejected') {
-      return res.status(403).json({
-        success: false,
-        message: 'Your HOD account has been rejected. Please contact the administrator for more information.',
-        hodApproval: 'rejected'
-      });
+    if (!user.isActive) {
+      return res.status(401).json({ success: false, message: 'Account deactivated' });
     }
 
     const isMatch = await user.comparePassword(password);
@@ -279,18 +236,7 @@ exports.login = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ============================================
-// GET CURRENT USER
-// ============================================
-exports.getMe = async (req, res) => {
-  try {
-    const user = await User.findById(req.user.id).select('-password');
-    res.json({ success: true, user });
-  } catch (error) {
+    console.error('Login error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -302,45 +248,31 @@ exports.forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) {
-      return res.status(400).json({ success: false, message: 'Email is required' });
+      return res.status(400).json({ success: false, message: 'Email required' });
     }
 
-    // ✅ Only allow Gmail
-    if (!validateEmailDomain(email)) {
+    const ALLOWED_DOMAINS = (process.env.TEST_ALLOWED_DOMAINS || 'gmail.com').split(',');
+    if (!ALLOWED_DOMAINS.some(d => email.endsWith(`@${d.trim()}`))) {
       return res.status(400).json({
         success: false,
-        message: 'Only @gmail.com email addresses are allowed'
+        message: `Only ${ALLOWED_DOMAINS.join(', ')} email addresses are allowed`
       });
     }
 
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'No account found with this email'
-      });
+      return res.status(404).json({ success: false, message: 'No account found with this email' });
     }
 
-    await OTP.deleteMany({ email, purpose: 'forgot' });
-
+    await redisClient.deleteOTP(email, 'forgot');
     const otp = generateOTP();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-    await OTP.create({
-      email,
-      otp,
-      purpose: 'forgot',
-      expiresAt,
-      attempts: 0,
-      verified: false
-    });
-
+    await redisClient.setOTP(email, otp, 'forgot');
     await sendOTPEmail(email, otp, 'forgot');
 
     res.json({
       success: true,
       message: 'OTP sent to your email for password reset',
-      expiresIn: '10 minutes'
+      expiresIn: '5 minutes'
     });
   } catch (error) {
     console.error('Forgot password error:', error);
@@ -354,29 +286,33 @@ exports.forgotPassword = async (req, res) => {
 exports.verifyResetOTP = async (req, res) => {
   try {
     const { email, otp } = req.body;
-
     if (!email || !otp) {
-      return res.status(400).json({ success: false, message: 'Email and OTP are required' });
+      return res.status(400).json({ success: false, message: 'Email and OTP required' });
     }
 
-    const otpRecord = await OTP.findOne({ email, otp, purpose: 'forgot' });
-    if (!otpRecord) {
-      return res.status(400).json({ success: false, message: 'Invalid OTP' });
+    const stored = await redisClient.getOTP(email, 'forgot');
+    if (!stored) {
+      return res.status(400).json({ success: false, message: 'OTP expired. Please request a new one.' });
     }
 
-    if (otpRecord.expiresAt < new Date()) {
-      await OTP.deleteOne({ _id: otpRecord._id });
-      return res.status(400).json({ success: false, message: 'OTP has expired' });
+    if (stored.attempts >= 3) {
+      await redisClient.deleteOTP(email, 'forgot');
+      return res.status(400).json({
+        success: false,
+        message: 'Too many failed attempts. Please request a new OTP.'
+      });
     }
 
-    if (otpRecord.attempts >= 3) {
-      await OTP.deleteOne({ _id: otpRecord._id });
-      return res.status(400).json({ success: false, message: 'Too many failed attempts' });
+    if (stored.otp !== otp) {
+      await redisClient.incrementOTPAttempts(email, 'forgot');
+      const remaining = 2 - stored.attempts;
+      return res.status(400).json({
+        success: false,
+        message: `Invalid OTP. ${remaining} attempts remaining.`
+      });
     }
 
-    otpRecord.verified = true;
-    await otpRecord.save();
-
+    await redisClient.deleteOTP(email, 'forgot');
     const resetToken = jwt.sign(
       { email },
       process.env.JWT_SECRET + 'reset',
@@ -404,7 +340,7 @@ exports.resetPassword = async (req, res) => {
     if (!email || !resetToken || !newPassword || !confirmPassword) {
       return res.status(400).json({
         success: false,
-        message: 'Email, reset token, new password and confirm password are required'
+        message: 'All fields are required'
       });
     }
 
@@ -424,7 +360,7 @@ exports.resetPassword = async (req, res) => {
 
     try {
       jwt.verify(resetToken, process.env.JWT_SECRET + 'reset');
-    } catch (error) {
+    } catch {
       return res.status(401).json({
         success: false,
         message: 'Invalid or expired reset token'
@@ -433,16 +369,13 @@ exports.resetPassword = async (req, res) => {
 
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
     user.password = newPassword;
     await user.save();
 
-    await OTP.deleteMany({ email, purpose: 'forgot' });
+    await sendPasswordResetSuccessEmail(email, user.name);
 
     res.json({
       success: true,
@@ -455,13 +388,10 @@ exports.resetPassword = async (req, res) => {
 };
 
 // ============================================
-// HOD APPROVAL ROUTES
+// HOD APPROVAL
 // ============================================
-
-// Get all pending HOD requests (Only Approved HOD can view)
 exports.getPendingHODRequests = async (req, res) => {
   try {
-    // Check if current user is an approved HOD
     if (req.user.role !== 'hod' || req.user.hodApproval !== 'approved') {
       return res.status(403).json({
         success: false,
@@ -469,25 +399,24 @@ exports.getPendingHODRequests = async (req, res) => {
       });
     }
 
-    const pendingHODs = await User.find({
+    const pending = await User.find({
       role: 'hod',
       hodApproval: 'pending'
     }).select('-password');
 
     res.json({
       success: true,
-      data: pendingHODs,
-      total: pendingHODs.length
+      data: pending,
+      total: pending.length
     });
   } catch (error) {
+    console.error('Get pending HODs error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// Approve or reject HOD request (Only Approved HOD can approve)
 exports.approveHOD = async (req, res) => {
   try {
-    // Check if current user is an approved HOD
     if (req.user.role !== 'hod' || req.user.hodApproval !== 'approved') {
       return res.status(403).json({
         success: false,
@@ -496,21 +425,18 @@ exports.approveHOD = async (req, res) => {
     }
 
     const { id } = req.params;
-    const { status } = req.body; // 'approved' or 'rejected'
+    const { status } = req.body;
 
     if (!['approved', 'rejected'].includes(status)) {
       return res.status(400).json({
         success: false,
-        message: 'Status must be either "approved" or "rejected"'
+        message: 'Status must be approved or rejected'
       });
     }
 
     const user = await User.findById(id);
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
     if (user.role !== 'hod') {
@@ -530,9 +456,9 @@ exports.approveHOD = async (req, res) => {
     user.hodApproval = status;
     await user.save();
 
-    // Send email notification
-    const { sendHODApprovalEmail } = require('../services/emailService');
-    await sendHODApprovalEmail(user, status, req.user.name);
+    // Send email notification (optional)
+    const { emailService } = require('../services/emailService');
+    await emailService.sendHODApprovalEmail(user, status, req.user.name);
 
     res.json({
       success: true,
@@ -546,48 +472,6 @@ exports.approveHOD = async (req, res) => {
     });
   } catch (error) {
     console.error('Approve HOD error:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// Get all HODs (for admin view)
-exports.getAllHODs = async (req, res) => {
-  try {
-    // Check if current user is an approved HOD
-    if (req.user.role !== 'hod' || req.user.hodApproval !== 'approved') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only approved HODs can view all HODs'
-      });
-    }
-
-    const hods = await User.find({
-      role: 'hod'
-    }).select('-password');
-
-    res.json({
-      success: true,
-      data: hods,
-      total: hods.length
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// Get HOD request count (for dashboard badge)
-exports.getHODRequestCount = async (req, res) => {
-  try {
-    const pendingCount = await User.countDocuments({
-      role: 'hod',
-      hodApproval: 'pending'
-    });
-
-    res.json({
-      success: true,
-      pending: pendingCount
-    });
-  } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };

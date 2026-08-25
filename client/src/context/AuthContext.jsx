@@ -12,12 +12,10 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const token = localStorage.getItem('token');
     const storedUser = localStorage.getItem('user');
-    
     if (token && storedUser) {
       try {
         setUser(JSON.parse(storedUser));
-      } catch (error) {
-        console.error('Error parsing user data:', error);
+      } catch {
         localStorage.removeItem('user');
         localStorage.removeItem('token');
       }
@@ -29,21 +27,12 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await authAPI.login(email, password);
       const { token, user } = response.data;
-      
-      // Store in localStorage
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(user));
-      
-      // Set user state
       setUser(user);
-      
       return { success: true, user };
     } catch (error) {
-      return {
-        success: false,
-        error: error.response?.data?.message || 'Login failed',
-        hodApproval: error.response?.data?.hodApproval
-      };
+      return { success: false, error: error.response?.data?.message || 'Login failed', hodApproval: error.response?.data?.hodApproval };
     }
   };
 
@@ -53,13 +42,7 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
-  const value = {
-    user,
-    loading,
-    login,
-    logout,
-    isAuthenticated: !!user
-  };
+  const value = { user, loading, login, logout, isAuthenticated: !!user, isAdmin: user?.role === 'hod' && user?.hodApproval === 'approved', isProfessor: user?.role === 'professor', isPendingHOD: user?.role === 'hod' && user?.hodApproval === 'pending' };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

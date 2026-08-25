@@ -1,14 +1,16 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { ALLOWED_DOMAIN, DEMO_ACCOUNTS } from '../../utils/constants';
 
-const LoginPage = ({ onLoginSuccess }) => {
+const LoginPage = () => {
+  const navigate = useNavigate();
+  const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [pendingApproval, setPendingApproval] = useState(false);
-  const { login } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -24,10 +26,7 @@ const LoginPage = ({ onLoginSuccess }) => {
 
     const result = await login(email, password);
     if (result.success) {
-      // Redirect to dashboard
-      if (onLoginSuccess) {
-        onLoginSuccess();
-      }
+      navigate('/dashboard');
     } else {
       if (result.hodApproval === 'pending') {
         setPendingApproval(true);
@@ -78,10 +77,9 @@ const LoginPage = ({ onLoginSuccess }) => {
             </div>
           </div>
 
-          <div className="text-right mt-2">
-            <button type="button" onClick={() => window.location.href = '/forgot-password'} className="text-blue-600 hover:text-blue-800 text-sm font-medium">
-              Forgot Password?
-            </button>
+          <div className="flex justify-between items-center mt-2">
+            <button type="button" onClick={() => navigate('/signup')} className="text-sm text-blue-600 hover:text-blue-800 font-medium">Create Account</button>
+            <button type="button" onClick={() => navigate('/forgot-password')} className="text-sm text-blue-600 hover:text-blue-800 font-medium">Forgot Password?</button>
           </div>
 
           {error && (
@@ -90,32 +88,15 @@ const LoginPage = ({ onLoginSuccess }) => {
             </div>
           )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="mt-6 w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-3 rounded-xl font-semibold hover:from-blue-700 hover:to-blue-800 transition-all duration-200 disabled:opacity-50 shadow-lg hover:shadow-xl"
-          >
+          <button type="submit" disabled={loading} className="mt-6 w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-3 rounded-xl font-semibold hover:from-blue-700 hover:to-blue-800 transition-all duration-200 disabled:opacity-50 shadow-lg hover:shadow-xl">
             {loading ? 'Logging in...' : 'Sign In'}
           </button>
-
-          <p className="mt-4 text-center text-sm text-gray-500">
-            Don't have an account?{' '}
-            <button type="button" onClick={() => window.location.href = '/signup'} className="text-blue-600 hover:text-blue-800 font-medium">
-              Sign Up
-            </button>
-          </p>
 
           <div className="mt-6 pt-6 border-t border-gray-200 text-center text-sm text-gray-500">
             <p className="font-medium text-gray-600">Demo Accounts</p>
             <div className="mt-2 space-y-1">
-              <p className="text-xs">
-                HOD: <span className="font-mono text-blue-600">{DEMO_ACCOUNTS.hod.email}</span> /{' '}
-                <span className="font-mono">{DEMO_ACCOUNTS.hod.password}</span>
-              </p>
-              <p className="text-xs">
-                Professor: <span className="font-mono text-blue-600">{DEMO_ACCOUNTS.professor.email}</span> /{' '}
-                <span className="font-mono">{DEMO_ACCOUNTS.professor.password}</span>
-              </p>
+              <p className="text-xs">HOD: <span className="font-mono text-blue-600">{DEMO_ACCOUNTS.hod.email}</span> / <span className="font-mono">{DEMO_ACCOUNTS.hod.password}</span></p>
+              <p className="text-xs">Professor: <span className="font-mono text-blue-600">{DEMO_ACCOUNTS.professor.email}</span> / <span className="font-mono">{DEMO_ACCOUNTS.professor.password}</span></p>
             </div>
           </div>
         </form>

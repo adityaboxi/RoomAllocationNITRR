@@ -7,44 +7,21 @@ import OTPVerification from './OTPVerification';
 const SignupPage = () => {
   const navigate = useNavigate();
   const [step, setStep] = useState('form');
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    password: '',
-    confirmPassword: '',
-    role: 'professor',
-    department: '',
-    employeeId: '',
-    phone: '',
-  });
+  const [formData, setFormData] = useState({ name: '', email: '', password: '', confirmPassword: '', role: 'professor', department: '', employeeId: '', phone: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
+  const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
   const handleSendOTP = async (e) => {
     e.preventDefault();
     setError('');
-
     if (!formData.name || !formData.email || !formData.password || !formData.department || !formData.employeeId || !formData.phone) {
-      setError('All fields are required');
-      return;
+      setError('All fields are required'); return;
     }
-    if (formData.password.length < 6) {
-      setError('Password must be at least 6 characters');
-      return;
-    }
-    if (formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match');
-      return;
-    }
-    if (!formData.email.endsWith(`@${ALLOWED_DOMAIN}`)) {
-      setError(`Only @${ALLOWED_DOMAIN} email addresses are allowed`);
-      return;
-    }
-
+    if (formData.password.length < 6) { setError('Password must be at least 6 characters'); return; }
+    if (formData.password !== formData.confirmPassword) { setError('Passwords do not match'); return; }
+    if (!formData.email.endsWith(`@${ALLOWED_DOMAIN}`)) { setError(`Only @${ALLOWED_DOMAIN} emails are allowed`); return; }
     setLoading(true);
     try {
       await authAPI.sendOTP(formData.email, 'signup');
@@ -61,49 +38,26 @@ const SignupPage = () => {
       const response = await authAPI.signup({ ...formData, otp });
       if (response.data.success) {
         alert(response.data.message || 'Signup successful! Please login.');
-        // Navigate to login page
         navigate('/login');
         return { success: true };
       }
       return { success: false, error: 'Signup failed' };
     } catch (err) {
-      return {
-        success: false,
-        error: err.response?.data?.message || 'Verification failed',
-      };
+      return { success: false, error: err.response?.data?.message || 'Verification failed' };
     }
   };
 
   const handleResendOTP = async () => {
-    try {
-      await authAPI.sendOTP(formData.email, 'signup');
-      return { success: true };
-    } catch (err) {
-      return {
-        success: false,
-        error: err.response?.data?.message || 'Failed to resend OTP',
-      };
-    }
+    try { await authAPI.sendOTP(formData.email, 'signup'); return { success: true }; } 
+    catch (err) { return { success: false, error: err.response?.data?.message || 'Failed to resend OTP' }; }
   };
 
   if (step === 'otp') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-md w-full">
-          <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <span className="text-3xl">📧</span>
-            </div>
-            <h2 className="text-2xl font-bold text-gray-800">Verify Your Email</h2>
-            <p className="text-gray-500">Please verify your email address</p>
-          </div>
-          <OTPVerification
-            email={formData.email}
-            purpose="signup"
-            onVerify={handleVerifyOTP}
-            onResend={handleResendOTP}
-            onBack={() => setStep('form')}
-          />
+          <div className="text-center mb-8"><div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4"><span className="text-3xl">📧</span></div><h2 className="text-2xl font-bold text-gray-800">Verify Your Email</h2><p className="text-gray-500">Please verify your email address</p></div>
+          <OTPVerification email={formData.email} purpose="signup" onVerify={handleVerifyOTP} onResend={handleResendOTP} onBack={() => setStep('form')} />
         </div>
       </div>
     );
@@ -112,158 +66,19 @@ const SignupPage = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-lg w-full max-h-[90vh] overflow-y-auto">
-        <div className="text-center mb-8">
-          <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <span className="text-4xl">🏫</span>
-          </div>
-          <h1 className="text-3xl font-bold text-blue-700">Create Account</h1>
-          <p className="text-gray-600">NIT Raipur - Room Allocation</p>
-          <p className="text-xs text-gray-500 mt-1">Only @{ALLOWED_DOMAIN} email allowed</p>
-        </div>
-
+        <div className="text-center mb-8"><div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4"><span className="text-4xl">🏫</span></div><h1 className="text-3xl font-bold text-blue-700">Create Account</h1><p className="text-gray-600">NIT Raipur - Room Allocation</p><p className="text-xs text-gray-500 mt-1">Only @{ALLOWED_DOMAIN} email allowed</p></div>
         <form onSubmit={handleSendOTP}>
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-              <input
-                type="text"
-                name="name"
-                value={formData.name}
-                onChange={handleChange}
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-                placeholder="Dr. John Doe"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-              <input
-                type="email"
-                name="email"
-                value={formData.email}
-                onChange={handleChange}
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-                placeholder={`you@${ALLOWED_DOMAIN}`}
-                required
-              />
-              <p className="text-xs text-gray-500 mt-1">Must be @{ALLOWED_DOMAIN}</p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                <input
-                  type="password"
-                  name="password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-                  placeholder="Min 6 chars"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
-                <input
-                  type="password"
-                  name="confirmPassword"
-                  value={formData.confirmPassword}
-                  onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-                  placeholder="Confirm"
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-              <select
-                name="role"
-                value={formData.role}
-                onChange={handleChange}
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-              >
-                <option value="professor">Professor</option>
-                <option value="hod">HOD (Requires Approval)</option>
-              </select>
-              {formData.role === 'hod' && (
-                <p className="text-xs text-yellow-600 mt-1">⚠️ HOD accounts require admin approval</p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
-              <select
-                name="department"
-                value={formData.department}
-                onChange={handleChange}
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-                required
-              >
-                <option value="">Select Department</option>
-                <option value="CSE">CSE</option>
-                <option value="ECE">ECE</option>
-                <option value="ME">ME</option>
-                <option value="EE">EE</option>
-                <option value="CE">CE</option>
-                <option value="MME">MME</option>
-                <option value="BT">BT</option>
-                <option value="IT">IT</option>
-                <option value="MCA">MCA</option>
-                <option value="MBA">MBA</option>
-              </select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Employee ID</label>
-                <input
-                  type="text"
-                  name="employeeId"
-                  value={formData.employeeId}
-                  onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-                  placeholder="EMP001"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                <input
-                  type="tel"
-                  name="phone"
-                  value={formData.phone}
-                  onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-                  placeholder="9876543210"
-                  required
-                />
-              </div>
-            </div>
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label><input type="text" name="name" value={formData.name} onChange={handleChange} className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" placeholder="Dr. John Doe" required /></div>
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">Email</label><input type="email" name="email" value={formData.email} onChange={handleChange} className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" placeholder={`you@${ALLOWED_DOMAIN}`} required /><p className="text-xs text-gray-500 mt-1">Must be @{ALLOWED_DOMAIN}</p></div>
+            <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-gray-700 mb-1">Password</label><input type="password" name="password" value={formData.password} onChange={handleChange} className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" placeholder="Min 6 chars" required /></div><div><label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label><input type="password" name="confirmPassword" value={formData.confirmPassword} onChange={handleChange} className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" placeholder="Confirm" required /></div></div>
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">Role</label><select name="role" value={formData.role} onChange={handleChange} className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"><option value="professor">Professor</option><option value="hod">HOD (Requires Approval)</option></select>{formData.role === 'hod' && <p className="text-xs text-yellow-600 mt-1">⚠️ HOD accounts require admin approval</p>}</div>
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">Department</label><select name="department" value={formData.department} onChange={handleChange} className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" required><option value="">Select Department</option><option value="CSE">CSE</option><option value="ECE">ECE</option><option value="ME">ME</option><option value="EE">EE</option><option value="CE">CE</option><option value="MME">MME</option><option value="BT">BT</option><option value="IT">IT</option><option value="MCA">MCA</option><option value="MBA">MBA</option></select></div>
+            <div className="grid grid-cols-2 gap-4"><div><label className="block text-sm font-medium text-gray-700 mb-1">Employee ID</label><input type="text" name="employeeId" value={formData.employeeId} onChange={handleChange} className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" placeholder="EMP001" required /></div><div><label className="block text-sm font-medium text-gray-700 mb-1">Phone</label><input type="tel" name="phone" value={formData.phone} onChange={handleChange} className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all" placeholder="9876543210" required /></div></div>
           </div>
-
-          {error && (
-            <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg">
-              <p className="text-red-700 text-sm">{error}</p>
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="mt-6 w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-3 rounded-xl font-semibold hover:from-blue-700 hover:to-blue-800 transition-all duration-200 disabled:opacity-50 shadow-lg hover:shadow-xl"
-          >
-            {loading ? 'Sending OTP...' : 'Send OTP to Email'}
-          </button>
-
-          <p className="mt-4 text-center text-sm text-gray-500">
-            Already have an account?{' '}
-            <button type="button" onClick={() => navigate('/login')} className="text-blue-600 hover:text-blue-800 font-medium">
-              Login
-            </button>
-          </p>
+          {error && <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg"><p className="text-red-700 text-sm">{error}</p></div>}
+          <button type="submit" disabled={loading} className="mt-6 w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-3 rounded-xl font-semibold hover:from-blue-700 hover:to-blue-800 transition-all duration-200 disabled:opacity-50 shadow-lg hover:shadow-xl">{loading ? 'Sending OTP...' : 'Send OTP to Email'}</button>
+          <p className="mt-4 text-center text-sm text-gray-500">Already have an account? <button type="button" onClick={() => navigate('/login')} className="text-blue-600 hover:text-blue-800 font-medium">Login</button></p>
         </form>
       </div>
     </div>
