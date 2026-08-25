@@ -5,7 +5,6 @@ const mongoose = require('mongoose');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const { connectDB } = require('./config/database');
-const { redisClient } = require('./config/redis');
 
 dotenv.config();
 
@@ -16,19 +15,25 @@ const PORT = process.env.PORT || 3000;
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW) || 1000,
   max: parseInt(process.env.RATE_LIMIT_MAX) || 4,
-  message: { success: false, error: 'Too many requests', message: 'Maximum 4 requests per second.' }
+  message: {
+    success: false,
+    error: 'Too many requests',
+    message: 'Maximum 4 requests per second.'
+  }
 });
 
 // Middleware
 app.use(helmet());
-app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:5173', credentials: true }));
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  credentials: true
+}));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(limiter);
 
-// Connect to DBs
+// Connect to MongoDB
 connectDB();
-redisClient.connect();
 
 // Routes
 app.use('/api/auth', require('./routes/authRoutes'));
@@ -39,13 +44,18 @@ app.use('/api/timetable', require('./routes/timetableRoutes'));
 // Health check
 app.get('/health', (req, res) => {
   const dbStatus = mongoose.connection.readyState;
-  const statusMap = { 0: 'Disconnected', 1: 'Connected', 2: 'Connecting', 3: 'Disconnecting' };
+  const statusMap = {
+    0: 'Disconnected',
+    1: 'Connected',
+    2: 'Connecting',
+    3: 'Disconnecting'
+  };
   res.json({
     status: 'OK',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     mongodb: statusMap[dbStatus] || 'Unknown',
-    redis: redisClient.isReady() ? 'Connected' : 'Disconnected',
+    redis: 'Disabled',
     port: PORT,
     environment: process.env.NODE_ENV || 'development',
     rateLimit: `${process.env.RATE_LIMIT_MAX || 4} requests/second`,
@@ -54,17 +64,30 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.json({ success: true, message: '🏫 Room Allocation System API - NIT Raipur', version: '1.0.0', status: 'Running' });
+  res.json({
+    success: true,
+    message: '🏫 Room Allocation System API - NIT Raipur',
+    version: '1.0.0',
+    status: 'Running'
+  });
 });
 
 // Error handling
 app.use((req, res) => {
-  res.status(404).json({ success: false, message: 'Route not found', path: req.originalUrl });
+  res.status(404).json({
+    success: false,
+    message: 'Route not found',
+    path: req.originalUrl
+  });
 });
 
 app.use((err, req, res, next) => {
   console.error('Error:', err.message);
-  res.status(500).json({ success: false, message: 'Internal server error', error: process.env.NODE_ENV === 'development' ? err.message : undefined });
+  res.status(500).json({
+    success: false,
+    message: 'Internal server error',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
 });
 
 // Seed data
@@ -75,14 +98,37 @@ const seedData = async () => {
     const count = await User.countDocuments();
     if (count === 0) {
       console.log('🌱 Seeding initial data...');
-      const adminEmail = process.env.ADMIN_EMAIL || 'adityaboxi2005@gmail.com';
+      
+      const adminEmail = process.env.ADMIN_EMAIL || 'hod@gmail.com';
       const adminPassword = process.env.ADMIN_PASSWORD || 'Hod@12345';
-      await User.create({ name: process.env.ADMIN_NAME || 'Dr. Aditya Boxi', email: adminEmail, password: adminPassword, role: 'hod', department: process.env.ADMIN_DEPARTMENT || 'CSE', employeeId: process.env.ADMIN_EMPLOYEE_ID || 'HOD001', phone: process.env.ADMIN_PHONE || '9876543210', isEmailVerified: true, hodApproval: 'approved' });
+      
+      await User.create({
+        name: process.env.ADMIN_NAME || 'Dr. HOD Singh',
+        email: adminEmail,
+        password: adminPassword,
+        role: 'hod',
+        department: process.env.ADMIN_DEPARTMENT || 'CSE',
+        employeeId: process.env.ADMIN_EMPLOYEE_ID || 'HOD001',
+        phone: process.env.ADMIN_PHONE || '9876543210',
+        isEmailVerified: true,
+        hodApproval: 'approved'
+      });
       console.log(`✅ Admin created: ${adminEmail}`);
 
       const profEmail = process.env.PROF_EMAIL || 'prof@gmail.com';
       const profPassword = process.env.PROF_PASSWORD || 'Prof@12345';
-      await User.create({ name: process.env.PROF_NAME || 'Dr. Priya Sharma', email: profEmail, password: profPassword, role: 'professor', department: process.env.PROF_DEPARTMENT || 'CSE', employeeId: process.env.PROF_EMPLOYEE_ID || 'PROF001', phone: process.env.PROF_PHONE || '9876543211', isEmailVerified: true, hodApproval: 'approved' });
+      
+      await User.create({
+        name: process.env.PROF_NAME || 'Dr. Priya Sharma',
+        email: profEmail,
+        password: profPassword,
+        role: 'professor',
+        department: process.env.PROF_DEPARTMENT || 'CSE',
+        employeeId: process.env.PROF_EMPLOYEE_ID || 'PROF001',
+        phone: process.env.PROF_PHONE || '9876543211',
+        isEmailVerified: true,
+        hodApproval: 'approved'
+      });
       console.log(`✅ Professor created: ${profEmail}`);
 
       const rooms = [
@@ -109,7 +155,7 @@ const seedData = async () => {
 setTimeout(seedData, 2000);
 
 app.listen(PORT, () => {
-  console.log(`\n========================================\n🚀 Room Allocation System Server\n========================================\n📍 Server running on: http://localhost:${PORT}\n📧 Allowed Domain: @${process.env.ALLOWED_EMAIL_DOMAIN || 'gmail.com'}\n⏱️  Rate Limit: ${process.env.RATE_LIMIT_MAX || 4} requests/second\n========================================\n📋 Admin: ${process.env.ADMIN_EMAIL || 'adityaboxi2005@gmail.com'} / ${process.env.ADMIN_PASSWORD || 'Hod@12345'}\n========================================\n`);
+  console.log(`\n========================================\n🚀 Room Allocation System Server\n========================================\n📍 Server running on: http://localhost:${PORT}\n📧 Allowed Domain: @${process.env.ALLOWED_EMAIL_DOMAIN || 'gmail.com'}\n⏱️  Rate Limit: ${process.env.RATE_LIMIT_MAX || 4} requests/second\n========================================\n📋 Admin: ${process.env.ADMIN_EMAIL || 'hod@gmail.com'} / ${process.env.ADMIN_PASSWORD || 'Hod@12345'}\n========================================\n`);
 });
 
 module.exports = app;

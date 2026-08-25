@@ -1,8 +1,9 @@
 const User = require('../models/User');
+const OTP = require('../models/OTP');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 const { generateOTP } = require('../utils/helpers');
 const { sendOTPEmail, sendPasswordResetSuccessEmail } = require('../services/emailService');
-const { redisClient } = require('../config/redis');
 
 const generateToken = (userId) => {
   return jwt.sign({ userId }, process.env.JWT_SECRET, {
@@ -11,15 +12,167 @@ const generateToken = (userId) => {
 };
 
 // ============================================
-// SEND OTP
+// LOGIN WITH ADMIN CHECK
+// ============================================
+exports.login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    console.log(`🔑 Login attempt for: ${email}`);
+
+    if (!email || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Email and password required' 
+      });
+    }
+
+    // Check allowed domains
+    const ALLOWED_DOMAINS = (process.env.TEST_ALLOWED_DOMAINS || 'gmail.com').split(',');
+    if (!ALLOWED_DOMAINS.some(d => email.endsWith(`@${d.trim()}`))) {
+      return res.status(400).json({
+        success: false,
+        message: `Only ${ALLOWED_DOMAINS.join(', ')} email addresses are allowed`
+      });
+    }
+
+    // ============================================
+    // STEP 1: Check if user is ADMIN from .env
+    // ============================================
+    const adminEmail = process.env.ADMIN_EMAIL || 'hod@gmail.com';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'Hod@12345';
+
+    if (email === adminEmail && password === adminPassword) {
+      console.log('👑 Admin login detected from .env');
+
+      let adminUser = await User.findOne({ email: adminEmail });
+
+      if (!adminUser) {
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(adminPassword, salt);
+
+        adminUser = await User.create({
+          name: process.env.ADMIN_NAME || 'Dr. Admin',
+          email: adminEmail,
+          password: hashedPassword,
+          role: 'hod',
+          department: process.env.ADMIN_DEPARTMENT || 'CSE',
+          employeeId: process.env.ADMIN_EMPLOYEE_ID || 'ADMIN001',
+          phone: process.env.ADMIN_PHONE || '9876543210',
+          isEmailVerified: true,
+          hodApproval: 'approved',
+          isActive: true
+        });
+        console.log('✅ Admin user created in database');
+      }
+
+      adminUser.lastLogin = new Date();
+      await adminUser.save();
+
+      const token = generateToken(adminUser._id);
+      return res.json({
+        success: true,
+        message: '👑 Admin login successful',
+        token,
+        user: {
+          id: adminUser._id,
+          name: adminUser.name,
+          email: adminUser.email,
+          role: adminUser.role,
+          department: adminUser.department,
+          employeeId: adminUser.employeeId,
+          hodApproval: adminUser.hodApproval,
+          isAdmin: true
+        }
+      });
+    }
+
+    // ============================================
+    // STEP 2: Regular user login from database
+    // ============================================
+    const user = await User.findOne({ email }).select('+password');
+    
+    if (!user) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid credentials' 
+      });
+    }
+
+    // Check if account is active
+    if (!user.isActive) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Account deactivated. Please contact admin.' 
+      });
+    }
+
+    // Check HOD approval status
+    if (user.role === 'hod' && user.hodApproval === 'pending') {
+      return res.status(403).json({
+        success: false,
+        message: 'Your HOD account is pending approval. Please wait for admin approval.',
+        hodApproval: 'pending'
+      });
+    }
+
+    if (user.role === 'hod' && user.hodApproval === 'rejected') {
+      return res.status(403).json({
+        success: false,
+        message: 'Your HOD account has been rejected. Please contact admin.',
+        hodApproval: 'rejected'
+      });
+    }
+
+    // Verify password
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid credentials' 
+      });
+    }
+
+    user.lastLogin = new Date();
+    await user.save();
+
+    const token = generateToken(user._id);
+    res.json({
+      success: true,
+      message: 'Login successful',
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        department: user.department,
+        employeeId: user.employeeId,
+        hodApproval: user.hodApproval,
+        isAdmin: false
+      }
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error. Please try again.' 
+    });
+  }
+};
+
+// ============================================
+// SEND OTP (Using MongoDB)
 // ============================================
 exports.sendOTP = async (req, res) => {
   try {
     const { email, purpose = 'signup' } = req.body;
-    console.log(`📧 Sending OTP to: ${email} for purpose: ${purpose}`);
-    
+    console.log(`📧 Sending OTP to: ${email}`);
+
     if (!email) {
-      return res.status(400).json({ success: false, message: 'Email is required' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Email is required' 
+      });
     }
 
     const ALLOWED_DOMAINS = (process.env.TEST_ALLOWED_DOMAINS || 'gmail.com').split(',');
@@ -33,91 +186,109 @@ exports.sendOTP = async (req, res) => {
     if (purpose === 'signup') {
       const existingUser = await User.findOne({ email });
       if (existingUser) {
-        return res.status(400).json({ success: false, message: 'User already exists' });
+        return res.status(400).json({ 
+          success: false, 
+          message: 'User already exists' 
+        });
       }
     }
 
-    // Delete existing OTP
-    await redisClient.deleteOTP(email, purpose);
+    // Delete existing OTPs for this email and purpose
+    await OTP.deleteMany({ email, purpose });
 
     // Generate new OTP
     const otp = generateOTP();
-    console.log(`🔑 Generated OTP: ${otp} for ${email}`);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
-    // Store in Redis
-    await redisClient.setOTP(email, otp, purpose);
-    
-    // Send email
+    // Save OTP to MongoDB
+    await OTP.create({
+      email,
+      otp,
+      purpose,
+      expiresAt,
+      attempts: 0,
+      verified: false
+    });
+
+    // Send OTP email
     await sendOTPEmail(email, otp, purpose);
 
     res.json({
       success: true,
-      message: 'OTP sent successfully to your email',
+      message: 'OTP sent successfully',
       expiresIn: '5 minutes'
     });
   } catch (error) {
     console.error('Send OTP error:', error);
-    res.status(500).json({ success: false, message: 'Failed to send OTP' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to send OTP' 
+    });
   }
 };
 
 // ============================================
-// VERIFY OTP (Only verifies, doesn't delete)
+// VERIFY OTP (Using MongoDB)
 // ============================================
 exports.verifyOTP = async (req, res) => {
   try {
     const { email, otp, purpose = 'signup' } = req.body;
-    console.log(`🔍 Verifying OTP for: ${email}, OTP: ${otp}, Purpose: ${purpose}`);
+    console.log(`🔍 Verifying OTP for: ${email}`);
 
     if (!email || !otp) {
-      return res.status(400).json({ success: false, message: 'Email and OTP are required' });
-    }
-
-    // Get stored OTP from Redis
-    const stored = await redisClient.getOTP(email, purpose);
-    console.log(`📦 Stored OTP data:`, stored);
-
-    if (!stored) {
       return res.status(400).json({ 
         success: false, 
-        message: 'OTP expired. Please request a new one.' 
+        message: 'Email and OTP required' 
+      });
+    }
+
+    // Find the OTP
+    const otpDoc = await OTP.findOne({
+      email,
+      purpose,
+      otp,
+      verified: false
+    });
+
+    if (!otpDoc) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid OTP' 
+      });
+    }
+
+    // Check if expired
+    if (otpDoc.expiresAt < new Date()) {
+      await OTP.deleteOne({ _id: otpDoc._id });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'OTP expired. Request a new one.' 
       });
     }
 
     // Check attempts
-    if (stored.attempts >= 3) {
-      await redisClient.deleteOTP(email, purpose);
+    if (otpDoc.attempts >= 3) {
+      await OTP.deleteOne({ _id: otpDoc._id });
       return res.status(400).json({
         success: false,
-        message: 'Too many failed attempts. Please request a new OTP.'
+        message: 'Too many failed attempts. Request new OTP.'
       });
     }
 
-    // Compare OTP
-    console.log(`🔑 Comparing: ${stored.otp} vs ${otp}`);
-    if (stored.otp !== otp) {
-      await redisClient.incrementOTPAttempts(email, purpose);
-      const attempts = await redisClient.getOTPAttempts(email, purpose);
-      const remaining = 3 - attempts;
+    // Verify OTP
+    if (otpDoc.otp !== otp) {
+      otpDoc.attempts += 1;
+      await otpDoc.save();
+      const remaining = 3 - otpDoc.attempts;
       return res.status(400).json({
         success: false,
         message: `Invalid OTP. ${remaining} attempts remaining.`
       });
     }
 
-    // ✅ OTP is verified - KEEP IT IN REDIS for signup
-    // Just mark it as verified in Redis
-    stored.verified = true;
-    const ttl = await redisClient.client.ttl(`otp:${purpose}:${email}`);
-    if (ttl > 0) {
-      await redisClient.client.set(
-        `otp:${purpose}:${email}`, 
-        JSON.stringify(stored), 
-        'EX', 
-        ttl
-      );
-    }
-    console.log(`✅ OTP verified successfully for ${email}, kept in Redis for signup`);
+    // Mark as verified
+    otpDoc.verified = true;
+    await otpDoc.save();
 
     res.json({
       success: true,
@@ -126,20 +297,15 @@ exports.verifyOTP = async (req, res) => {
     });
   } catch (error) {
     console.error('Verify OTP error:', error);
-    res.status(500).json({ success: false, message: 'OTP verification failed' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'OTP verification failed' 
+    });
   }
 };
 
 // ============================================
-// GET OTP ATTEMPTS (Helper)
-// ============================================
-exports.getOTPAttempts = async (email, purpose = 'signup') => {
-  const stored = await redisClient.getOTP(email, purpose);
-  return stored ? stored.attempts || 0 : 0;
-};
-
-// ============================================
-// SIGNUP (Uses the verified OTP)
+// SIGNUP
 // ============================================
 exports.signup = async (req, res) => {
   try {
@@ -147,7 +313,10 @@ exports.signup = async (req, res) => {
     console.log(`📝 Signup attempt for: ${email}`);
 
     if (!name || !email || !password || !department || !employeeId || !phone || !otp) {
-      return res.status(400).json({ success: false, message: 'All fields are required' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'All fields are required' 
+      });
     }
 
     const ALLOWED_DOMAINS = (process.env.TEST_ALLOWED_DOMAINS || 'gmail.com').split(',');
@@ -160,31 +329,32 @@ exports.signup = async (req, res) => {
 
     const existingUser = await User.findOne({ $or: [{ email }, { employeeId }] });
     if (existingUser) {
-      return res.status(400).json({ success: false, message: 'User already exists' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'User already exists' 
+      });
     }
 
-    // Check if OTP is verified in Redis
-    const stored = await redisClient.getOTP(email, 'signup');
-    console.log(`🔍 Stored OTP for signup:`, stored);
+    // Verify OTP from MongoDB
+    const otpDoc = await OTP.findOne({
+      email,
+      purpose: 'signup',
+      otp,
+      verified: true
+    });
 
-    if (!stored) {
+    if (!otpDoc) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'OTP not verified. Please verify OTP first.' 
+      });
+    }
+
+    // Check if OTP expired
+    if (otpDoc.expiresAt < new Date()) {
       return res.status(400).json({ 
         success: false, 
         message: 'OTP expired. Please request a new one.' 
-      });
-    }
-
-    if (!stored.verified) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'OTP not verified. Please verify your OTP first.' 
-      });
-    }
-
-    if (stored.otp !== otp) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid OTP. Please request a new one.' 
       });
     }
 
@@ -203,14 +373,13 @@ exports.signup = async (req, res) => {
       hodApproval
     });
 
-    // Delete OTP after successful signup
-    await redisClient.deleteOTP(email, 'signup');
-    console.log(`✅ OTP deleted after successful signup for ${email}`);
+    // Delete used OTP
+    await OTP.deleteMany({ email, purpose: 'signup' });
 
     if (role === 'hod') {
       return res.status(201).json({
         success: true,
-        message: 'HOD registration submitted for approval. An admin will review your request.',
+        message: 'HOD registration submitted for approval',
         user: {
           id: user._id,
           name: user.name,
@@ -239,82 +408,26 @@ exports.signup = async (req, res) => {
     });
   } catch (error) {
     console.error('Signup error:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ============================================
-// LOGIN
-// ============================================
-exports.login = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    console.log(`🔑 Login attempt for: ${email}`);
-
-    if (!email || !password) {
-      return res.status(400).json({ success: false, message: 'Email and password required' });
-    }
-
-    const ALLOWED_DOMAINS = (process.env.TEST_ALLOWED_DOMAINS || 'gmail.com').split(',');
-    if (!ALLOWED_DOMAINS.some(d => email.endsWith(`@${d.trim()}`))) {
-      return res.status(400).json({
-        success: false,
-        message: `Only ${ALLOWED_DOMAINS.join(', ')} email addresses are allowed`
-      });
-    }
-
-    const user = await User.findOne({ email }).select('+password');
-    if (!user) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
-    }
-
-    if (user.role === 'hod' && user.hodApproval === 'pending') {
-      return res.status(403).json({
-        success: false,
-        message: 'Your HOD account is pending approval. Please wait for admin approval.',
-        hodApproval: 'pending'
-      });
-    }
-
-    const isMatch = await user.comparePassword(password);
-    if (!isMatch) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
-    }
-
-    user.lastLogin = new Date();
-    await user.save();
-
-    const token = generateToken(user._id);
-    res.json({
-      success: true,
-      message: 'Login successful',
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        department: user.department,
-        employeeId: user.employeeId,
-        hodApproval: user.hodApproval
-      }
+    res.status(500).json({ 
+      success: false, 
+      message: error.message 
     });
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ success: false, message: error.message });
   }
 };
 
 // ============================================
-// FORGOT PASSWORD
+// FORGOT PASSWORD (Using MongoDB)
 // ============================================
 exports.forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
-    console.log(`🔐 Forgot password request for: ${email}`);
+    console.log(`🔐 Forgot password for: ${email}`);
 
     if (!email) {
-      return res.status(400).json({ success: false, message: 'Email required' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Email required' 
+      });
     }
 
     const ALLOWED_DOMAINS = (process.env.TEST_ALLOWED_DOMAINS || 'gmail.com').split(',');
@@ -327,60 +440,99 @@ exports.forgotPassword = async (req, res) => {
 
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({ success: false, message: 'No account found with this email' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'No account found with this email' 
+      });
     }
 
-    await redisClient.deleteOTP(email, 'forgot');
+    // Delete existing OTPs
+    await OTP.deleteMany({ email, purpose: 'forgot' });
+
+    // Generate new OTP
     const otp = generateOTP();
-    console.log(`🔑 Generated reset OTP: ${otp} for ${email}`);
-    await redisClient.setOTP(email, otp, 'forgot');
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    // Save OTP to MongoDB
+    await OTP.create({
+      email,
+      otp,
+      purpose: 'forgot',
+      expiresAt,
+      attempts: 0,
+      verified: false
+    });
+
+    // Send OTP email
     await sendOTPEmail(email, otp, 'forgot');
 
     res.json({
       success: true,
-      message: 'OTP sent to your email for password reset',
+      message: 'OTP sent for password reset',
       expiresIn: '5 minutes'
     });
   } catch (error) {
     console.error('Forgot password error:', error);
-    res.status(500).json({ success: false, message: 'Failed to send OTP' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to send OTP' 
+    });
   }
 };
 
 // ============================================
-// VERIFY RESET OTP
+// VERIFY RESET OTP (Using MongoDB)
 // ============================================
 exports.verifyResetOTP = async (req, res) => {
   try {
     const { email, otp } = req.body;
-    console.log(`🔍 Verifying reset OTP for: ${email}, OTP: ${otp}`);
+    console.log(`🔍 Verifying reset OTP for: ${email}`);
 
     if (!email || !otp) {
-      return res.status(400).json({ success: false, message: 'Email and OTP required' });
-    }
-
-    const stored = await redisClient.getOTP(email, 'forgot');
-    console.log(`📦 Stored reset OTP:`, stored);
-
-    if (!stored) {
       return res.status(400).json({ 
         success: false, 
-        message: 'OTP expired. Please request a new one.' 
+        message: 'Email and OTP required' 
       });
     }
 
-    if (stored.attempts >= 3) {
-      await redisClient.deleteOTP(email, 'forgot');
+    // Find the OTP
+    const otpDoc = await OTP.findOne({
+      email,
+      purpose: 'forgot',
+      otp,
+      verified: false
+    });
+
+    if (!otpDoc) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid OTP' 
+      });
+    }
+
+    // Check if expired
+    if (otpDoc.expiresAt < new Date()) {
+      await OTP.deleteOne({ _id: otpDoc._id });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'OTP expired. Request a new one.' 
+      });
+    }
+
+    // Check attempts
+    if (otpDoc.attempts >= 3) {
+      await OTP.deleteOne({ _id: otpDoc._id });
       return res.status(400).json({
         success: false,
-        message: 'Too many failed attempts. Please request a new OTP.'
+        message: 'Too many failed attempts. Request new OTP.'
       });
     }
 
-    if (stored.otp !== otp) {
-      await redisClient.incrementOTPAttempts(email, 'forgot');
-      const attempts = await redisClient.getOTPAttempts(email, 'forgot');
-      const remaining = 3 - attempts;
+    // Verify OTP
+    if (otpDoc.otp !== otp) {
+      otpDoc.attempts += 1;
+      await otpDoc.save();
+      const remaining = 3 - otpDoc.attempts;
       return res.status(400).json({
         success: false,
         message: `Invalid OTP. ${remaining} attempts remaining.`
@@ -388,16 +540,8 @@ exports.verifyResetOTP = async (req, res) => {
     }
 
     // Mark as verified
-    stored.verified = true;
-    const ttl = await redisClient.client.ttl(`otp:forgot:${email}`);
-    if (ttl > 0) {
-      await redisClient.client.set(
-        `otp:forgot:${email}`, 
-        JSON.stringify(stored), 
-        'EX', 
-        ttl
-      );
-    }
+    otpDoc.verified = true;
+    await otpDoc.save();
 
     const resetToken = jwt.sign(
       { email },
@@ -412,7 +556,10 @@ exports.verifyResetOTP = async (req, res) => {
     });
   } catch (error) {
     console.error('Verify reset OTP error:', error);
-    res.status(500).json({ success: false, message: 'OTP verification failed' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'OTP verification failed' 
+    });
   }
 };
 
@@ -456,13 +603,17 @@ exports.resetPassword = async (req, res) => {
 
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
     }
 
     user.password = newPassword;
     await user.save();
 
-    await redisClient.deleteOTP(email, 'forgot');
+    // Delete used OTPs
+    await OTP.deleteMany({ email, purpose: 'forgot' });
     await sendPasswordResetSuccessEmail(email, user.name);
 
     res.json({
@@ -471,12 +622,15 @@ exports.resetPassword = async (req, res) => {
     });
   } catch (error) {
     console.error('Reset password error:', error);
-    res.status(500).json({ success: false, message: 'Password reset failed' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Password reset failed' 
+    });
   }
 };
 
 // ============================================
-// HOD APPROVAL
+// HOD APPROVAL FUNCTIONS
 // ============================================
 exports.getPendingHODRequests = async (req, res) => {
   try {
@@ -499,7 +653,10 @@ exports.getPendingHODRequests = async (req, res) => {
     });
   } catch (error) {
     console.error('Get pending HODs error:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
   }
 };
 
@@ -524,7 +681,10 @@ exports.approveHOD = async (req, res) => {
 
     const user = await User.findById(id);
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
     }
 
     if (user.role !== 'hod') {
@@ -537,7 +697,7 @@ exports.approveHOD = async (req, res) => {
     if (user.hodApproval !== 'pending') {
       return res.status(400).json({
         success: false,
-        message: `This HOD request is already ${user.hodApproval}`
+        message: `This request is already ${user.hodApproval}`
       });
     }
 
@@ -546,7 +706,7 @@ exports.approveHOD = async (req, res) => {
 
     res.json({
       success: true,
-      message: `HOD request ${status} successfully`,
+      message: `HOD ${status} successfully`,
       user: {
         id: user._id,
         name: user.name,
@@ -556,6 +716,9 @@ exports.approveHOD = async (req, res) => {
     });
   } catch (error) {
     console.error('Approve HOD error:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
   }
 };

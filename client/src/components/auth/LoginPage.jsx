@@ -120,21 +120,7 @@ const LoginPage = () => {
             {loading ? 'Logging in...' : 'Sign In'}
           </button>
 
-          {/* Demo Accounts */}
-          <div className="mt-6 pt-6 border-t border-gray-200 text-center">
-            <p className="text-sm font-medium text-gray-600">Demo Accounts</p>
-            <div className="mt-2 space-y-1 text-xs text-gray-500">
-              <p>
-                HOD: <span className="font-mono text-blue-600">{DEMO_ACCOUNTS.hod.email}</span> /{' '}
-                <span className="font-mono">{DEMO_ACCOUNTS.hod.password}</span>
-              </p>
-              <p>
-                Professor:{' '}
-                <span className="font-mono text-blue-600">{DEMO_ACCOUNTS.professor.email}</span> /{' '}
-                <span className="font-mono">{DEMO_ACCOUNTS.professor.password}</span>
-              </p>
-            </div>
-          </div>
+         
         </form>
       </div>
     </div>
