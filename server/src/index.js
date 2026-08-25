@@ -115,7 +115,9 @@ const OTPSchema = new mongoose.Schema({
 
 OTPSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
-// User Schema
+// ============================================
+// USER SCHEMA - FIXED MIDDLEWARE
+// ============================================
 const UserSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -179,16 +181,23 @@ const UserSchema = new mongoose.Schema({
   resetPasswordExpires: Date
 }, { timestamps: true });
 
+// ✅ FIXED: Proper pre('save') middleware with try/catch
 UserSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
   try {
-    this.password = await bcrypt.hash(this.password, 10);
+    // Only hash the password if it's modified
+    if (!this.isModified('password')) {
+      return next();
+    }
+    // Hash the password
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
     next();
   } catch (error) {
     next(error);
   }
 });
 
+// Compare password method
 UserSchema.methods.comparePassword = async function(password) {
   return await bcrypt.compare(password, this.password);
 };
@@ -439,10 +448,6 @@ const isOverlapping = (start1, end1, start2, end2) => {
 };
 
 // ============================================
-// AUTH ROUTES
-// ============================================
-
-// ============================================
 // FORGOT PASSWORD ROUTES
 // ============================================
 
@@ -462,7 +467,6 @@ app.post('/api/auth/forgot-password', otpLimiter, async (req, res) => {
       });
     }
 
-    // Check if user exists
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(404).json({
@@ -471,10 +475,8 @@ app.post('/api/auth/forgot-password', otpLimiter, async (req, res) => {
       });
     }
 
-    // Delete existing OTPs
     await OTP.deleteMany({ email, purpose: 'forgot' });
 
-    // Generate new OTP
     const otp = generateOTP();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
@@ -487,7 +489,6 @@ app.post('/api/auth/forgot-password', otpLimiter, async (req, res) => {
       verified: false
     });
 
-    // Send OTP email
     await sendOTPEmail(email, otp, 'forgot');
 
     res.json({
@@ -529,7 +530,6 @@ app.post('/api/auth/verify-reset-otp', authLimiter, async (req, res) => {
     otpRecord.verified = true;
     await otpRecord.save();
 
-    // Generate a temporary reset token
     const resetToken = jwt.sign(
       { email }, 
       process.env.JWT_SECRET + 'reset', 
@@ -573,7 +573,6 @@ app.post('/api/auth/reset-password', authLimiter, async (req, res) => {
       });
     }
 
-    // Verify reset token
     try {
       jwt.verify(resetToken, process.env.JWT_SECRET + 'reset');
     } catch (error) {
@@ -583,7 +582,6 @@ app.post('/api/auth/reset-password', authLimiter, async (req, res) => {
       });
     }
 
-    // Find user
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(404).json({
@@ -592,14 +590,11 @@ app.post('/api/auth/reset-password', authLimiter, async (req, res) => {
       });
     }
 
-    // Update password
     user.password = newPassword;
     await user.save();
 
-    // Delete used OTP
     await OTP.deleteMany({ email, purpose: 'forgot' });
 
-    // Send success email
     await sendPasswordResetSuccessEmail(email, user.name);
 
     res.json({
@@ -945,7 +940,7 @@ app.put('/api/auth/hod-approve/:id', protect, authorize('hod'), async (req, res)
 });
 
 // ============================================
-// ROOM ROUTES (Keep existing)
+// ROOM ROUTES
 // ============================================
 
 app.get('/api/rooms', protect, async (req, res) => {
@@ -1056,7 +1051,7 @@ app.delete('/api/rooms/:id', protect, authorize('hod'), async (req, res) => {
 });
 
 // ============================================
-// BOOKING ROUTES (Keep existing)
+// BOOKING ROUTES
 // ============================================
 
 app.post('/api/bookings', protect, async (req, res) => {
@@ -1217,7 +1212,7 @@ app.get('/api/bookings/all', protect, authorize('hod'), async (req, res) => {
 });
 
 // ============================================
-// TIMETABLE ROUTES (Keep existing)
+// TIMETABLE ROUTES
 // ============================================
 
 app.post('/api/timetable', protect, authorize('hod'), async (req, res) => {
@@ -1367,7 +1362,7 @@ app.use((err, req, res, next) => {
 });
 
 // ============================================
-// SEED DATA
+// SEED DATA - FIXED
 // ============================================
 const seedData = async () => {
   try {
@@ -1375,11 +1370,11 @@ const seedData = async () => {
     if (count === 0) {
       console.log('🌱 Seeding initial data...');
       
-      const hodPassword = await bcrypt.hash('Hod@12345', 10);
-      await User.create({
+      // Create HOD with proper password hashing
+      const hod = new User({
         name: 'Dr. HOD Singh',
         email: 'hod@nitrr.ac.in',
-        password: hodPassword,
+        password: 'Hod@12345', // Will be hashed by pre('save') middleware
         role: 'hod',
         department: 'CSE',
         employeeId: 'HOD001',
@@ -1387,12 +1382,13 @@ const seedData = async () => {
         isEmailVerified: true,
         hodApproval: 'approved'
       });
+      await hod.save();
 
-      const profPassword = await bcrypt.hash('Prof@12345', 10);
-      await User.create({
+      // Create Professor with proper password hashing
+      const prof = new User({
         name: 'Dr. Priya Sharma',
         email: 'prof@nitrr.ac.in',
-        password: profPassword,
+        password: 'Prof@12345', // Will be hashed by pre('save') middleware
         role: 'professor',
         department: 'CSE',
         employeeId: 'PROF001',
@@ -1400,6 +1396,7 @@ const seedData = async () => {
         isEmailVerified: true,
         hodApproval: 'approved'
       });
+      await prof.save();
 
       const rooms = [
         { roomNumber: '101', capacity: 60, floor: 1, department: 'CSE', building: 'Main Building', hasProjector: true, hasAC: true },
@@ -1425,32 +1422,39 @@ const seedData = async () => {
   }
 };
 
-setTimeout(() => {
-  seedData();
-}, 1000);
-
 // ============================================
 // START SERVER
 // ============================================
-app.listen(PORT, () => {
-  console.log('\n========================================');
-  console.log('🚀 Room Allocation System Server');
-  console.log('========================================');
-  console.log(`📍 Server running on: http://localhost:${PORT}`);
-  console.log(`📧 Allowed Domain: @${ALLOWED_DOMAIN}`);
-  console.log(`⏱️  Rate Limit: ${process.env.RATE_LIMIT_MAX || 4} requests/second`);
-  console.log('========================================');
-  console.log('📋 Demo Accounts:');
-  console.log('  HOD: hod@nitrr.ac.in / Hod@12345');
-  console.log('  Professor: prof@nitrr.ac.in / Prof@12345');
-  console.log('========================================');
-  console.log('📋 Features:');
-  console.log('  ✅ OTP Verification via Email');
-  console.log('  ✅ Forgot Password with OTP');
-  console.log('  ✅ Reset Password with OTP');
-  console.log('  ✅ HOD Role with Approval System');
-  console.log('  ✅ Email Domain Restriction (@nitrr.ac.in)');
-  console.log('========================================\n');
-});
+const startServer = async () => {
+  try {
+    // Seed data after connection
+    await seedData();
+    
+    app.listen(PORT, () => {
+      console.log('\n========================================');
+      console.log('🚀 Room Allocation System Server');
+      console.log('========================================');
+      console.log(`📍 Server running on: http://localhost:${PORT}`);
+      console.log(`📧 Allowed Domain: @${ALLOWED_DOMAIN}`);
+      console.log(`⏱️  Rate Limit: ${process.env.RATE_LIMIT_MAX || 4} requests/second`);
+      console.log('========================================');
+      console.log('📋 Demo Accounts:');
+      console.log('  HOD: hod@nitrr.ac.in / Hod@12345');
+      console.log('  Professor: prof@nitrr.ac.in / Prof@12345');
+      console.log('========================================');
+      console.log('📋 Features:');
+      console.log('  ✅ OTP Verification via Email');
+      console.log('  ✅ Forgot Password with OTP');
+      console.log('  ✅ Reset Password with OTP');
+      console.log('  ✅ HOD Role with Approval System');
+      console.log('  ✅ Email Domain Restriction (@nitrr.ac.in)');
+      console.log('========================================\n');
+    });
+  } catch (error) {
+    console.error('❌ Server startup error:', error);
+  }
+};
+
+startServer();
 
 module.exports = app;
