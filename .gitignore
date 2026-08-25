@@ -1,207 +1,111 @@
 
 # ============================================
-# NODE MODULES - Server & Client
+# DEPENDENCIES
 # ============================================
+node_modules/
 server/node_modules/
 client/node_modules/
-node_modules/
 
-# ============================================
-# ENVIRONMENT VARIABLES - All folders
-# ============================================
-# Server env files
-server/.env
-server/.env.local
-server/.env.*.local
-server/.env.development
-server/.env.production
-server/.env.test
-
-# Client env files
-client/.env
-client/.env.local
-client/.env.*.local
-client/.env.development
-client/.env.production
-client/.env.test
-
-# Root env files
-.env
-.env.local
-.env.*.local
-.env.development
-.env.production
-.env.test
-
-# ============================================
-# LOCK FILES - Prevent committing
-# ============================================
+# Lock files
+package-lock.json
 server/package-lock.json
 client/package-lock.json
+yarn.lock
 server/yarn.lock
 client/yarn.lock
+pnpm-lock.yaml
 server/pnpm-lock.yaml
 client/pnpm-lock.yaml
-package-lock.json
-yarn.lock
-pnpm-lock.yaml
+
+# ============================================
+# ENVIRONMENT VARIABLES
+# ============================================
+.env
+.env.*
+server/.env
+server/.env.*
+client/.env
+client/.env.*
+!.env.example
 
 # ============================================
 # BUILD OUTPUTS
 # ============================================
-# Server builds
-server/dist/
-server/build/
-server/.next/
-server/out/
-
-# Client builds
-client/dist/
-client/build/
-client/.next/
-client/out/
-
-# General builds
 dist/
 build/
 .next/
 out/
+server/dist/
+server/build/
+server/.next/
+client/dist/
+client/build/
+client/.next/
 .esbuild/
 
 # ============================================
 # LOGS
 # ============================================
 logs/
-server/logs/
-client/logs/
 *.log
-server/*.log
-client/*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-pnpm-debug.log*
+server/logs/
+client/logs/
 
 # ============================================
 # OS FILES
 # ============================================
-# macOS
 .DS_Store
-.AppleDouble
-.LSOverride
-._*
-.Spotlight-V100
-.Trashes
-server/.DS_Store
-client/.DS_Store
-
-# Windows
 Thumbs.db
-ehthumbs.db
-Desktop.ini
-$RECYCLE.BIN/
-server/Thumbs.db
-client/Thumbs.db
-
-# Linux
-.directory
 *.pid
 *.seed
 *.pid.lock
 
 # ============================================
-# IDE & EDITOR FILES
+# IDE & EDITOR
 # ============================================
-# VSCode
 .vscode/
-server/.vscode/
-client/.vscode/
-.vscode/settings.json
-.vscode/tasks.json
-.vscode/launch.json
-.vscode/extensions.json
-*.code-workspace
-
-# IntelliJ/WebStorm
 .idea/
-server/.idea/
-client/.idea/
-*.iml
-*.iws
-*.ipr
-out/
-server/out/
-client/out/
-
-# Sublime Text
-*.sublime-project
-*.sublime-workspace
-
-# Vim
 *.swp
 *.swo
 *~
-server/*.swp
-client/*.swp
-
-# Emacs
-*~
-\#*\#
-.\#*
+*.iml
+*.iws
+*.ipr
+*.sublime-project
+*.sublime-workspace
 
 # ============================================
-# DATABASE FILES
+# DATABASE
 # ============================================
 *.db
 *.sqlite
 *.sqlite3
 *.db-journal
-server/*.db
-client/*.db
-server/*.sqlite
-client/*.sqlite
 
 # ============================================
 # TESTING & COVERAGE
 # ============================================
 coverage/
-server/coverage/
-client/coverage/
 .nyc_output/
-server/.nyc_output/
-client/.nyc_output/
-.coveralls.yml
 *.lcov
 .istanbul.yml
 .junit/
 
 # ============================================
-# CACHE & TEMP FILES
+# CACHE & TEMP
 # ============================================
 .cache/
-server/.cache/
-client/.cache/
 .temp/
 .tmp/
 *.tmp
 *.temp
-server/*.tmp
-client/*.tmp
+.vite/
 
 # ============================================
-# BACKUP FILES
-# ============================================
-*.bak
-*.old
-*.orig
-*.save
-*.backup
-*.bkp
-server/*.bak
-client/*.bak
-
-# ============================================
-# SECURITY & CERTIFICATES
+# SECURITY
 # ============================================
 *.pem
 *.key
@@ -213,82 +117,39 @@ client/*.bak
 .aws/
 .kube/
 .gcloud/
-server/*.pem
-server/*.key
-client/*.pem
-client/*.key
+
+# ============================================
+# DEPLOYMENT
+# ============================================
+.vercel/
+.netlify/
+.heroku/
+.deploy/
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# Docker
+docker-compose.override.yml
+Dockerfile.local
 
 # ============================================
 # UPLOADS & MEDIA
 # ============================================
 uploads/
-server/uploads/
-client/uploads/
 public/uploads/
-server/public/uploads/
-client/public/uploads/
 files/
 media/
 
 # ============================================
-# DEPLOYMENT & DOCKER
+# CACHE
 # ============================================
-.vercel/
-server/.vercel/
-client/.vercel/
-.netlify/
-server/.netlify/
-client/.netlify/
-.heroku/
-server/.heroku/
-client/.heroku/
-.deploy/
-
-# Docker
-docker-compose.override.yml
-Dockerfile.local
-.terraform/
-*.tfstate
-*.tfstate.*
+.eslintcache
+.parcel-cache/
+*.tsbuildinfo
 
 # ============================================
-# VITE SPECIFIC
-# ============================================
-client/.vite/
-client/dist/
-server/.vite/
-server/dist/
-.vite/
-
-# ============================================
-# REACT SPECIFIC
-# ============================================
-client/build/
-client/.eslintcache
-client/.env.development.local
-client/.env.test.local
-client/.env.production.local
-
-# ============================================
-# NEXT.JS SPECIFIC
-# ============================================
-client/.next/
-server/.next/
-client/out/
-server/out/
-client/.next/cache/
-server/.next/cache/
-
-# ============================================
-# NODE.JS SPECIFIC
-# ============================================
-server/lib-cov/
-client/lib-cov/
-server/debug/
-client/debug/
-
-# ============================================
-# GIT FILES
+# GIT
 # ============================================
 *.orig
 *.rej
@@ -299,116 +160,47 @@ client/debug/
 .gitmodules
 
 # ============================================
-# MONOREPO TOOLS (if using)
-# ============================================
-.turbo/
-server/.turbo/
-client/.turbo/
-.nx/
-server/.nx/
-client/.nx/
-turbo.json
-nx.json
-
-# ============================================
-# GENERATED FILES
+# GENERATED
 # ============================================
 generated/
-server/generated/
-client/generated/
 *.generated.*
-server/*.generated.*
-client/*.generated.*
 
 # ============================================
-# COMPRESSED FILES
+# COMPRESSED
 # ============================================
 *.zip
 *.tar.gz
 *.rar
 *.7z
 *.iso
-server/*.zip
-client/*.zip
 
 # ============================================
-# REPORTS
+# MISC
 # ============================================
-reports/
-server/reports/
-client/reports/
-*.report
-server/*.report
-client/*.report
+*.bak
+*.old
+*.orig
+*.save
+*.backup
+*.bkp
 
 # ============================================
-# DATABASE DUMP FILES
+# APPLICATION SPECIFIC
 # ============================================
 dump/
-server/dump/
-client/dump/
-*.dump
-server/*.dump
-client/*.dump
-
-# ============================================
-# SECRETS & SENSITIVE DATA
-# ============================================
-*.secret
-server/*.secret
-client/*.secret
+reports/
 secrets/
-server/secrets/
-client/secrets/
 credentials.json
-server/credentials.json
-client/credentials.json
 service-account.json
-server/service-account.json
-client/service-account.json
-
-# ============================================
-# APPLICATION SPECIFIC (Room Allocation)
-# ============================================
-# Database dumps
-server/db-dumps/
-client/db-dumps/
-
-# Generated scripts
-server/scripts/generated/
-client/scripts/generated/
-
-# User uploads
-server/uploads/
-client/uploads/
-uploads/
-
-# Logs directory
-logs/
-server/logs/
-client/logs/
-
-# ============================================
-# MISCELLANEOUS
-# ============================================
-# npm debug logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# yarn
+.sentryclirc
+.dev.vars
+.pnpm-store/
 .yarn-integrity
 
-# pnpm
-.pnpm-store/
-
-# Sentry
-.sentryclirc
-
-# Cloudflare
-.dev.vars
-
-# Environment files (additional)
-*.env
-*.env.*
-!.env.example
+# ============================================
+# MONOREPO TOOLS
+# ============================================
+.turbo/
+.nx/
+turbo.json
+nx.json
