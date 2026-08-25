@@ -1,6 +1,8 @@
+
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const mongoose = require('mongoose');
 
 // Load environment variables
 dotenv.config();
@@ -11,9 +13,16 @@ const PORT = process.env.PORT || 3000;
 // ============================================
 // MIDDLEWARE
 // ============================================
-app.use(cors()); // Allow cross-origin requests
-app.use(express.json()); // Parse JSON bodies
+app.use(cors());
+app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// ============================================
+// DATABASE CONNECTION
+// ============================================
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/roomallocation')
+  .then(() => console.log('✅ MongoDB Connected'))
+  .catch(err => console.log('❌ MongoDB Error:', err.message));
 
 // ============================================
 // ROUTES
@@ -22,15 +31,14 @@ app.use(express.urlencoded({ extended: true }));
 // Root route
 app.get('/', (req, res) => {
   res.json({
-    success: true,
     message: '🏫 Room Allocation System API - NIT Raipur',
     version: '1.0.0',
     status: 'Server is running! ✅',
-    timestamp: new Date().toISOString(),
     endpoints: {
       health: 'GET /health',
       test: 'GET /api/test',
       echo: 'POST /api/echo',
+      users: 'GET /api/users/:id',
     },
   });
 });
@@ -38,12 +46,12 @@ app.get('/', (req, res) => {
 // Health check route
 app.get('/health', (req, res) => {
   res.json({
-    success: true,
     status: 'OK',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    server: 'Running on port ' + PORT,
-    memory: process.memoryUsage(),
+    mongodb: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected',
+    port: PORT,
+    environment: process.env.NODE_ENV || 'development',
   });
 });
 
@@ -81,7 +89,7 @@ app.get('/api/users/:id', (req, res) => {
 // ERROR HANDLING
 // ============================================
 
-// 404 handler - Route not found
+// 404 handler
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -105,12 +113,20 @@ app.use((err, req, res, next) => {
 // ============================================
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server is running on http://localhost:${PORT}`);
-});
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (err) => {
-  console.error('❌ Unhandled Rejection:', err);
-  process.exit(1);
+  console.log('\n========================================');
+  console.log('🚀 Room Allocation System Server');
+  console.log('========================================');
+  console.log(`📍 Server running on: http://localhost:${PORT}`);
+  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`📦 MongoDB: ${mongoose.connection.readyState === 1 ? '✅ Connected' : '❌ Disconnected'}`);
+  console.log('========================================');
+  console.log('📋 Available endpoints:');
+  console.log(`  GET  /              - API Info`);
+  console.log(`  GET  /health        - Health Check`);
+  console.log(`  GET  /api/test      - Test GET`);
+  console.log(`  POST /api/echo      - Test POST`);
+  console.log(`  GET  /api/users/:id - Test URL params`);
+  console.log('========================================\n');
 });
 
 module.exports = app;
