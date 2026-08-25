@@ -1,3 +1,4 @@
+
 const authValidator = require('./authValidator');
 const roomValidator = require('./roomValidator');
 const bookingValidator = require('./bookingValidator');

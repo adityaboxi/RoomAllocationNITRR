@@ -1,3 +1,4 @@
+
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
@@ -39,7 +40,9 @@ app.use(limiter);
 // ============================================
 // DATABASE CONNECTION
 // ============================================
-const connectDB = require('./config/database');
+const { connectDB } = require('./config/database');
+
+// Connect to database (will retry internally)
 connectDB();
 
 // ============================================
@@ -121,29 +124,47 @@ const seedData = async () => {
     if (count === 0) {
       console.log('🌱 Seeding initial data...');
       
+      const adminEmail = process.env.ADMIN_EMAIL || 'hod@gmail.com';
+      const adminPassword = process.env.ADMIN_PASSWORD || 'Hod@12345';
+      const adminName = process.env.ADMIN_NAME || 'Dr. HOD Singh';
+      const adminDepartment = process.env.ADMIN_DEPARTMENT || 'CSE';
+      const adminEmployeeId = process.env.ADMIN_EMPLOYEE_ID || 'HOD001';
+      const adminPhone = process.env.ADMIN_PHONE || '9876543210';
+
       await User.create({
-        name: 'Dr. HOD Singh',
-        email: 'hod@nitrr.ac.in',
-        password: 'Hod@12345',
+        name: adminName,
+        email: adminEmail,
+        password: adminPassword,
         role: 'hod',
-        department: 'CSE',
-        employeeId: 'HOD001',
-        phone: '9876543210',
+        department: adminDepartment,
+        employeeId: adminEmployeeId,
+        phone: adminPhone,
         isEmailVerified: true,
         hodApproval: 'approved'
       });
 
+      console.log(`✅ Admin created: ${adminEmail}`);
+
+      const profEmail = process.env.PROF_EMAIL || 'prof@gmail.com';
+      const profPassword = process.env.PROF_PASSWORD || 'Prof@12345';
+      const profName = process.env.PROF_NAME || 'Dr. Priya Sharma';
+      const profDepartment = process.env.PROF_DEPARTMENT || 'CSE';
+      const profEmployeeId = process.env.PROF_EMPLOYEE_ID || 'PROF001';
+      const profPhone = process.env.PROF_PHONE || '9876543211';
+
       await User.create({
-        name: 'Dr. Priya Sharma',
-        email: 'prof@nitrr.ac.in',
-        password: 'Prof@12345',
+        name: profName,
+        email: profEmail,
+        password: profPassword,
         role: 'professor',
-        department: 'CSE',
-        employeeId: 'PROF001',
-        phone: '9876543211',
+        department: profDepartment,
+        employeeId: profEmployeeId,
+        phone: profPhone,
         isEmailVerified: true,
         hodApproval: 'approved'
       });
+
+      console.log(`✅ Professor created: ${profEmail}`);
 
       const rooms = [
         { roomNumber: '101', capacity: 60, floor: 1, department: 'CSE', building: 'Main Building', hasProjector: true, hasAC: true },
@@ -159,16 +180,21 @@ const seedData = async () => {
       ];
       await Room.insertMany(rooms);
 
-      console.log('✅ Seed data created successfully!');
-      console.log('📋 Demo Accounts (Only @nitrr.ac.in):');
-      console.log('  HOD: hod@nitrr.ac.in / Hod@12345');
-      console.log('  Professor: prof@nitrr.ac.in / Prof@12345');
+      console.log('✅ Rooms created successfully!');
+      console.log('\n========================================');
+      console.log('✅ SEED DATA CREATED SUCCESSFULLY!');
+      console.log('========================================');
+      console.log('📋 Demo Accounts:');
+      console.log(`  ADMIN/HOD: ${adminEmail} / ${adminPassword}`);
+      console.log(`  Professor: ${profEmail} / ${profPassword}`);
+      console.log('========================================\n');
     }
   } catch (error) {
     console.error('❌ Seed error:', error.message);
   }
 };
 
+// Run seed after database connection
 setTimeout(() => {
   seedData();
 }, 2000);
@@ -183,6 +209,10 @@ app.listen(PORT, () => {
   console.log(`📍 Server running on: http://localhost:${PORT}`);
   console.log(`📧 Allowed Domain: @${process.env.ALLOWED_EMAIL_DOMAIN || 'nitrr.ac.in'}`);
   console.log(`⏱️  Rate Limit: ${process.env.RATE_LIMIT_MAX || 4} requests/second`);
+  console.log('========================================');
+  console.log('📋 Admin Credentials (from .env):');
+  console.log(`  Email: ${process.env.ADMIN_EMAIL || 'hod@gmail.com'}`);
+  console.log(`  Password: ${process.env.ADMIN_PASSWORD || 'Hod@12345'}`);
   console.log('========================================\n');
 });
 

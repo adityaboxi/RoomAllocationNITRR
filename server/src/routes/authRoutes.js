@@ -9,10 +9,16 @@ const {
   getMe,
   forgotPassword,
   verifyResetOTP,
-  resetPassword
+  resetPassword,
+  getPendingHODRequests,
+  approveHOD,
+  getAllHODs,
+  getHODRequestCount
 } = require('../controllers/authController');
 
-// Public routes
+// ============================================
+// PUBLIC ROUTES
+// ============================================
 router.post('/send-otp', sendOTP);
 router.post('/verify-otp', verifyOTP);
 router.post('/signup', signup);
@@ -21,7 +27,17 @@ router.post('/forgot-password', forgotPassword);
 router.post('/verify-reset-otp', verifyResetOTP);
 router.post('/reset-password', resetPassword);
 
-// Protected routes
+// ============================================
+// PROTECTED ROUTES
+// ============================================
 router.get('/me', protect, getMe);
+
+// ============================================
+// HOD APPROVAL ROUTES (Only Approved HODs)
+// ============================================
+router.get('/hod-pending', protect, authorize('hod'), getPendingHODRequests);
+router.get('/hod-all', protect, authorize('hod'), getAllHODs);
+router.get('/hod-count', protect, authorize('hod'), getHODRequestCount);
+router.put('/hod-approve/:id', protect, authorize('hod'), approveHOD);
 
 module.exports = router;

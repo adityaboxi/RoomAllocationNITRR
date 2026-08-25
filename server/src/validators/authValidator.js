@@ -1,7 +1,7 @@
 const validateEmail = (email) => {
-  const allowedDomain = process.env.ALLOWED_EMAIL_DOMAIN || 'nitrr.ac.in';
-  const emailRegex = new RegExp(`^[a-zA-Z0-9._%+-]+@${allowedDomain}$`);
-  return emailRegex.test(email);
+  // ✅ Only allow gmail.com
+  const allowedDomains = ['gmail.com'];
+  return allowedDomains.some(domain => email.endsWith(`@${domain}`));
 };
 
 const validatePassword = (password) => {
@@ -17,7 +17,7 @@ const validateSignup = (data) => {
   }
 
   if (!email || !validateEmail(email)) {
-    errors.push(`Invalid email format. Only @${process.env.ALLOWED_EMAIL_DOMAIN || 'nitrr.ac.in'} domain allowed`);
+    errors.push('Only @gmail.com email addresses are allowed');
   }
 
   if (!password || !validatePassword(password)) {
@@ -55,7 +55,7 @@ const validateLogin = (data) => {
   const { email, password } = data;
 
   if (!email || !validateEmail(email)) {
-    errors.push(`Invalid email format. Only @${process.env.ALLOWED_EMAIL_DOMAIN || 'nitrr.ac.in'} domain allowed`);
+    errors.push('Only @gmail.com email addresses are allowed');
   }
 
   if (!password) {
@@ -73,7 +73,7 @@ const validateForgotPassword = (data) => {
   const { email } = data;
 
   if (!email || !validateEmail(email)) {
-    errors.push(`Invalid email format. Only @${process.env.ALLOWED_EMAIL_DOMAIN || 'nitrr.ac.in'} domain allowed`);
+    errors.push('Only @gmail.com email addresses are allowed');
   }
 
   return {
@@ -87,7 +87,7 @@ const validateResetPassword = (data) => {
   const { email, newPassword, confirmPassword, resetToken } = data;
 
   if (!email || !validateEmail(email)) {
-    errors.push(`Invalid email format. Only @${process.env.ALLOWED_EMAIL_DOMAIN || 'nitrr.ac.in'} domain allowed`);
+    errors.push('Only @gmail.com email addresses are allowed');
   }
 
   if (!newPassword || newPassword.length < 6) {
@@ -113,7 +113,7 @@ const validateOTP = (data) => {
   const { email, otp } = data;
 
   if (!email || !validateEmail(email)) {
-    errors.push(`Invalid email format. Only @${process.env.ALLOWED_EMAIL_DOMAIN || 'nitrr.ac.in'} domain allowed`);
+    errors.push('Only @gmail.com email addresses are allowed');
   }
 
   if (!otp || otp.length !== 6 || !/^\d{6}$/.test(otp)) {
