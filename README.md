@@ -1,26 +1,27 @@
-
 # 🏫 Room Allocation System - NIT Raipur
 
-[![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://choosealicense.com/licenses/mit/)
-[![Node.js](https://img.shields.io/badge/Node.js-18.x-green)](https://nodejs.org/)
-[![React](https://img.shields.io/badge/React-18.x-blue)](https://reactjs.org/)
-[![MongoDB](https://img.shields.io/badge/MongoDB-7.x-green)](https://www.mongodb.com/)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.x-38B2AC)](https://tailwindcss.com/)
+[![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-18.x-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![React](https://img.shields.io/badge/React-18.x-61DAFB?logo=react&logoColor=white)](https://reactjs.org/)
+[![MongoDB](https://img.shields.io/badge/MongoDB-7.x-47A248?logo=mongodb&logoColor=white)](https://www.mongodb.com/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.x-38B2AC?logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
 
-A comprehensive room allocation system for NIT Raipur that allows professors to book rooms for extra classes and HODs to manage timetables efficiently.
+A comprehensive room allocation system for NIT Raipur enabling professors to book rooms for extra classes and HODs to manage timetables efficiently.
+
+---
 
 ## 📋 Table of Contents
 
 - [Overview](#overview)
 - [Features](#features)
 - [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
+- [Quick Start](#quick-start)
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Running the Application](#running-the-application)
 - [API Endpoints](#api-endpoints)
 - [Database Schema](#database-schema)
-- [Environment Variables](#environment-variables)
+- [Testing](#testing)
 - [Contributing](#contributing)
 - [Team](#team)
 - [License](#license)
@@ -29,70 +30,86 @@ A comprehensive room allocation system for NIT Raipur that allows professors to 
 
 ## 🎯 Overview
 
-The **Room Allocation System** is designed to solve the room shortage problem at NIT Raipur. It enables:
+The **Room Allocation System** solves the room shortage problem at NIT Raipur by providing:
 
-- **Professors** to book available rooms for extra classes
-- **HODs** to manage and update timetables
-- **Automatic conflict detection** when timetables are updated
-- **Email notifications** for booking confirmations and cancellations
-- **OTP verification** for secure signup
-- **Real-time room availability** checking
+- **Professors** → Book available rooms for extra classes
+- **HODs** → Manage timetables and resolve conflicts
+- **Real-time availability** → Check room status instantly
+- **Smart conflict detection** → Auto-cancel bookings when timetables change
 
 ---
 
 ## ✨ Features
 
-### For Professors
-- ✅ View available rooms in real-time
-- ✅ Book rooms for extra classes with comments
-- ✅ Receive OTP verification for signup
-- ✅ Receive email confirmations for bookings
-- ✅ View all bookings with status
-- ✅ Get notified if bookings are cancelled due to timetable conflicts
+### 👨‍🏫 For Professors
+- View available rooms in real-time
+- Book rooms with comments
+- Receive email confirmations
+- Track booking status (active/cancelled/completed)
+- Get notified of cancellations due to conflicts
 
-### For HODs
-- ✅ Create and update timetables
-- ✅ Auto-detect conflicts with existing bookings
-- ✅ Auto-cancel overlapping bookings
-- ✅ Send notifications to affected professors
-- ✅ View all bookings and conflicts
-- ✅ Add and manage rooms
-- ✅ Approve HOD account requests
+### 👑 For HODs
+- Create and update department timetables
+- Auto-detect conflicts with existing bookings
+- Auto-cancel overlapping bookings
+- Manage rooms (add, update, delete)
+- View all bookings and conflicts
 
-### System Features
-- ✅ Real-time room availability checking
-- ✅ Automatic conflict detection
-- ✅ Email notifications (booking confirmation & cancellation)
-- ✅ Role-based access control (HOD & Professor)
-- ✅ JWT authentication
-- ✅ MongoDB database with optimized indexes
-- ✅ Rate limiting (4 requests/second)
-- ✅ Scalable for 500+ users
+### ⚙️ System Features
+- Real-time room availability
+- Automatic conflict detection
+- Email notifications (booking & cancellation)
+- Role-based access control (HOD/Professor)
+- JWT authentication
+- OTP verification for signup
+- Rate limiting (4 requests/second)
 
 ---
 
 ## 🛠️ Tech Stack
 
 ### Backend
-- **Node.js** - JavaScript runtime
-- **Express.js** - Web framework
-- **MongoDB** - Database
-- **Mongoose** - ODM for MongoDB
-- **JWT** - Authentication
-- **Bcrypt.js** - Password hashing
-- **Nodemailer** - Email sending
-- **Helmet** - Security headers
-- **CORS** - Cross-origin resource sharing
-- **Express Rate Limit** - Rate limiting
+| Technology | Purpose |
+|------------|---------|
+| Node.js | JavaScript runtime |
+| Express.js | Web framework |
+| MongoDB | Database |
+| Mongoose | ODM for MongoDB |
+| JWT | Authentication |
+| Bcrypt.js | Password hashing |
+| Nodemailer | Email sending |
 
 ### Frontend
-- **React** - UI library
-- **Vite** - Build tool
-- **Tailwind CSS** - Styling
-- **Axios** - HTTP client
-- **React Router DOM** - Routing
-- **Heroicons** - Icons
+| Technology | Purpose |
+|------------|---------|
+| React | UI library |
+| Vite | Build tool |
+| Tailwind CSS | Styling |
+| Axios | HTTP client |
+| React Router | Routing |
 
 ---
 
-## 📁 Project Structure
+## 🚀 Quick Start
+
+```bash
+# Clone the repository
+git clone https://github.com/adityaboxi/RoomAllocationNITRR.git
+cd RoomAllocationNITRR
+
+# Install backend dependencies
+cd server
+npm install
+
+# Set up environment variables
+cp .env.example .env
+
+# Start backend server
+npm run dev
+
+# Install frontend dependencies (new terminal)
+cd ../client
+npm install
+
+# Start frontend
+npm run dev
