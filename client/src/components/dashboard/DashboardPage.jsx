@@ -24,6 +24,7 @@ export default function DashboardPage() {
     entries: [{ day: 'Monday', startTime: '09:00', endTime: '10:00', subject: '', roomId: '', classGroup: '', faculty: '' }]
   });
   const [addingEntry, setAddingEntry] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -100,7 +101,6 @@ export default function DashboardPage() {
       setLoading(true);
       const today = new Date().toISOString().split('T')[0];
       
-      // Validate date (can't book more than 7 days ahead)
       const maxDate = new Date();
       maxDate.setDate(maxDate.getDate() + 7);
       const selectedDate = new Date(today);
@@ -117,7 +117,6 @@ export default function DashboardPage() {
       const purpose = prompt('Enter purpose:', 'Extra Class');
       if (!purpose) return;
 
-      // Validate time (minimum 30 minutes)
       const [sH, sM] = startTime.split(':').map(Number);
       const [eH, eM] = endTime.split(':').map(Number);
       const durationMinutes = (eH * 60 + eM) - (sH * 60 + sM);
@@ -190,6 +189,7 @@ export default function DashboardPage() {
   const handleSubmitTimetable = async (e) => {
     e.preventDefault();
     setAddingEntry(true);
+    setError('');
     try {
       const filteredEntries = timetableForm.entries.filter(e => e.subject && e.roomId);
       
@@ -208,9 +208,8 @@ export default function DashboardPage() {
 
       if (response.data.success) {
         const msg = `✅ Timetable updated! ${response.data.data.entriesAdded} entries added, ${response.data.data.bookingsCancelled} bookings auto-cancelled due to conflicts.`;
-        alert(msg);
+        setShowSuccess(msg);
         setShowTimetableModal(false);
-        // Reset form
         setTimetableForm({
           department: user?.department || '',
           semester: '3rd',
@@ -219,9 +218,10 @@ export default function DashboardPage() {
         });
         setEditingEntry(null);
         await fetchData();
+        setTimeout(() => setShowSuccess(null), 5000);
       }
     } catch (err) {
-      alert('❌ Failed to update timetable: ' + (err.response?.data?.message || err.message));
+      setError(err.response?.data?.message || 'Failed to update timetable');
     } finally {
       setAddingEntry(false);
     }
@@ -232,8 +232,8 @@ export default function DashboardPage() {
     try {
       setLoading(true);
       await timetableAPI.delete(entryId);
-      alert('✅ Timetable entry deleted successfully!');
       await fetchData();
+      alert('✅ Timetable entry deleted successfully!');
     } catch (err) {
       alert('❌ Failed to delete: ' + (err.response?.data?.message || err.message));
     } finally {
@@ -261,6 +261,13 @@ export default function DashboardPage() {
           <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-sm flex items-center gap-2">
             <AlertCircle className="w-5 h-5" />
             {error}
+          </div>
+        )}
+
+        {showSuccess && (
+          <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 text-sm flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5" />
+            {showSuccess}
           </div>
         )}
 
@@ -430,11 +437,16 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Timetable View */}
+        {/* ============================================ */}
+        {/* TIMETABLE VIEW - WITH ADD TIMETABLE BUTTON */}
+        {/* ============================================ */}
         {view === 'timetable' && (
           <div className="bg-white rounded-2xl border p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-slate-900">Timetable</h3>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+              <div>
+                <h3 className="font-bold text-slate-900 text-lg">📅 Timetable Management</h3>
+                <p className="text-sm text-slate-500">Manage all timetable entries for your department</p>
+              </div>
               {user?.role === 'HOD' && (
                 <button
                   onClick={() => {
@@ -447,15 +459,16 @@ export default function DashboardPage() {
                     });
                     setShowTimetableModal(true);
                   }}
-                  className="flex items-center gap-1 text-sm bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition"
+                  className="flex items-center gap-2 text-sm bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition shadow-sm hover:shadow"
                 >
-                  <Plus className="w-4 h-4" /> Update Timetable
+                  <Plus className="w-4 h-4" /> Add Timetable
                 </button>
               )}
             </div>
             
             {timetable.length === 0 ? (
-              <div className="text-center py-8">
+              <div className="text-center py-12 bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
+                <div className="text-4xl mb-3">📋</div>
                 <p className="text-slate-500 text-sm">No timetable entries found</p>
                 {user?.role === 'HOD' && (
                   <button
@@ -469,9 +482,9 @@ export default function DashboardPage() {
                       });
                       setShowTimetableModal(true);
                     }}
-                    className="mt-4 text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+                    className="mt-4 text-sm bg-blue-600 text-white px-5 py-2.5 rounded-lg hover:bg-blue-700 transition inline-flex items-center gap-2"
                   >
-                    <Plus className="w-4 h-4 inline mr-1" /> Add First Entry
+                    <Plus className="w-4 h-4" /> Add First Entry
                   </button>
                 )}
               </div>
@@ -479,27 +492,37 @@ export default function DashboardPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-2">Day</th>
-                      <th className="text-left py-2">Time</th>
-                      <th className="text-left py-2">Subject</th>
-                      <th className="text-left py-2">Faculty</th>
-                      <th className="text-left py-2">Room</th>
-                      <th className="text-left py-2">Class</th>
-                      {user?.role === 'HOD' && <th className="text-left py-2">Actions</th>}
+                    <tr className="border-b bg-slate-50">
+                      <th className="text-left py-2 px-3 font-semibold">#</th>
+                      <th className="text-left py-2 px-3 font-semibold">Day</th>
+                      <th className="text-left py-2 px-3 font-semibold">Time</th>
+                      <th className="text-left py-2 px-3 font-semibold">Subject</th>
+                      <th className="text-left py-2 px-3 font-semibold">Faculty</th>
+                      <th className="text-left py-2 px-3 font-semibold">Room</th>
+                      <th className="text-left py-2 px-3 font-semibold">Class</th>
+                      {user?.role === 'HOD' && <th className="text-left py-2 px-3 font-semibold">Actions</th>}
                     </tr>
                   </thead>
                   <tbody>
-                    {timetable.map((entry) => (
-                      <tr key={entry._id} className="border-b hover:bg-slate-50">
-                        <td className="py-2">{entry.day}</td>
-                        <td className="py-2">{entry.startTime}-{entry.endTime}</td>
-                        <td className="py-2 font-medium">{entry.subject}</td>
-                        <td className="py-2">{entry.faculty}</td>
-                        <td className="py-2">{entry.roomId?.name}</td>
-                        <td className="py-2 text-xs">{entry.classGroup}</td>
+                    {timetable.map((entry, index) => (
+                      <tr key={entry._id} className="border-b hover:bg-blue-50/30 transition">
+                        <td className="py-2 px-3 text-slate-500">{index + 1}</td>
+                        <td className="py-2 px-3 font-medium">{entry.day}</td>
+                        <td className="py-2 px-3">{entry.startTime} - {entry.endTime}</td>
+                        <td className="py-2 px-3 font-medium text-blue-700">{entry.subject}</td>
+                        <td className="py-2 px-3">{entry.faculty}</td>
+                        <td className="py-2 px-3">
+                          <span className="bg-slate-100 px-2 py-1 rounded text-xs">
+                            {entry.roomId?.name}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-xs">
+                          <span className="bg-amber-50 text-amber-700 px-2 py-1 rounded">
+                            {entry.classGroup}
+                          </span>
+                        </td>
                         {user?.role === 'HOD' && (
-                          <td className="py-2">
+                          <td className="py-2 px-3">
                             <div className="flex gap-1">
                               <button
                                 onClick={() => {
@@ -520,13 +543,15 @@ export default function DashboardPage() {
                                   });
                                   setShowTimetableModal(true);
                                 }}
-                                className="text-blue-600 hover:text-blue-800"
+                                className="text-blue-600 hover:text-blue-800 p-1.5 rounded hover:bg-blue-50 transition"
+                                title="Edit Entry"
                               >
                                 <Edit2 className="w-4 h-4" />
                               </button>
                               <button
                                 onClick={() => handleDeleteTimetableEntry(entry._id)}
-                                className="text-rose-600 hover:text-rose-800"
+                                className="text-rose-600 hover:text-rose-800 p-1.5 rounded hover:bg-rose-50 transition"
+                                title="Delete Entry"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -537,24 +562,38 @@ export default function DashboardPage() {
                     ))}
                   </tbody>
                 </table>
+                <div className="mt-4 text-xs text-slate-500 flex justify-between items-center">
+                  <span>Total: {timetable.length} entries</span>
+                  <span className="text-slate-400">Showing all entries</span>
+                </div>
               </div>
             )}
           </div>
         )}
       </main>
 
-      {/* Timetable Modal - Only for HOD */}
+      {/* ============================================ */}
+      {/* TIMETABLE MODAL - Add/Edit Entries */}
+      {/* ============================================ */}
       {showTimetableModal && user?.role === 'HOD' && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-slate-900">
-                {editingEntry ? 'Edit Timetable Entry' : 'Update Timetable'}
-              </h2>
-              <button onClick={() => {
-                setShowTimetableModal(false);
-                setEditingEntry(null);
-              }} className="text-slate-400 hover:text-slate-600">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">
+                  {editingEntry ? '✏️ Edit Timetable Entry' : '📅 Add New Timetable'}
+                </h2>
+                <p className="text-sm text-slate-500">
+                  {editingEntry ? 'Update the selected timetable entry' : 'Add new entries to the timetable'}
+                </p>
+              </div>
+              <button 
+                onClick={() => {
+                  setShowTimetableModal(false);
+                  setEditingEntry(null);
+                }} 
+                className="text-slate-400 hover:text-slate-600 p-1 rounded hover:bg-slate-100 transition"
+              >
                 <X className="w-6 h-6" />
               </button>
             </div>
@@ -567,8 +606,9 @@ export default function DashboardPage() {
                     type="text"
                     value={timetableForm.department}
                     onChange={(e) => setTimetableForm({ ...timetableForm, department: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                    className="w-full px-3 py-2 border rounded-lg text-sm bg-slate-50"
                     required
+                    disabled={!!editingEntry}
                   />
                 </div>
                 <div>
@@ -576,7 +616,8 @@ export default function DashboardPage() {
                   <select
                     value={timetableForm.semester}
                     onChange={(e) => setTimetableForm({ ...timetableForm, semester: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                    className="w-full px-3 py-2 border rounded-lg text-sm bg-slate-50"
+                    disabled={!!editingEntry}
                   >
                     <option value="1st">1st</option>
                     <option value="2nd">2nd</option>
@@ -593,7 +634,8 @@ export default function DashboardPage() {
                   <select
                     value={timetableForm.section}
                     onChange={(e) => setTimetableForm({ ...timetableForm, section: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                    className="w-full px-3 py-2 border rounded-lg text-sm bg-slate-50"
+                    disabled={!!editingEntry}
                   >
                     <option value="A">A</option>
                     <option value="B">B</option>
@@ -609,22 +651,23 @@ export default function DashboardPage() {
                   <button
                     type="button"
                     onClick={handleAddTimetableEntry}
-                    className="text-sm text-blue-600 hover:text-blue-700"
+                    className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1 font-medium"
                   >
-                    + Add Entry
+                    <Plus className="w-4 h-4" /> Add Row
                   </button>
                 </div>
 
                 <div className="space-y-3">
                   {timetableForm.entries.map((entry, index) => (
-                    <div key={index} className="border rounded-lg p-3 bg-slate-50">
+                    <div key={index} className="border rounded-lg p-3 bg-slate-50 hover:bg-slate-100/50 transition">
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                         <div>
                           <label className="block text-[10px] font-semibold text-slate-600">Day</label>
                           <select
                             value={entry.day}
                             onChange={(e) => handleTimetableEntryChange(index, 'day', e.target.value)}
-                            className="w-full px-2 py-1 border rounded text-xs"
+                            className="w-full px-2 py-1 border rounded text-xs bg-white"
+                            required
                           >
                             <option value="Monday">Monday</option>
                             <option value="Tuesday">Tuesday</option>
@@ -640,7 +683,7 @@ export default function DashboardPage() {
                             type="time"
                             value={entry.startTime}
                             onChange={(e) => handleTimetableEntryChange(index, 'startTime', e.target.value)}
-                            className="w-full px-2 py-1 border rounded text-xs"
+                            className="w-full px-2 py-1 border rounded text-xs bg-white"
                             required
                           />
                         </div>
@@ -650,15 +693,16 @@ export default function DashboardPage() {
                             type="time"
                             value={entry.endTime}
                             onChange={(e) => handleTimetableEntryChange(index, 'endTime', e.target.value)}
-                            className="w-full px-2 py-1 border rounded text-xs"
+                            className="w-full px-2 py-1 border rounded text-xs bg-white"
                             required
                           />
                         </div>
-                        <div className="flex items-end">
+                        <div className="flex items-end justify-end">
                           <button
                             type="button"
                             onClick={() => handleRemoveTimetableEntry(index)}
-                            className="text-rose-500 hover:text-rose-700 text-sm px-2 py-1"
+                            className="text-rose-500 hover:text-rose-700 p-1 rounded hover:bg-rose-50 transition"
+                            title="Remove Entry"
                           >
                             <X className="w-4 h-4" />
                           </button>
@@ -671,7 +715,7 @@ export default function DashboardPage() {
                             type="text"
                             value={entry.subject}
                             onChange={(e) => handleTimetableEntryChange(index, 'subject', e.target.value)}
-                            className="w-full px-2 py-1 border rounded text-xs"
+                            className="w-full px-2 py-1 border rounded text-xs bg-white"
                             placeholder="e.g., Data Structures"
                             required
                           />
@@ -681,7 +725,7 @@ export default function DashboardPage() {
                           <select
                             value={entry.roomId}
                             onChange={(e) => handleTimetableEntryChange(index, 'roomId', e.target.value)}
-                            className="w-full px-2 py-1 border rounded text-xs"
+                            className="w-full px-2 py-1 border rounded text-xs bg-white"
                             required
                           >
                             <option value="">Select Room</option>
@@ -696,7 +740,7 @@ export default function DashboardPage() {
                             type="text"
                             value={entry.faculty}
                             onChange={(e) => handleTimetableEntryChange(index, 'faculty', e.target.value)}
-                            className="w-full px-2 py-1 border rounded text-xs"
+                            className="w-full px-2 py-1 border rounded text-xs bg-white"
                             placeholder="Dr. Name"
                             required
                           />
@@ -708,7 +752,7 @@ export default function DashboardPage() {
                           type="text"
                           value={entry.classGroup}
                           onChange={(e) => handleTimetableEntryChange(index, 'classGroup', e.target.value)}
-                          className="w-full px-2 py-1 border rounded text-xs"
+                          className="w-full px-2 py-1 border rounded text-xs bg-white"
                           placeholder="e.g., CS-3A"
                           required
                         />
@@ -719,17 +763,17 @@ export default function DashboardPage() {
               </div>
 
               <div className="text-sm text-slate-600 bg-amber-50 border border-amber-200 p-3 rounded-lg mb-4">
-                <p className="font-medium">⚠️ Note:</p>
-                <p>Any existing bookings that conflict with this timetable will be automatically cancelled and affected professors will be notified.</p>
+                <p className="font-medium flex items-center gap-1">⚠️ Note:</p>
+                <p className="text-xs">Any existing bookings that conflict with this timetable will be automatically cancelled and affected professors will be notified via email.</p>
               </div>
 
               <div className="flex gap-3">
                 <button
                   type="submit"
                   disabled={addingEntry}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-4 rounded-lg transition disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  {addingEntry ? <><Loader className="w-4 h-4 animate-spin" /> Updating...</> : 'Update Timetable'}
+                  {addingEntry ? <><Loader className="w-4 h-4 animate-spin" /> Updating...</> : editingEntry ? 'Update Entry' : 'Add Timetable'}
                 </button>
                 <button
                   type="button"
@@ -737,7 +781,7 @@ export default function DashboardPage() {
                     setShowTimetableModal(false);
                     setEditingEntry(null);
                   }}
-                  className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold py-2 px-4 rounded-lg transition"
+                  className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold py-2.5 px-4 rounded-lg transition"
                 >
                   Cancel
                 </button>
