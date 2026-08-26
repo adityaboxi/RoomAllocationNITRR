@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { roomAPI, bookingAPI, timetableAPI } from '../../services/api';
 import Navbar from '../common/Navbar';
-import { Clock, AlertCircle, Plus, Loader, X, CheckCircle2, Edit2, Trash2 } from 'lucide-react';
+import { Clock, AlertCircle, Plus, Loader, X, Edit2, Trash2 } from 'lucide-react';
+import toast, { Toaster } from 'react-hot-toast';
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -15,16 +16,21 @@ export default function DashboardPage() {
   const [activeTime, setActiveTime] = useState('10:30');
   const [view, setView] = useState('dashboard');
   const [error, setError] = useState('');
+  
+  // Timetable Modal State
   const [showTimetableModal, setShowTimetableModal] = useState(false);
   const [editingEntry, setEditingEntry] = useState(null);
+  const [addingEntry, setAddingEntry] = useState(false);
   const [timetableForm, setTimetableForm] = useState({
     department: user?.department || '',
     semester: '3rd',
     section: 'A',
     entries: [{ day: 'Monday', startTime: '09:00', endTime: '10:00', subject: '', roomId: '', classGroup: '', faculty: '' }]
   });
-  const [addingEntry, setAddingEntry] = useState(false);
-  const [showSuccess, setShowSuccess] = useState(null);
+
+  // Booking Modal State
+  const [bookingModal, setBookingModal] = useState({ isOpen: false, roomId: null, roomName: '' });
+  const [bookingForm, setBookingForm] = useState({ startTime: '14:00', endTime: '15:00', purpose: '' });
 
   useEffect(() => {
     fetchData();
@@ -96,62 +102,76 @@ export default function DashboardPage() {
     return { status: 'available', label: 'Available', sub: 'Ready for booking' };
   };
 
-  const handleBookRoom = async (roomId) => {
+  // ============================================
+  // BOOKING MANAGEMENT
+  // ============================================
+
+  const openBookingModal = (roomId, roomName) => {
+    setBookingModal({ isOpen: true, roomId, roomName });
+    setBookingForm({ startTime: '14:00', endTime: '15:00', purpose: '' });
+  };
+
+  const submitBooking = async (e) => {
+    e.preventDefault();
+    setLoading(true);
     try {
-      setLoading(true);
       const today = new Date().toISOString().split('T')[0];
       
       const maxDate = new Date();
       maxDate.setDate(maxDate.getDate() + 7);
       const selectedDate = new Date(today);
       if (selectedDate > maxDate) {
-        alert('Cannot book more than 7 days in advance');
+        toast.error('Cannot book more than 7 days in advance');
         setLoading(false);
         return;
       }
 
-      const startTime = prompt('Enter start time (HH:MM):', '14:00');
-      if (!startTime) return;
-      const endTime = prompt('Enter end time (HH:MM):', '15:00');
-      if (!endTime) return;
-      const purpose = prompt('Enter purpose:', 'Extra Class');
-      if (!purpose) return;
-
-      const [sH, sM] = startTime.split(':').map(Number);
-      const [eH, eM] = endTime.split(':').map(Number);
+      const [sH, sM] = bookingForm.startTime.split(':').map(Number);
+      const [eH, eM] = bookingForm.endTime.split(':').map(Number);
       const durationMinutes = (eH * 60 + eM) - (sH * 60 + sM);
       if (durationMinutes < 30) {
-        alert('Booking must be at least 30 minutes');
+        toast.error('Booking must be at least 30 minutes');
         setLoading(false);
         return;
       }
 
-      await bookingAPI.create({
-        roomId,
+      // 1. Acquire Lock
+      const lockRes = await bookingAPI.lock({
+        roomId: bookingModal.roomId,
         date: today,
-        startTime,
-        endTime,
-        purpose,
+        startTime: bookingForm.startTime,
+        endTime: bookingForm.endTime
       });
 
-      alert('✅ Room booked successfully!');
+      // 2. Create Booking using the acquired lockId
+      await bookingAPI.create({
+        roomId: bookingModal.roomId,
+        date: today,
+        startTime: bookingForm.startTime,
+        endTime: bookingForm.endTime,
+        purpose: bookingForm.purpose,
+        lockId: lockRes.data.lockId 
+      });
+
+      toast.success('Room booked successfully! Confirmation email sent.');
+      setBookingModal({ isOpen: false, roomId: null, roomName: '' });
       await fetchData();
     } catch (err) {
-      alert('❌ Booking failed: ' + (err.response?.data?.message || err.message));
+      toast.error(err.response?.data?.message || 'Booking failed');
     } finally {
       setLoading(false);
     }
   };
 
   const handleCancelBooking = async (bookingId) => {
-    if (!confirm('Are you sure you want to cancel this booking?')) return;
+    if (!window.confirm('Are you sure you want to cancel this booking?')) return;
     try {
       setLoading(true);
       await bookingAPI.cancel(bookingId);
       await fetchData();
-      alert('✅ Booking cancelled successfully!');
+      toast.success('Booking cancelled successfully!');
     } catch (err) {
-      alert('❌ Failed to cancel: ' + (err.response?.data?.message || err.message));
+      toast.error(err.response?.data?.message || 'Failed to cancel booking');
     } finally {
       setLoading(false);
     }
@@ -179,7 +199,7 @@ export default function DashboardPage() {
 
   const handleRemoveTimetableEntry = (index) => {
     if (timetableForm.entries.length === 1) {
-      alert('You need at least one entry');
+      toast.error('You need at least one entry');
       return;
     }
     const updatedEntries = timetableForm.entries.filter((_, i) => i !== index);
@@ -190,58 +210,74 @@ export default function DashboardPage() {
     e.preventDefault();
     setAddingEntry(true);
     setError('');
+    
     try {
       const filteredEntries = timetableForm.entries.filter(e => e.subject && e.roomId);
       
       if (filteredEntries.length === 0) {
-        alert('Please add at least one valid entry with subject and room');
+        toast.error('Please add at least one valid entry with subject and room');
         setAddingEntry(false);
         return;
       }
 
-      const response = await timetableAPI.create({
-        department: timetableForm.department,
-        semester: timetableForm.semester,
-        section: timetableForm.section,
-        entries: filteredEntries
-      });
+      if (editingEntry) {
+        // --- EDIT MODE (PUT) ---
+        const entryToUpdate = filteredEntries[0];
+        const updatePayload = {
+          startTime: entryToUpdate.startTime,
+          endTime: entryToUpdate.endTime,
+          subject: entryToUpdate.subject,
+          roomId: entryToUpdate.roomId,
+          classGroup: entryToUpdate.classGroup,
+          faculty: entryToUpdate.faculty
+        };
 
-      if (response.data.success) {
-        const msg = `✅ Timetable updated! ${response.data.data.entriesAdded} entries added, ${response.data.data.bookingsCancelled} bookings auto-cancelled due to conflicts.`;
-        setShowSuccess(msg);
-        setShowTimetableModal(false);
-        setTimetableForm({
-          department: user?.department || '',
-          semester: '3rd',
-          section: 'A',
-          entries: [{ day: 'Monday', startTime: '09:00', endTime: '10:00', subject: '', roomId: '', classGroup: '', faculty: '' }]
+        await timetableAPI.update(editingEntry._id, updatePayload);
+        toast.success('Timetable entry updated successfully!');
+      } else {
+        // --- CREATE MODE (POST) ---
+        const response = await timetableAPI.create({
+          department: timetableForm.department,
+          semester: timetableForm.semester,
+          section: timetableForm.section,
+          entries: filteredEntries
         });
-        setEditingEntry(null);
-        await fetchData();
-        setTimeout(() => setShowSuccess(null), 5000);
+
+        toast.success(`Timetable updated! ${response.data.data.entriesAdded} entries added, ${response.data.data.bookingsCancelled} bookings auto-cancelled.`);
       }
+
+      setShowTimetableModal(false);
+      setTimetableForm({
+        department: user?.department || '',
+        semester: '3rd',
+        section: 'A',
+        entries: [{ day: 'Monday', startTime: '09:00', endTime: '10:00', subject: '', roomId: '', classGroup: '', faculty: '' }]
+      });
+      setEditingEntry(null);
+      await fetchData();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to update timetable');
+      toast.error(err.response?.data?.message || 'Failed to save timetable');
     } finally {
       setAddingEntry(false);
     }
   };
 
   const handleDeleteTimetableEntry = async (entryId) => {
-    if (!confirm('Are you sure you want to delete this timetable entry?')) return;
+    if (!window.confirm('Are you sure you want to delete this timetable entry?')) return;
     try {
       setLoading(true);
       await timetableAPI.delete(entryId);
       await fetchData();
-      alert('✅ Timetable entry deleted successfully!');
+      toast.success('Timetable entry deleted successfully!');
     } catch (err) {
-      alert('❌ Failed to delete: ' + (err.response?.data?.message || err.message));
+      toast.error(err.response?.data?.message || 'Failed to delete entry');
     } finally {
       setLoading(false);
     }
   };
 
-  if (loading) {
+  // Prevent full-page loading spinner if a modal is currently open to avoid UX flash
+  if (loading && !bookingModal.isOpen && !showTimetableModal) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center">
@@ -255,19 +291,14 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <Navbar />
+      <Toaster position="top-right" />
+      
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
         {error && (
           <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-sm flex items-center gap-2">
             <AlertCircle className="w-5 h-5" />
             {error}
-          </div>
-        )}
-
-        {showSuccess && (
-          <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 text-sm flex items-center gap-2">
-            <CheckCircle2 className="w-5 h-5" />
-            {showSuccess}
           </div>
         )}
 
@@ -376,7 +407,7 @@ export default function DashboardPage() {
                   </div>
 
                   <button
-                    onClick={() => handleBookRoom(room._id)}
+                    onClick={() => openBookingModal(room._id, room.name)}
                     disabled={!isAvailable}
                     className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold transition-all ${
                       isAvailable
@@ -438,7 +469,7 @@ export default function DashboardPage() {
         )}
 
         {/* ============================================ */}
-        {/* TIMETABLE VIEW - WITH ADD TIMETABLE BUTTON */}
+        {/* TIMETABLE VIEW */}
         {/* ============================================ */}
         {view === 'timetable' && (
           <div className="bg-white rounded-2xl border p-6">
@@ -576,7 +607,7 @@ export default function DashboardPage() {
       {/* TIMETABLE MODAL - Add/Edit Entries */}
       {/* ============================================ */}
       {showTimetableModal && user?.role === 'HOD' && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-40 p-4">
           <div className="bg-white rounded-2xl p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <div>
@@ -616,7 +647,7 @@ export default function DashboardPage() {
                   <select
                     value={timetableForm.semester}
                     onChange={(e) => setTimetableForm({ ...timetableForm, semester: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-lg text-sm bg-slate-50"
+                    className={`w-full px-3 py-2 border rounded-lg text-sm ${!!editingEntry ? 'bg-slate-100 cursor-not-allowed' : 'bg-slate-50'}`}
                     disabled={!!editingEntry}
                   >
                     <option value="1st">1st</option>
@@ -634,7 +665,7 @@ export default function DashboardPage() {
                   <select
                     value={timetableForm.section}
                     onChange={(e) => setTimetableForm({ ...timetableForm, section: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-lg text-sm bg-slate-50"
+                    className={`w-full px-3 py-2 border rounded-lg text-sm ${!!editingEntry ? 'bg-slate-100 cursor-not-allowed' : 'bg-slate-50'}`}
                     disabled={!!editingEntry}
                   >
                     <option value="A">A</option>
@@ -648,13 +679,15 @@ export default function DashboardPage() {
               <div className="mb-4">
                 <div className="flex justify-between items-center mb-2">
                   <h4 className="font-semibold text-sm">Timetable Entries</h4>
-                  <button
-                    type="button"
-                    onClick={handleAddTimetableEntry}
-                    className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1 font-medium"
-                  >
-                    <Plus className="w-4 h-4" /> Add Row
-                  </button>
+                  {!editingEntry && (
+                    <button
+                      type="button"
+                      onClick={handleAddTimetableEntry}
+                      className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1 font-medium"
+                    >
+                      <Plus className="w-4 h-4" /> Add Row
+                    </button>
+                  )}
                 </div>
 
                 <div className="space-y-3">
@@ -666,8 +699,9 @@ export default function DashboardPage() {
                           <select
                             value={entry.day}
                             onChange={(e) => handleTimetableEntryChange(index, 'day', e.target.value)}
-                            className="w-full px-2 py-1 border rounded text-xs bg-white"
+                            className={`w-full px-2 py-1 border rounded text-xs ${!!editingEntry ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'}`}
                             required
+                            disabled={!!editingEntry}
                           >
                             <option value="Monday">Monday</option>
                             <option value="Tuesday">Tuesday</option>
@@ -698,14 +732,16 @@ export default function DashboardPage() {
                           />
                         </div>
                         <div className="flex items-end justify-end">
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveTimetableEntry(index)}
-                            className="text-rose-500 hover:text-rose-700 p-1 rounded hover:bg-rose-50 transition"
-                            title="Remove Entry"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
+                          {!editingEntry && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveTimetableEntry(index)}
+                              className="text-rose-500 hover:text-rose-700 p-1 rounded hover:bg-rose-50 transition"
+                              title="Remove Entry"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
@@ -790,6 +826,72 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* ============================================ */}
+      {/* BOOKING MODAL */}
+      {/* ============================================ */}
+      {bookingModal.isOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl">
+            <h2 className="text-xl font-bold mb-1 text-slate-900">Book {bookingModal.roomName}</h2>
+            <p className="text-xs text-slate-500 mb-5">Select a time slot. Minimum 30 minutes required.</p>
+            
+            <form onSubmit={submitBooking} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Start Time</label>
+                  <input 
+                    type="time" 
+                    required 
+                    value={bookingForm.startTime} 
+                    onChange={e => setBookingForm({...bookingForm, startTime: e.target.value})} 
+                    className="w-full border border-slate-300 p-2.5 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">End Time</label>
+                  <input 
+                    type="time" 
+                    required 
+                    value={bookingForm.endTime} 
+                    onChange={e => setBookingForm({...bookingForm, endTime: e.target.value})} 
+                    className="w-full border border-slate-300 p-2.5 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none" 
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Purpose</label>
+                <input 
+                  type="text" 
+                  required 
+                  placeholder="e.g., Remedial Class, Extra Lab" 
+                  value={bookingForm.purpose} 
+                  onChange={e => setBookingForm({...bookingForm, purpose: e.target.value})} 
+                  className="w-full border border-slate-300 p-2.5 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none" 
+                />
+              </div>
+              
+              <div className="flex gap-3 pt-4 border-t border-slate-100">
+                <button 
+                  type="button" 
+                  onClick={() => setBookingModal({ isOpen: false, roomId: null, roomName: '' })} 
+                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={loading}
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl transition shadow-md shadow-indigo-200 flex justify-center items-center gap-2"
+                >
+                  {loading ? <><Loader className="w-4 h-4 animate-spin" /> Booking...</> : 'Confirm Booking'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

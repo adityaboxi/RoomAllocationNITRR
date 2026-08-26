@@ -7,6 +7,61 @@ import {
   CalendarCheck, Zap, Sparkles, ArrowLeft, Loader
 } from 'lucide-react';
 
+// ============================================
+// STRICT INSTITUTIONAL EMAIL VALIDATOR
+// ============================================
+const validateFacultyAndHodEmail = (email, selectedRole = 'FACULTY') => {
+  if (!email || typeof email !== 'string') {
+    return { isValid: false, message: 'Please enter your institutional email address.' };
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    return { isValid: false, message: 'Please enter a valid email address format.' };
+  }
+
+  const [localPart, domain] = cleanEmail.split('@');
+
+  const publicDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com'];
+  if (publicDomains.includes(domain)) {
+    return { isValid: false, message: 'Personal email addresses are prohibited. Please use your official @nitrr.ac.in ID.' };
+  }
+
+  const isNitrrDomain = domain === 'nitrr.ac.in' || domain.endsWith('.nitrr.ac.in');
+  if (!isNitrrDomain) {
+    return { isValid: false, message: 'Access Denied: Only official NIT Raipur email addresses are permitted.' };
+  }
+
+  const hasRollNumber = /\d{6,9}/.test(localPart);
+  const hasStudentBatchTag = /\.(btech|mtech|mca|barch|phd)\d{2,4}/i.test(localPart);
+  const isStudentSubdomain = domain.includes('student');
+
+  if (hasRollNumber || hasStudentBatchTag || isStudentSubdomain) {
+    return { isValid: false, message: 'Access Denied: Student accounts are not authorized to access the Faculty Room Booking portal.' };
+  }
+
+  const isHodEmail = localPart.startsWith('hod.') || localPart.startsWith('head.') || localPart === 'hod';
+  
+  if (selectedRole === 'HOD') {
+    if (!isHodEmail) {
+      return { isValid: false, message: 'Access Denied: Only official Head of Department accounts (e.g. hod.cs@nitrr.ac.in) can access the HOD portal.' };
+    }
+  }
+
+  if (selectedRole === 'FACULTY') {
+    if (isHodEmail) {
+      return { isValid: false, message: 'This is an official HOD email address. Please switch to the HOD authorization role above.' };
+    }
+    const facultyPattern = /^[a-z]+(\.[a-z]+)*$/;
+    if (!facultyPattern.test(localPart)) {
+      return { isValid: false, message: 'Invalid Faculty ID format. Please use: initials.dept@nitrr.ac.in (e.g., dssisodia.cs@nitrr.ac.in).' };
+    }
+  }
+
+  return { isValid: true, message: '' };
+};
+
 const departments = [
   { code: 'cs', name: 'Computer Science (CSE)' },
   { code: 'it', name: 'Information Technology (IT)' },
@@ -56,10 +111,10 @@ export default function AuthPage() {
     setSuccess('');
     setLoading(true);
 
-    // Updated email validation - allow @cse.nitrr.ac.in and @gmail.com
-    const isValidEmail = formData.email.endsWith('@cse.nitrr.ac.in') || formData.email.endsWith('@gmail.com');
-    if (!isValidEmail) {
-      setError('Only @cse.nitrr.ac.in or @gmail.com email addresses are allowed');
+    // Run strict institutional validation
+    const emailCheck = validateFacultyAndHodEmail(formData.email, role);
+    if (!emailCheck.isValid) {
+      setError(emailCheck.message);
       setLoading(false);
       return;
     }
@@ -81,19 +136,19 @@ export default function AuthPage() {
         setError(result.error);
       }
     } else if (view === 'signup') {
-      // Password validation - backend requires min 8 chars
-      if (formData.password.length < 8) {
-        setError('Password must be at least 8 characters');
+      const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+      if (!passwordRegex.test(formData.password)) {
+        setError('Password must contain at least one uppercase letter, lowercase letter, number, and special character.');
         setLoading(false);
         return;
       }
+
       if (formData.password !== formData.confirmPassword) {
         setError('Passwords do not match');
         setLoading(false);
         return;
       }
 
-      // Send data matching backend expectations
       const result = await signup({
         name: formData.name,
         email: formData.email,
@@ -121,6 +176,13 @@ export default function AuthPage() {
     setLoading(true);
 
     if (resetStep === 'email') {
+      const emailCheck = validateFacultyAndHodEmail(resetEmail, role);
+      if (!emailCheck.isValid) {
+        setError(emailCheck.message);
+        setLoading(false);
+        return;
+      }
+
       const result = await forgotPassword(resetEmail);
       if (result.success) {
         setSuccess('OTP sent to your email!');
@@ -138,11 +200,13 @@ export default function AuthPage() {
         setError(result.error);
       }
     } else if (resetStep === 'new') {
-      if (newPassword.length < 8) {
-        setError('Password must be at least 8 characters');
+      const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+      if (!passwordRegex.test(newPassword)) {
+        setError('Password must contain at least one uppercase letter, lowercase letter, number, and special character.');
         setLoading(false);
         return;
       }
+      
       if (newPassword !== confirmNewPassword) {
         setError('Passwords do not match');
         setLoading(false);
@@ -188,7 +252,6 @@ export default function AuthPage() {
 
   const passwordStrength = evaluatePasswordStrength(formData.password);
 
-  // Forgot Password View
   if (view === 'forgot') {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
@@ -203,7 +266,7 @@ export default function AuthPage() {
             </div>
             <h2 className="text-xl font-bold text-white">Reset Password</h2>
             <p className="text-sm text-slate-400">
-              {resetStep === 'email' && 'Enter your email to receive OTP'}
+              {resetStep === 'email' && 'Enter your institutional email to receive OTP'}
               {resetStep === 'otp' && 'Enter the 6-digit OTP sent to your email'}
               {resetStep === 'new' && 'Set your new password'}
             </p>
@@ -218,7 +281,7 @@ export default function AuthPage() {
                   value={resetEmail}
                   onChange={(e) => setResetEmail(e.target.value)}
                   className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white focus:ring-2 focus:ring-blue-500 outline-none transition"
-                  placeholder="you@cse.nitrr.ac.in or you@gmail.com"
+                  placeholder="name.dept@nitrr.ac.in"
                   required
                 />
               </div>
@@ -249,7 +312,7 @@ export default function AuthPage() {
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white focus:ring-2 focus:ring-blue-500 outline-none transition"
-                    placeholder="Min 8 characters"
+                    placeholder="Min 8 characters, include special char"
                     required
                   />
                 </div>
@@ -295,7 +358,6 @@ export default function AuthPage() {
     );
   }
 
-  // Login/Signup View
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
       <div className="w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden grid grid-cols-1 lg:grid-cols-12 min-h-[580px]">
@@ -467,11 +529,11 @@ export default function AuthPage() {
 
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-semibold text-slate-700">Email Address</label>
+                <label className="block text-xs font-semibold text-slate-700">Institutional Email</label>
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                   role === 'HOD' ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800'
                 }`}>
-                  @cse.nitrr.ac.in or @gmail.com
+                  @nitrr.ac.in only
                 </span>
               </div>
               <div className="relative">
@@ -481,7 +543,7 @@ export default function AuthPage() {
                   name="email"
                   value={formData.email}
                   onChange={handleInputChange}
-                  placeholder={role === 'HOD' ? 'hod@cse.nitrr.ac.in' : 'faculty@gmail.com'}
+                  placeholder={role === 'HOD' ? 'hod.cs@nitrr.ac.in' : 'dssisodia.cs@nitrr.ac.in'}
                   className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition"
                   required
                 />
