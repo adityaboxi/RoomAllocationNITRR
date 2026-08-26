@@ -4,7 +4,6 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 const app = express();
@@ -114,7 +113,9 @@ const RoomSchema = new mongoose.Schema({
   capacity: { type: Number, required: true, min: 1 },
   type: { type: String, enum: ['Classroom', 'Lab', 'Auditorium', 'Lecture Hall'], required: true },
   floor: { type: String, required: true },
+  department: { type: String, required: true },
   isActive: { type: Boolean, default: true },
+  isAvailable: { type: Boolean, default: true },
 }, { timestamps: true });
 
 RoomSchema.set('toJSON', {
@@ -137,7 +138,12 @@ const TimetableSchema = new mongoose.Schema({
   subject: { type: String, required: true, trim: true },
   classGroup: { type: String, required: true, trim: true },
   faculty: { type: String, required: true, trim: true },
+  semester: { type: String, enum: ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'], required: true },
+  section: { type: String, enum: ['A', 'B', 'C', 'D'], required: true },
+  department: { type: String, required: true },
   isActive: { type: Boolean, default: true },
+  version: { type: Number, default: 1 },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
 TimetableSchema.set('toJSON', {
@@ -155,13 +161,23 @@ const Timetable = mongoose.model('Timetable', TimetableSchema);
 const BookingSchema = new mongoose.Schema({
   roomId: { type: mongoose.Schema.Types.ObjectId, ref: 'Room', required: true },
   date: { type: String, required: true },
+  day: { type: String, enum: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'], required: true },
   startTime: { type: String, required: true },
   endTime: { type: String, required: true },
   facultyName: { type: String, required: true, trim: true },
   facultyEmail: { type: String, required: true, trim: true },
   purpose: { type: String, required: true, trim: true },
-  status: { type: String, enum: ['active', 'cancelled', 'completed'], default: 'active' },
+  comment: { type: String, default: 'No comment provided' },
+  department: { type: String, required: true },
+  status: { type: String, enum: ['active', 'cancelled', 'completed', 'conflict'], default: 'active' },
+  conflictMessage: { type: String, default: '' },
+  lockId: { type: String, sparse: true },
+  lockedAt: { type: Date },
+  notified: { type: Boolean, default: false }
 }, { timestamps: true });
+
+BookingSchema.index({ roomId: 1, date: 1, startTime: 1, endTime: 1 }, { unique: true });
+BookingSchema.index({ lockedAt: 1 }, { expireAfterSeconds: 300 });
 
 BookingSchema.set('toJSON', {
   transform: function(doc, ret) {
@@ -174,7 +190,7 @@ BookingSchema.set('toJSON', {
 
 const Booking = mongoose.model('Booking', BookingSchema);
 
-// 5. OTP SCHEMA (for future use)
+// 5. OTP SCHEMA
 const OTPSchema = new mongoose.Schema({
   email: { type: String, required: true, index: true },
   otp: { type: String, required: true },
@@ -223,6 +239,18 @@ const protect = async (req, res, next) => {
       message: 'Invalid token' 
     });
   }
+};
+
+const authorize = (...roles) => {
+  return (req, res, next) => {
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({ 
+        success: false, 
+        message: `Role ${req.user.role} not authorized` 
+      });
+    }
+    next();
+  };
 };
 
 // ============================================
@@ -383,15 +411,160 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       });
     }
 
+    const otp = generateOTP();
+    await OTP.create({
+      email,
+      otp,
+      purpose: 'forgot',
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000)
+    });
+
     res.json({
       success: true,
-      message: 'Password reset instructions sent to your email'
+      message: 'OTP sent for password reset',
+      expiresIn: '5 minutes'
     });
   } catch (error) {
     console.error('Forgot password error:', error);
     res.status(500).json({ 
       success: false, 
       message: 'Server error' 
+    });
+  }
+});
+
+// VERIFY RESET OTP
+app.post('/api/auth/verify-reset-otp', async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and OTP required'
+      });
+    }
+
+    const otpDoc = await OTP.findOne({
+      email,
+      purpose: 'forgot',
+      otp,
+      verified: false
+    });
+
+    if (!otpDoc) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid OTP'
+      });
+    }
+
+    if (otpDoc.expiresAt < new Date()) {
+      await OTP.deleteOne({ _id: otpDoc._id });
+      return res.status(400).json({
+        success: false,
+        message: 'OTP expired'
+      });
+    }
+
+    if (otpDoc.attempts >= 3) {
+      await OTP.deleteOne({ _id: otpDoc._id });
+      return res.status(400).json({
+        success: false,
+        message: 'Too many failed attempts'
+      });
+    }
+
+    if (otpDoc.otp !== otp) {
+      otpDoc.attempts += 1;
+      await otpDoc.save();
+      const remaining = 3 - otpDoc.attempts;
+      return res.status(400).json({
+        success: false,
+        message: `Invalid OTP. ${remaining} attempts remaining.`
+      });
+    }
+
+    otpDoc.verified = true;
+    await otpDoc.save();
+
+    const resetToken = jwt.sign(
+      { email },
+      process.env.JWT_SECRET + 'reset',
+      { expiresIn: '10m' }
+    );
+
+    res.json({
+      success: true,
+      message: 'OTP verified successfully',
+      resetToken
+    });
+  } catch (error) {
+    console.error('Verify reset OTP error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'OTP verification failed'
+    });
+  }
+});
+
+// RESET PASSWORD
+app.post('/api/auth/reset-password', async (req, res) => {
+  try {
+    const { email, resetToken, newPassword, confirmPassword } = req.body;
+
+    if (!email || !resetToken || !newPassword || !confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'All fields are required'
+      });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Passwords do not match'
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters'
+      });
+    }
+
+    try {
+      jwt.verify(resetToken, process.env.JWT_SECRET + 'reset');
+    } catch {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid or expired reset token'
+      });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    user.password = newPassword;
+    await user.save();
+
+    await OTP.deleteMany({ email, purpose: 'forgot' });
+
+    res.json({
+      success: true,
+      message: 'Password reset successfully'
+    });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Password reset failed'
     });
   }
 });
@@ -426,7 +599,11 @@ app.get('/api/auth/me', protect, async (req, res) => {
 // Get all rooms
 app.get('/api/rooms', protect, async (req, res) => {
   try {
-    const rooms = await Room.find({ isActive: true });
+    const { department } = req.query;
+    const query = { isActive: true };
+    if (department) query.department = department;
+    
+    const rooms = await Room.find(query);
     res.json({ success: true, data: rooms });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -446,15 +623,59 @@ app.get('/api/rooms/:id', protect, async (req, res) => {
   }
 });
 
-// Create room (HOD only)
-app.post('/api/rooms', protect, async (req, res) => {
+// Get available rooms for a specific time slot
+app.get('/api/rooms/available', protect, async (req, res) => {
   try {
-    if (req.user.role !== 'HOD') {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'Only HOD can create rooms' 
+    const { date, startTime, endTime, department } = req.query;
+    
+    if (!date || !startTime || !endTime) {
+      return res.status(400).json({
+        success: false,
+        message: 'date, startTime and endTime are required'
       });
     }
+
+    const day = getDayOfWeek(date);
+    const query = { isAvailable: true, isActive: true };
+    if (department) query.department = department;
+
+    const allRooms = await Room.find(query);
+    
+    const bookedRoomIds = await Booking.distinct('roomId', {
+      date: date,
+      status: 'active',
+      startTime: { $lt: endTime },
+      endTime: { $gt: startTime }
+    });
+
+    const timetableRoomIds = await Timetable.distinct('roomId', {
+      day,
+      isActive: true,
+      startTime: { $lt: endTime },
+      endTime: { $gt: startTime }
+    });
+
+    const bookedIds = new Set([
+      ...bookedRoomIds.map(id => id.toString()),
+      ...timetableRoomIds.map(id => id.toString())
+    ]);
+
+    const availableRooms = allRooms.filter(room => !bookedIds.has(room._id.toString()));
+
+    res.json({
+      success: true,
+      data: availableRooms,
+      total: availableRooms.length,
+      unavailable: allRooms.length - availableRooms.length
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Create room (HOD only)
+app.post('/api/rooms', protect, authorize('HOD'), async (req, res) => {
+  try {
     const room = await Room.create(req.body);
     res.status(201).json({ success: true, data: room });
   } catch (error) {
@@ -463,14 +684,8 @@ app.post('/api/rooms', protect, async (req, res) => {
 });
 
 // Update room (HOD only)
-app.put('/api/rooms/:id', protect, async (req, res) => {
+app.put('/api/rooms/:id', protect, authorize('HOD'), async (req, res) => {
   try {
-    if (req.user.role !== 'HOD') {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'Only HOD can update rooms' 
-      });
-    }
     const room = await Room.findByIdAndUpdate(
       req.params.id,
       req.body,
@@ -485,15 +700,28 @@ app.put('/api/rooms/:id', protect, async (req, res) => {
   }
 });
 
-// Delete room (HOD only)
-app.delete('/api/rooms/:id', protect, async (req, res) => {
+// Toggle room availability (HOD only)
+app.put('/api/rooms/:id/toggle', protect, authorize('HOD'), async (req, res) => {
   try {
-    if (req.user.role !== 'HOD') {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'Only HOD can delete rooms' 
-      });
+    const room = await Room.findById(req.params.id);
+    if (!room) {
+      return res.status(404).json({ success: false, message: 'Room not found' });
     }
+    room.isAvailable = !room.isAvailable;
+    await room.save();
+    res.json({
+      success: true,
+      message: `Room availability set to ${room.isAvailable}`,
+      data: room
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Delete room (HOD only)
+app.delete('/api/rooms/:id', protect, authorize('HOD'), async (req, res) => {
+  try {
     const room = await Room.findByIdAndDelete(req.params.id);
     if (!room) {
       return res.status(404).json({ success: false, message: 'Room not found' });
@@ -504,7 +732,7 @@ app.delete('/api/rooms/:id', protect, async (req, res) => {
   }
 });
 
-// Get room availability
+// Get room availability for a specific day and time
 app.get('/api/rooms/:roomId/availability', protect, async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -577,7 +805,18 @@ app.get('/api/rooms/:roomId/availability', protect, async (req, res) => {
 // Get all timetable entries
 app.get('/api/timetable', protect, async (req, res) => {
   try {
-    const entries = await Timetable.find({ isActive: true }).populate('roomId', 'name');
+    const { department, semester, section, day } = req.query;
+    const query = { isActive: true };
+    
+    if (department) query.department = department;
+    if (semester) query.semester = semester;
+    if (section) query.section = section;
+    if (day) query.day = day;
+
+    const entries = await Timetable.find(query)
+      .populate('roomId', 'name')
+      .populate('createdBy', 'name');
+    
     res.json({ success: true, data: entries });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -588,10 +827,16 @@ app.get('/api/timetable', protect, async (req, res) => {
 app.get('/api/timetable/department/:department', protect, async (req, res) => {
   try {
     const { department } = req.params;
-    const entries = await Timetable.find({ 
-      department, 
-      isActive: true 
-    }).populate('roomId', 'name');
+    const { semester, section } = req.query;
+    
+    const query = { department, isActive: true };
+    if (semester) query.semester = semester;
+    if (section) query.section = section;
+
+    const entries = await Timetable.find(query)
+      .populate('roomId', 'name')
+      .sort({ day: 1, startTime: 1 });
+    
     res.json({ success: true, data: entries });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -599,59 +844,251 @@ app.get('/api/timetable/department/:department', protect, async (req, res) => {
 });
 
 // Create timetable entry (HOD only)
-app.post('/api/timetable', protect, async (req, res) => {
+app.post('/api/timetable', protect, authorize('HOD'), async (req, res) => {
   try {
-    if (req.user.role !== 'HOD') {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'Only HOD can manage timetable' 
+    const { department, semester, section, entries } = req.body;
+    
+    if (!department || !semester || !section || !entries || !Array.isArray(entries)) {
+      return res.status(400).json({
+        success: false,
+        message: 'department, semester, section and entries array are required'
       });
     }
-    const entry = await Timetable.create(req.body);
-    res.status(201).json({ success: true, data: entry });
+
+    if (req.user.department !== department) {
+      return res.status(403).json({
+        success: false,
+        message: `You can only manage timetable for your own department (${req.user.department})`
+      });
+    }
+
+    // Validate and create entries
+    const validatedEntries = [];
+    const errors = [];
+
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      const { day, startTime, endTime, subject, roomId, classGroup, faculty } = entry;
+
+      if (!day || !startTime || !endTime || !subject || !roomId || !classGroup || !faculty) {
+        errors.push(`Entry ${i + 1}: All fields are required`);
+        continue;
+      }
+
+      // Check if room exists and belongs to department
+      const room = await Room.findById(roomId);
+      if (!room) {
+        errors.push(`Entry ${i + 1}: Room not found`);
+        continue;
+      }
+      if (room.department !== department) {
+        errors.push(`Entry ${i + 1}: Room ${room.name} does not belong to ${department} department`);
+        continue;
+      }
+
+      if (startTime >= endTime) {
+        errors.push(`Entry ${i + 1}: Start time must be before end time`);
+        continue;
+      }
+
+      validatedEntries.push({
+        roomId,
+        day,
+        startTime,
+        endTime,
+        subject,
+        classGroup,
+        faculty,
+        semester,
+        section,
+        department,
+        createdBy: req.user._id
+      });
+    }
+
+    if (errors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation errors found',
+        errors
+      });
+    }
+
+    // Deactivate old timetable
+    await Timetable.updateMany(
+      { department, semester, section, isActive: true },
+      { isActive: false, version: { $inc: 1 } }
+    );
+
+    // Check for duplicate room usage
+    const roomUsage = new Map();
+    for (const entry of validatedEntries) {
+      const key = `${entry.day}-${entry.roomId.toString()}-${entry.startTime}-${entry.endTime}`;
+      if (roomUsage.has(key)) {
+        return res.status(400).json({
+          success: false,
+          message: `Room is already used at ${entry.day} ${entry.startTime}-${entry.endTime}`
+        });
+      }
+      roomUsage.set(key, true);
+    }
+
+    // Save new entries
+    const createdEntries = await Timetable.insertMany(validatedEntries);
+
+    // Check conflicts with existing bookings
+    const activeBookings = await Booking.find({
+      department,
+      status: 'active'
+    }).populate('roomId');
+
+    const cancelledBookings = [];
+
+    for (const booking of activeBookings) {
+      const bookingDay = getDayOfWeek(booking.date);
+      
+      for (const timetable of createdEntries) {
+        if (timetable.day === bookingDay &&
+            isOverlapping(booking.startTime, booking.endTime, timetable.startTime, timetable.endTime) &&
+            booking.roomId._id.toString() === timetable.roomId.toString()) {
+          
+          booking.status = 'cancelled';
+          booking.conflictMessage = `Room ${booking.roomId.name} is now scheduled for ${timetable.subject} from ${timetable.startTime} to ${timetable.endTime}`;
+          await booking.save();
+          cancelledBookings.push(booking);
+        }
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      message: `Timetable for ${department} department updated successfully`,
+      data: {
+        entriesAdded: createdEntries.length,
+        bookingsCancelled: cancelledBookings.length,
+        entries: createdEntries.map(e => ({
+          id: e.id,
+          day: e.day,
+          startTime: e.startTime,
+          endTime: e.endTime,
+          subject: e.subject,
+          classGroup: e.classGroup,
+          faculty: e.faculty,
+          room: e.roomId
+        })),
+        cancelledBookings: cancelledBookings.map(b => ({
+          id: b.id,
+          room: b.roomId.name,
+          date: b.date,
+          time: `${b.startTime} - ${b.endTime}`,
+          purpose: b.purpose,
+          facultyName: b.facultyName,
+          reason: b.conflictMessage
+        }))
+      }
+    });
   } catch (error) {
+    console.error('Create timetable error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 });
 
 // Update timetable entry (HOD only)
-app.put('/api/timetable/:id', protect, async (req, res) => {
+app.put('/api/timetable/:id', protect, authorize('HOD'), async (req, res) => {
   try {
-    if (req.user.role !== 'HOD') {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'Only HOD can update timetable' 
+    const { id } = req.params;
+    const { startTime, endTime, subject, roomId, classGroup, faculty } = req.body;
+
+    const entry = await Timetable.findById(id);
+    if (!entry) {
+      return res.status(404).json({
+        success: false,
+        message: 'Timetable entry not found'
       });
     }
-    const entry = await Timetable.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    );
-    if (!entry) {
-      return res.status(404).json({ success: false, message: 'Timetable entry not found' });
+
+    if (req.user.department !== entry.department) {
+      return res.status(403).json({
+        success: false,
+        message: `You can only update timetable for your own department`
+      });
     }
-    res.json({ success: true, data: entry });
+
+    if (roomId && roomId !== entry.roomId.toString()) {
+      const room = await Room.findById(roomId);
+      if (!room) {
+        return res.status(404).json({
+          success: false,
+          message: 'Room not found'
+        });
+      }
+      if (room.department !== entry.department) {
+        return res.status(400).json({
+          success: false,
+          message: `Room ${room.name} does not belong to ${entry.department} department`
+        });
+      }
+
+      const existingEntry = await Timetable.findOne({
+        roomId,
+        day: entry.day,
+        isActive: true,
+        startTime: { $lt: endTime || entry.endTime },
+        endTime: { $gt: startTime || entry.startTime },
+        _id: { $ne: id }
+      });
+
+      if (existingEntry) {
+        return res.status(400).json({
+          success: false,
+          message: 'Room is already booked for this time slot'
+        });
+      }
+
+      entry.roomId = roomId;
+    }
+
+    if (startTime) entry.startTime = startTime;
+    if (endTime) entry.endTime = endTime;
+    if (subject) entry.subject = subject;
+    if (classGroup) entry.classGroup = classGroup;
+    if (faculty) entry.faculty = faculty;
+
+    entry.version += 1;
+    await entry.save();
+
+    res.json({
+      success: true,
+      message: 'Timetable entry updated successfully',
+      data: entry
+    });
   } catch (error) {
+    console.error('Update timetable entry error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 });
 
 // Delete timetable entry (HOD only)
-app.delete('/api/timetable/:id', protect, async (req, res) => {
+app.delete('/api/timetable/:id', protect, authorize('HOD'), async (req, res) => {
   try {
-    if (req.user.role !== 'HOD') {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'Only HOD can delete timetable entries' 
-      });
-    }
-    const entry = await Timetable.findByIdAndDelete(req.params.id);
+    const entry = await Timetable.findById(req.params.id);
     if (!entry) {
       return res.status(404).json({ success: false, message: 'Timetable entry not found' });
     }
+
+    if (req.user.department !== entry.department) {
+      return res.status(403).json({
+        success: false,
+        message: `You can only delete timetable for your own department`
+      });
+    }
+
+    entry.isActive = false;
+    await entry.save();
+
     res.json({ success: true, message: 'Timetable entry deleted successfully' });
   } catch (error) {
+    console.error('Delete timetable entry error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 });
@@ -663,7 +1100,17 @@ app.delete('/api/timetable/:id', protect, async (req, res) => {
 // Get all bookings
 app.get('/api/bookings', protect, async (req, res) => {
   try {
-    const bookings = await Booking.find().populate('roomId', 'name');
+    const { status, department, date } = req.query;
+    const query = {};
+    
+    if (status) query.status = status;
+    if (department) query.department = department;
+    if (date) query.date = date;
+
+    const bookings = await Booking.find(query)
+      .populate('roomId', 'name')
+      .sort({ createdAt: -1 });
+    
     res.json({ success: true, data: bookings });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -675,8 +1122,32 @@ app.get('/api/bookings/my', protect, async (req, res) => {
   try {
     const bookings = await Booking.find({ 
       facultyEmail: req.user.email 
-    }).populate('roomId', 'name');
+    }).populate('roomId', 'name').sort({ date: -1, startTime: -1 });
+    
     res.json({ success: true, data: bookings });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Get booking by ID
+app.get('/api/bookings/:id', protect, async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.id)
+      .populate('roomId', 'name');
+    
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
+
+    if (booking.facultyEmail !== req.user.email && req.user.role !== 'HOD') {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Not authorized to view this booking' 
+      });
+    }
+
+    res.json({ success: true, data: booking });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -685,7 +1156,7 @@ app.get('/api/bookings/my', protect, async (req, res) => {
 // Create booking
 app.post('/api/bookings', protect, async (req, res) => {
   try {
-    const { roomId, date, startTime, endTime, purpose } = req.body;
+    const { roomId, date, startTime, endTime, purpose, comment } = req.body;
 
     if (!roomId || !date || !startTime || !endTime || !purpose) {
       return res.status(400).json({
@@ -694,7 +1165,23 @@ app.post('/api/bookings', protect, async (req, res) => {
       });
     }
 
-    // Check if room exists
+    if (startTime >= endTime) {
+      return res.status(400).json({
+        success: false,
+        message: 'End time must be after start time'
+      });
+    }
+
+    const bookingDate = new Date(date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (bookingDate < today) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot book in the past'
+      });
+    }
+
     const room = await Room.findById(roomId);
     if (!room) {
       return res.status(404).json({
@@ -702,6 +1189,15 @@ app.post('/api/bookings', protect, async (req, res) => {
         message: 'Room not found'
       });
     }
+
+    if (!room.isAvailable) {
+      return res.status(400).json({
+        success: false,
+        message: 'Room is currently unavailable'
+      });
+    }
+
+    const day = getDayOfWeek(date);
 
     // Check for conflicting bookings
     const conflictingBooking = await Booking.findOne({
@@ -715,12 +1211,12 @@ app.post('/api/bookings', protect, async (req, res) => {
     if (conflictingBooking) {
       return res.status(409).json({
         success: false,
-        message: 'Room is already booked for this time slot'
+        message: `Room is already booked for this time slot`,
+        conflict: true
       });
     }
 
     // Check for timetable conflicts
-    const day = getDayOfWeek(date);
     const timetableConflict = await Timetable.findOne({
       roomId,
       day,
@@ -732,18 +1228,23 @@ app.post('/api/bookings', protect, async (req, res) => {
     if (timetableConflict) {
       return res.status(409).json({
         success: false,
-        message: `Room is scheduled for ${timetableConflict.subject} from ${timetableConflict.startTime} to ${timetableConflict.endTime}`
+        message: `Room is scheduled for ${timetableConflict.subject} from ${timetableConflict.startTime} to ${timetableConflict.endTime}`,
+        conflict: true,
+        timetableConflict
       });
     }
 
     const booking = await Booking.create({
       roomId,
       date,
+      day,
       startTime,
       endTime,
       purpose,
+      comment: comment || 'No comment provided',
       facultyName: req.user.name,
       facultyEmail: req.user.email,
+      department: req.user.department,
       status: 'active'
     });
 
@@ -771,12 +1272,197 @@ app.put('/api/bookings/:id/cancel', protect, async (req, res) => {
         message: 'Not authorized to cancel this booking' 
       });
     }
+
+    if (booking.status === 'cancelled') {
+      return res.status(400).json({
+        success: false,
+        message: 'Booking is already cancelled'
+      });
+    }
+
+    if (booking.status === 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Completed bookings cannot be cancelled'
+      });
+    }
     
     booking.status = 'cancelled';
     await booking.save();
     res.json({ success: true, message: 'Booking cancelled', data: booking });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Lock room for booking
+app.post('/api/bookings/lock', protect, async (req, res) => {
+  try {
+    const { roomId, date, startTime, endTime } = req.body;
+
+    if (!roomId || !date || !startTime || !endTime) {
+      return res.status(400).json({
+        success: false,
+        message: 'roomId, date, startTime and endTime are required'
+      });
+    }
+
+    const day = getDayOfWeek(date);
+    const lockId = generateLockId();
+
+    const existingLock = await Booking.findOne({
+      roomId,
+      date,
+      startTime,
+      endTime,
+      lockedAt: { $exists: true, $ne: null }
+    });
+
+    if (existingLock) {
+      return res.status(409).json({
+        success: false,
+        message: 'Room is currently being booked by another user'
+      });
+    }
+
+    const lock = await Booking.create({
+      roomId,
+      facultyName: req.user.name,
+      facultyEmail: req.user.email,
+      department: req.user.department,
+      date,
+      day,
+      startTime,
+      endTime,
+      purpose: 'LOCKED',
+      comment: 'Room locked for booking',
+      status: 'active',
+      lockId,
+      lockedAt: new Date()
+    });
+
+    res.json({
+      success: true,
+      message: 'Room locked successfully',
+      lockId,
+      expiresIn: '5 minutes',
+      data: lock
+    });
+  } catch (error) {
+    console.error('Lock room error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to lock room',
+      error: error.message
+    });
+  }
+});
+
+// Unlock room
+app.post('/api/bookings/unlock', protect, async (req, res) => {
+  try {
+    const { lockId } = req.body;
+
+    if (!lockId) {
+      return res.status(400).json({
+        success: false,
+        message: 'lockId is required'
+      });
+    }
+
+    const booking = await Booking.findOne({ lockId });
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: 'Lock not found'
+      });
+    }
+
+    if (booking.facultyEmail !== req.user.email && req.user.role !== 'HOD') {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to unlock this room'
+      });
+    }
+
+    await Booking.deleteOne({ lockId });
+
+    res.json({
+      success: true,
+      message: 'Room unlocked successfully'
+    });
+  } catch (error) {
+    console.error('Unlock room error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to unlock room',
+      error: error.message
+    });
+  }
+});
+
+// Get available time slots for a room
+app.get('/api/bookings/available-slots', protect, async (req, res) => {
+  try {
+    const { roomId, date } = req.query;
+
+    if (!roomId || !date) {
+      return res.status(400).json({
+        success: false,
+        message: 'roomId and date are required'
+      });
+    }
+
+    const day = getDayOfWeek(date);
+
+    const bookings = await Booking.find({
+      roomId,
+      date,
+      status: 'active'
+    }).sort({ startTime: 1 });
+
+    const timetableEntries = await Timetable.find({
+      roomId,
+      day,
+      isActive: true
+    }).sort({ startTime: 1 });
+
+    const allSlots = [];
+    for (let hour = 9; hour < 17; hour++) {
+      const start = `${String(hour).padStart(2, '0')}:00`;
+      const end = `${String(hour + 1).padStart(2, '0')}:00`;
+      allSlots.push({ start, end, label: `${start} - ${end}` });
+    }
+
+    const availableSlots = allSlots.filter((slot) => {
+      const isBooked = bookings.some((booking) =>
+        isOverlapping(slot.start, slot.end, booking.startTime, booking.endTime)
+      );
+      const inTimetable = timetableEntries.some((timetable) =>
+        isOverlapping(slot.start, slot.end, timetable.startTime, timetable.endTime)
+      );
+      return !isBooked && !inTimetable;
+    });
+
+    res.json({
+      success: true,
+      data: {
+        date,
+        day,
+        totalSlots: allSlots.length,
+        availableSlots: availableSlots.length,
+        slots: availableSlots,
+        bookedSlots: allSlots.length - availableSlots.length
+      }
+    });
+  } catch (error) {
+    console.error('Get available time slots error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch time slots',
+      error: error.message
+    });
   }
 });
 
@@ -789,30 +1475,39 @@ app.post('/api/seed', async (req, res) => {
     await Timetable.deleteMany({});
     await Booking.deleteMany({});
 
+    // Create rooms
     const rooms = await Room.insertMany([
-      { name: 'CS-101 (Lecture Hall)', capacity: 70, type: 'Lecture Hall', floor: '1st Floor' },
-      { name: 'CS-102 (Smart Classroom)', capacity: 60, type: 'Classroom', floor: '1st Floor' },
-      { name: 'CS-Lab A (Network Lab)', capacity: 35, type: 'Lab', floor: 'Ground Floor' },
-      { name: 'Seminar Hall (Main)', capacity: 120, type: 'Auditorium', floor: '2nd Floor' }
+      { name: 'CS-101 (Lecture Hall)', capacity: 70, type: 'Lecture Hall', floor: '1st Floor', department: 'cs' },
+      { name: 'CS-102 (Smart Classroom)', capacity: 60, type: 'Classroom', floor: '1st Floor', department: 'cs' },
+      { name: 'CS-Lab A (Network Lab)', capacity: 35, type: 'Lab', floor: 'Ground Floor', department: 'cs' },
+      { name: 'Seminar Hall (Main)', capacity: 120, type: 'Auditorium', floor: '2nd Floor', department: 'cs' }
     ]);
 
+    // Create timetable entries
     await Timetable.insertMany([
       { roomId: rooms[0]._id, day: 'Wednesday', startTime: '09:00', endTime: '10:00', 
-        subject: 'Data Structures', classGroup: 'CS-3A', faculty: 'Dr. D. S. Sisodia' },
+        subject: 'Data Structures', classGroup: 'CS-3A', faculty: 'Dr. D. S. Sisodia', 
+        semester: '3rd', section: 'A', department: 'cs' },
       { roomId: rooms[0]._id, day: 'Wednesday', startTime: '10:00', endTime: '11:00', 
-        subject: 'Operating Systems', classGroup: 'CS-5B', faculty: 'Prof. R. Verma' },
+        subject: 'Operating Systems', classGroup: 'CS-5B', faculty: 'Prof. R. Verma', 
+        semester: '5th', section: 'B', department: 'cs' },
       { roomId: rooms[1]._id, day: 'Wednesday', startTime: '11:15', endTime: '12:15', 
-        subject: 'Database Systems', classGroup: 'CS-4A', faculty: 'Dr. P. Sharma' }
+        subject: 'Database Systems', classGroup: 'CS-4A', faculty: 'Dr. P. Sharma', 
+        semester: '4th', section: 'A', department: 'cs' }
     ]);
 
+    // Create a booking
     await Booking.create({
       roomId: rooms[2]._id,
       date: new Date().toISOString().split('T')[0],
+      day: getDayOfWeek(new Date()),
       startTime: '14:00',
       endTime: '15:00',
       facultyName: 'Prof. Rajesh Verma',
       facultyEmail: 'rverma.cs@nitrr.ac.in',
       purpose: 'Remedial Doubt Session',
+      comment: 'For CS-3A students',
+      department: 'cs',
       status: 'active'
     });
 
@@ -839,10 +1534,10 @@ app.get('/', (req, res) => {
     message: '🏫 Room Allocation System API', 
     version: '1.0.0',
     endpoints: {
-      auth: ['POST /api/auth/login', 'POST /api/auth/signup', 'POST /api/auth/forgot-password', 'GET /api/auth/me'],
-      rooms: ['GET /api/rooms', 'GET /api/rooms/:id', 'POST /api/rooms', 'PUT /api/rooms/:id', 'DELETE /api/rooms/:id', 'GET /api/rooms/:roomId/availability'],
-      timetable: ['GET /api/timetable', 'GET /api/timetable/department/:department', 'POST /api/timetable', 'PUT /api/timetable/:id', 'DELETE /api/timetable/:id'],
-      bookings: ['GET /api/bookings', 'GET /api/bookings/my', 'POST /api/bookings', 'PUT /api/bookings/:id/cancel'],
+      auth: ['POST /api/auth/login', 'POST /api/auth/signup', 'POST /api/auth/forgot-password', 'POST /api/auth/verify-reset-otp', 'POST /api/auth/reset-password', 'GET /api/auth/me'],
+      rooms: ['GET /api/rooms', 'GET /api/rooms/:id', 'GET /api/rooms/available', 'POST /api/rooms (HOD)', 'PUT /api/rooms/:id (HOD)', 'PUT /api/rooms/:id/toggle (HOD)', 'DELETE /api/rooms/:id (HOD)', 'GET /api/rooms/:roomId/availability'],
+      timetable: ['GET /api/timetable', 'GET /api/timetable/department/:dept', 'POST /api/timetable (HOD)', 'PUT /api/timetable/:id (HOD)', 'DELETE /api/timetable/:id (HOD)'],
+      bookings: ['GET /api/bookings', 'GET /api/bookings/my', 'GET /api/bookings/:id', 'POST /api/bookings', 'PUT /api/bookings/:id/cancel', 'POST /api/bookings/lock', 'POST /api/bookings/unlock', 'GET /api/bookings/available-slots'],
       seed: ['POST /api/seed']
     }
   });
@@ -868,13 +1563,17 @@ app.listen(PORT, () => {
   console.log(`   POST   /api/auth/login`);
   console.log(`   POST   /api/auth/signup`);
   console.log(`   POST   /api/auth/forgot-password`);
+  console.log(`   POST   /api/auth/verify-reset-otp`);
+  console.log(`   POST   /api/auth/reset-password`);
   console.log(`   GET    /api/auth/me`);
   console.log(`   ─────────────────────────────`);
   console.log(`   🏢 ROOMS:`);
   console.log(`   GET    /api/rooms`);
   console.log(`   GET    /api/rooms/:id`);
+  console.log(`   GET    /api/rooms/available`);
   console.log(`   POST   /api/rooms (HOD only)`);
   console.log(`   PUT    /api/rooms/:id (HOD only)`);
+  console.log(`   PUT    /api/rooms/:id/toggle (HOD only)`);
   console.log(`   DELETE /api/rooms/:id (HOD only)`);
   console.log(`   GET    /api/rooms/:roomId/availability`);
   console.log(`   ─────────────────────────────`);
@@ -888,8 +1587,12 @@ app.listen(PORT, () => {
   console.log(`   📋 BOOKINGS:`);
   console.log(`   GET    /api/bookings`);
   console.log(`   GET    /api/bookings/my`);
+  console.log(`   GET    /api/bookings/:id`);
   console.log(`   POST   /api/bookings`);
   console.log(`   PUT    /api/bookings/:id/cancel`);
+  console.log(`   POST   /api/bookings/lock`);
+  console.log(`   POST   /api/bookings/unlock`);
+  console.log(`   GET    /api/bookings/available-slots`);
   console.log(`   ─────────────────────────────`);
   console.log(`   🌱 SEED:`);
   console.log(`   POST   /api/seed`);
