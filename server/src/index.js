@@ -1,3 +1,4 @@
+
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
@@ -5,6 +6,44 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 require('dotenv').config();
+
+// ============================================
+// EMAIL SERVICE (Built-in)
+// ============================================
+const nodemailer = require('nodemailer');
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: parseInt(process.env.SMTP_PORT) || 587,
+  secure: false,
+  auth: {
+    user: process.env.SMTP_USER || process.env.FROM_EMAIL,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+const sendOTPEmail = async (email, otp, purpose = 'forgot') => {
+  const subject = purpose === 'forgot' ? 'Password Reset OTP' : 'Email Verification';
+  const html = `
+  <div style="font-family:Arial;max-width:500px;margin:40px auto;background:#fff;padding:30px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1)">
+    <h2 style="color:#1e40af;text-align:center">🏫 NITRR Room Allocation</h2>
+    <p style="text-align:center;color:#6b7280">${purpose === 'forgot' ? 'Password Reset OTP' : 'Email Verification'}</p>
+    <div style="background:#eff6ff;padding:20px;text-align:center;border-radius:8px;margin:20px 0">
+      <span style="font-size:36px;font-weight:700;color:#1e40af;letter-spacing:6px">${otp}</span>
+    </div>
+    <p style="text-align:center;color:#6b7280;font-size:14px">Valid for 5 minutes</p>
+    <p style="text-align:center;color:#dc2626;font-size:13px">⚠️ Do not share this OTP</p>
+    <hr style="border:1px solid #e5e7eb;margin:20px 0">
+    <p style="text-align:center;color:#9ca3af;font-size:12px">NIT Raipur - Room Allocation System</p>
+  </div>`;
+
+  await transporter.sendMail({
+    from: process.env.EMAIL_FROM || process.env.FROM_EMAIL || 'noreply@nitrr.ac.in',
+    to: email,
+    subject,
+    html,
+  });
+};
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -46,6 +85,9 @@ const generateToken = (userId) => {
   return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '7d' });
 };
 
+// Login attempts tracking for rate limiting
+const loginAttempts = new Map();
+
 // ============================================
 // SCHEMAS / MODELS
 // ============================================
@@ -59,7 +101,7 @@ const UserSchema = new mongoose.Schema({
     unique: true, 
     lowercase: true, 
     trim: true,
-    match: [/^[a-zA-Z0-9._%+-]+@nitrr\.ac\.in$/, 'Please use a valid @nitrr.ac.in email']
+    match: [/^[a-zA-Z0-9._%+-]+@(cse\.nitrr\.ac\.in|gmail\.com)$/, 'Please use a valid @cse.nitrr.ac.in or @gmail.com email']
   },
   password: { type: String, required: true, minlength: 8, select: false },
   role: { type: String, enum: ['FACULTY', 'HOD'], required: true },
@@ -84,7 +126,7 @@ UserSchema.methods.updateLastLogin = async function() {
 };
 
 UserSchema.statics.isValidEmail = function(email) {
-  return /^[a-zA-Z0-9._%+-]+@nitrr\.ac\.in$/.test(email);
+  return /^[a-zA-Z0-9._%+-]+@(cse\.nitrr\.ac\.in|gmail\.com)$/.test(email);
 };
 
 UserSchema.statics.detectRole = function(email) {
@@ -109,7 +151,7 @@ const User = mongoose.model('User', UserSchema);
 
 // 2. ROOM SCHEMA
 const RoomSchema = new mongoose.Schema({
-  name: { type: String, required: true, trim: true },
+  name: { type: String, required: true, unique: true, trim: true },
   capacity: { type: Number, required: true, min: 1 },
   type: { type: String, enum: ['Classroom', 'Lab', 'Auditorium', 'Lecture Hall'], required: true },
   floor: { type: String, required: true },
@@ -257,7 +299,7 @@ const authorize = (...roles) => {
 // AUTH ROUTES
 // ============================================
 
-// LOGIN
+// LOGIN with rate limiting
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -270,21 +312,51 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
+    // Rate limiting - track failed attempts
+    const key = `login_${email}`;
+    const attempts = loginAttempts.get(key) || { count: 0, lastAttempt: Date.now() };
+    
+    // Reset attempts after 15 minutes
+    if (Date.now() - attempts.lastAttempt > 15 * 60 * 1000) {
+      loginAttempts.set(key, { count: 0, lastAttempt: Date.now() });
+    }
+
+    if (attempts.count >= 5) {
+      return res.status(429).json({
+        success: false,
+        message: 'Too many failed attempts. Please try again after 15 minutes.'
+      });
+    }
+
     const user = await User.findOne({ email }).select('+password');
     if (!user) {
+      attempts.count += 1;
+      loginAttempts.set(key, attempts);
       return res.status(401).json({ 
         success: false, 
         message: 'Invalid credentials' 
       });
     }
 
+    if (!user.isActive) {
+      return res.status(401).json({
+        success: false,
+        message: 'Account deactivated. Please contact admin.'
+      });
+    }
+
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
+      attempts.count += 1;
+      loginAttempts.set(key, attempts);
       return res.status(401).json({ 
         success: false, 
         message: 'Invalid credentials' 
       });
     }
+
+    // Reset attempts on successful login
+    loginAttempts.delete(key);
 
     await user.updateLastLogin();
     const token = generateToken(user._id);
@@ -336,10 +408,19 @@ app.post('/api/auth/signup', async (req, res) => {
       });
     }
 
+    // Check password strength
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+    if (!passwordRegex.test(password)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must contain at least one uppercase, one lowercase, one number, and one special character'
+      });
+    }
+
     if (!User.isValidEmail(email)) {
       return res.status(400).json({ 
         success: false, 
-        message: 'Only @nitrr.ac.in email addresses are allowed' 
+        message: 'Only @cse.nitrr.ac.in or @gmail.com email addresses are allowed' 
       });
     }
 
@@ -411,13 +492,32 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       });
     }
 
+    // Check if there's a pending OTP
+    const existingOTP = await OTP.findOne({ email, purpose: 'forgot', verified: false });
+    if (existingOTP && existingOTP.expiresAt > new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: 'OTP already sent. Please check your email or wait for it to expire.'
+      });
+    }
+
     const otp = generateOTP();
+    console.log(`📧 OTP for ${email}: ${otp}`);
+
     await OTP.create({
       email,
       otp,
       purpose: 'forgot',
       expiresAt: new Date(Date.now() + 5 * 60 * 1000)
     });
+
+    try {
+      await sendOTPEmail(email, otp, 'forgot');
+      console.log(`✅ OTP email sent to ${email}`);
+    } catch (emailError) {
+      console.error(`❌ Failed to send OTP email: ${emailError.message}`);
+      // Still return success - OTP is saved in DB
+    }
 
     res.json({
       success: true,
@@ -527,10 +627,19 @@ app.post('/api/auth/reset-password', async (req, res) => {
       });
     }
 
-    if (newPassword.length < 6) {
+    if (newPassword.length < 8) {
       return res.status(400).json({
         success: false,
-        message: 'Password must be at least 6 characters'
+        message: 'Password must be at least 8 characters'
+      });
+    }
+
+    // Check password strength
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+    if (!passwordRegex.test(newPassword)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must contain at least one uppercase, one lowercase, one number, and one special character'
       });
     }
 
@@ -599,9 +708,10 @@ app.get('/api/auth/me', protect, async (req, res) => {
 // Get all rooms
 app.get('/api/rooms', protect, async (req, res) => {
   try {
-    const { department } = req.query;
+    const { department, isAvailable } = req.query;
     const query = { isActive: true };
     if (department) query.department = department;
+    if (isAvailable !== undefined) query.isAvailable = isAvailable === 'true';
     
     const rooms = await Room.find(query);
     res.json({ success: true, data: rooms });
@@ -679,6 +789,12 @@ app.post('/api/rooms', protect, authorize('HOD'), async (req, res) => {
     const room = await Room.create(req.body);
     res.status(201).json({ success: true, data: room });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Room already exists with this name' 
+      });
+    }
     res.status(400).json({ success: false, message: error.message });
   }
 });
@@ -696,6 +812,12 @@ app.put('/api/rooms/:id', protect, authorize('HOD'), async (req, res) => {
     }
     res.json({ success: true, data: room });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Room already exists with this name' 
+      });
+    }
     res.status(400).json({ success: false, message: error.message });
   }
 });
@@ -862,7 +984,6 @@ app.post('/api/timetable', protect, authorize('HOD'), async (req, res) => {
       });
     }
 
-    // Validate and create entries
     const validatedEntries = [];
     const errors = [];
 
@@ -875,7 +996,21 @@ app.post('/api/timetable', protect, authorize('HOD'), async (req, res) => {
         continue;
       }
 
-      // Check if room exists and belongs to department
+      // Validate time (end time must be after start time)
+      if (startTime >= endTime) {
+        errors.push(`Entry ${i + 1}: Start time must be before end time`);
+        continue;
+      }
+
+      // Validate time slot (minimum 30 minutes)
+      const [sH, sM] = startTime.split(':').map(Number);
+      const [eH, eM] = endTime.split(':').map(Number);
+      const durationMinutes = (eH * 60 + eM) - (sH * 60 + sM);
+      if (durationMinutes < 30) {
+        errors.push(`Entry ${i + 1}: Time slot must be at least 30 minutes`);
+        continue;
+      }
+
       const room = await Room.findById(roomId);
       if (!room) {
         errors.push(`Entry ${i + 1}: Room not found`);
@@ -883,11 +1018,6 @@ app.post('/api/timetable', protect, authorize('HOD'), async (req, res) => {
       }
       if (room.department !== department) {
         errors.push(`Entry ${i + 1}: Room ${room.name} does not belong to ${department} department`);
-        continue;
-      }
-
-      if (startTime >= endTime) {
-        errors.push(`Entry ${i + 1}: Start time must be before end time`);
         continue;
       }
 
@@ -914,6 +1044,13 @@ app.post('/api/timetable', protect, authorize('HOD'), async (req, res) => {
       });
     }
 
+    if (validatedEntries.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No valid entries to add'
+      });
+    }
+
     // Deactivate old timetable
     await Timetable.updateMany(
       { department, semester, section, isActive: true },
@@ -931,6 +1068,38 @@ app.post('/api/timetable', protect, authorize('HOD'), async (req, res) => {
         });
       }
       roomUsage.set(key, true);
+    }
+
+    // Check for faculty conflicts
+    const facultyConflict = await Timetable.findOne({
+      department,
+      semester,
+      section,
+      isActive: true,
+      faculty: { $in: validatedEntries.map(e => e.faculty) },
+      day: { $in: validatedEntries.map(e => e.day) }
+    });
+
+    if (facultyConflict) {
+      // Check if same faculty has overlapping time
+      for (const entry of validatedEntries) {
+        const existing = await Timetable.findOne({
+          department,
+          semester,
+          section,
+          isActive: true,
+          faculty: entry.faculty,
+          day: entry.day,
+          startTime: { $lt: entry.endTime },
+          endTime: { $gt: entry.startTime }
+        });
+        if (existing) {
+          return res.status(400).json({
+            success: false,
+            message: `Faculty ${entry.faculty} already has a class at ${entry.day} ${entry.startTime}-${entry.endTime}`
+          });
+        }
+      }
     }
 
     // Save new entries
@@ -1011,6 +1180,14 @@ app.put('/api/timetable/:id', protect, authorize('HOD'), async (req, res) => {
       return res.status(403).json({
         success: false,
         message: `You can only update timetable for your own department`
+      });
+    }
+
+    // Validate time
+    if (startTime && endTime && startTime >= endTime) {
+      return res.status(400).json({
+        success: false,
+        message: 'Start time must be before end time'
       });
     }
 
@@ -1165,10 +1342,22 @@ app.post('/api/bookings', protect, async (req, res) => {
       });
     }
 
+    // Validate time
     if (startTime >= endTime) {
       return res.status(400).json({
         success: false,
         message: 'End time must be after start time'
+      });
+    }
+
+    // Validate time slot (minimum 30 minutes)
+    const [sH, sM] = startTime.split(':').map(Number);
+    const [eH, eM] = endTime.split(':').map(Number);
+    const durationMinutes = (eH * 60 + eM) - (sH * 60 + sM);
+    if (durationMinutes < 30) {
+      return res.status(400).json({
+        success: false,
+        message: 'Booking must be at least 30 minutes'
       });
     }
 
@@ -1179,6 +1368,16 @@ app.post('/api/bookings', protect, async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Cannot book in the past'
+      });
+    }
+
+    // Limit booking to 7 days in advance
+    const maxDate = new Date();
+    maxDate.setDate(maxDate.getDate() + 7);
+    if (bookingDate > maxDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot book more than 7 days in advance'
       });
     }
 
@@ -1198,6 +1397,22 @@ app.post('/api/bookings', protect, async (req, res) => {
     }
 
     const day = getDayOfWeek(date);
+
+    // Check if user already has a booking at this time
+    const userExistingBooking = await Booking.findOne({
+      facultyEmail: req.user.email,
+      date,
+      startTime: { $lt: endTime },
+      endTime: { $gt: startTime },
+      status: 'active'
+    });
+
+    if (userExistingBooking) {
+      return res.status(409).json({
+        success: false,
+        message: 'You already have a booking at this time'
+      });
+    }
 
     // Check for conflicting bookings
     const conflictingBooking = await Booking.findOne({
@@ -1284,6 +1499,17 @@ app.put('/api/bookings/:id/cancel', protect, async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Completed bookings cannot be cancelled'
+      });
+    }
+
+    // Check if booking date is in the past
+    const bookingDate = new Date(booking.date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (bookingDate < today) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot cancel past bookings'
       });
     }
     
@@ -1475,7 +1701,6 @@ app.post('/api/seed', async (req, res) => {
     await Timetable.deleteMany({});
     await Booking.deleteMany({});
 
-    // Create rooms
     const rooms = await Room.insertMany([
       { name: 'CS-101 (Lecture Hall)', capacity: 70, type: 'Lecture Hall', floor: '1st Floor', department: 'cs' },
       { name: 'CS-102 (Smart Classroom)', capacity: 60, type: 'Classroom', floor: '1st Floor', department: 'cs' },
@@ -1483,7 +1708,6 @@ app.post('/api/seed', async (req, res) => {
       { name: 'Seminar Hall (Main)', capacity: 120, type: 'Auditorium', floor: '2nd Floor', department: 'cs' }
     ]);
 
-    // Create timetable entries
     await Timetable.insertMany([
       { roomId: rooms[0]._id, day: 'Wednesday', startTime: '09:00', endTime: '10:00', 
         subject: 'Data Structures', classGroup: 'CS-3A', faculty: 'Dr. D. S. Sisodia', 
@@ -1496,7 +1720,6 @@ app.post('/api/seed', async (req, res) => {
         semester: '4th', section: 'A', department: 'cs' }
     ]);
 
-    // Create a booking
     await Booking.create({
       roomId: rooms[2]._id,
       date: new Date().toISOString().split('T')[0],
@@ -1556,7 +1779,7 @@ app.use((err, req, res, next) => {
 // ============================================
 app.listen(PORT, () => {
   console.log(`\n🚀 Server running on http://localhost:${PORT}`);
-  console.log(`📧 Allowed: @nitrr.ac.in only`);
+  console.log(`📧 Allowed: @cse.nitrr.ac.in or @gmail.com only`);
   console.log(`\n📋 API Endpoints:`);
   console.log(`   ─────────────────────────────`);
   console.log(`   🔐 AUTH:`);

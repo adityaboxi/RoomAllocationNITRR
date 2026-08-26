@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { roomAPI, bookingAPI, timetableAPI } from '../../services/api';
 import Navbar from '../common/Navbar';
-import { Clock, AlertCircle, Plus, Loader, X, CheckCircle2 } from 'lucide-react';
+import { Clock, AlertCircle, Plus, Loader, X, CheckCircle2, Edit2, Trash2 } from 'lucide-react';
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -16,6 +16,7 @@ export default function DashboardPage() {
   const [view, setView] = useState('dashboard');
   const [error, setError] = useState('');
   const [showTimetableModal, setShowTimetableModal] = useState(false);
+  const [editingEntry, setEditingEntry] = useState(null);
   const [timetableForm, setTimetableForm] = useState({
     department: user?.department || '',
     semester: '3rd',
@@ -98,12 +99,33 @@ export default function DashboardPage() {
     try {
       setLoading(true);
       const today = new Date().toISOString().split('T')[0];
+      
+      // Validate date (can't book more than 7 days ahead)
+      const maxDate = new Date();
+      maxDate.setDate(maxDate.getDate() + 7);
+      const selectedDate = new Date(today);
+      if (selectedDate > maxDate) {
+        alert('Cannot book more than 7 days in advance');
+        setLoading(false);
+        return;
+      }
+
       const startTime = prompt('Enter start time (HH:MM):', '14:00');
       if (!startTime) return;
       const endTime = prompt('Enter end time (HH:MM):', '15:00');
       if (!endTime) return;
       const purpose = prompt('Enter purpose:', 'Extra Class');
       if (!purpose) return;
+
+      // Validate time (minimum 30 minutes)
+      const [sH, sM] = startTime.split(':').map(Number);
+      const [eH, eM] = endTime.split(':').map(Number);
+      const durationMinutes = (eH * 60 + eM) - (sH * 60 + sM);
+      if (durationMinutes < 30) {
+        alert('Booking must be at least 30 minutes');
+        setLoading(false);
+        return;
+      }
 
       await bookingAPI.create({
         roomId,
@@ -136,6 +158,10 @@ export default function DashboardPage() {
     }
   };
 
+  // ============================================
+  // TIMETABLE MANAGEMENT
+  // ============================================
+
   const handleAddTimetableEntry = () => {
     setTimetableForm({
       ...timetableForm,
@@ -165,22 +191,53 @@ export default function DashboardPage() {
     e.preventDefault();
     setAddingEntry(true);
     try {
+      const filteredEntries = timetableForm.entries.filter(e => e.subject && e.roomId);
+      
+      if (filteredEntries.length === 0) {
+        alert('Please add at least one valid entry with subject and room');
+        setAddingEntry(false);
+        return;
+      }
+
       const response = await timetableAPI.create({
         department: timetableForm.department,
         semester: timetableForm.semester,
         section: timetableForm.section,
-        entries: timetableForm.entries.filter(e => e.subject && e.roomId)
+        entries: filteredEntries
       });
 
       if (response.data.success) {
-        alert(`✅ Timetable updated! ${response.data.data.entriesAdded} entries added, ${response.data.data.bookingsCancelled} bookings auto-cancelled due to conflicts.`);
+        const msg = `✅ Timetable updated! ${response.data.data.entriesAdded} entries added, ${response.data.data.bookingsCancelled} bookings auto-cancelled due to conflicts.`;
+        alert(msg);
         setShowTimetableModal(false);
+        // Reset form
+        setTimetableForm({
+          department: user?.department || '',
+          semester: '3rd',
+          section: 'A',
+          entries: [{ day: 'Monday', startTime: '09:00', endTime: '10:00', subject: '', roomId: '', classGroup: '', faculty: '' }]
+        });
+        setEditingEntry(null);
         await fetchData();
       }
     } catch (err) {
       alert('❌ Failed to update timetable: ' + (err.response?.data?.message || err.message));
     } finally {
       setAddingEntry(false);
+    }
+  };
+
+  const handleDeleteTimetableEntry = async (entryId) => {
+    if (!confirm('Are you sure you want to delete this timetable entry?')) return;
+    try {
+      setLoading(true);
+      await timetableAPI.delete(entryId);
+      alert('✅ Timetable entry deleted successfully!');
+      await fetchData();
+    } catch (err) {
+      alert('❌ Failed to delete: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -270,6 +327,7 @@ export default function DashboardPage() {
           ))}
         </div>
 
+        {/* Dashboard View */}
         {view === 'dashboard' && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
             {rooms.map((room) => {
@@ -327,6 +385,7 @@ export default function DashboardPage() {
           </div>
         )}
 
+        {/* Bookings View */}
         {view === 'bookings' && (
           <div className="bg-white rounded-2xl border p-6">
             <h3 className="font-bold text-slate-900 mb-4">My Bookings</h3>
@@ -371,21 +430,51 @@ export default function DashboardPage() {
           </div>
         )}
 
+        {/* Timetable View */}
         {view === 'timetable' && (
           <div className="bg-white rounded-2xl border p-6">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-slate-900">Timetable</h3>
               {user?.role === 'HOD' && (
                 <button
-                  onClick={() => setShowTimetableModal(true)}
-                  className="flex items-center gap-1 text-sm bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700"
+                  onClick={() => {
+                    setEditingEntry(null);
+                    setTimetableForm({
+                      department: user?.department || '',
+                      semester: '3rd',
+                      section: 'A',
+                      entries: [{ day: 'Monday', startTime: '09:00', endTime: '10:00', subject: '', roomId: '', classGroup: '', faculty: '' }]
+                    });
+                    setShowTimetableModal(true);
+                  }}
+                  className="flex items-center gap-1 text-sm bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition"
                 >
                   <Plus className="w-4 h-4" /> Update Timetable
                 </button>
               )}
             </div>
+            
             {timetable.length === 0 ? (
-              <p className="text-slate-500 text-sm">No timetable entries found</p>
+              <div className="text-center py-8">
+                <p className="text-slate-500 text-sm">No timetable entries found</p>
+                {user?.role === 'HOD' && (
+                  <button
+                    onClick={() => {
+                      setEditingEntry(null);
+                      setTimetableForm({
+                        department: user?.department || '',
+                        semester: '3rd',
+                        section: 'A',
+                        entries: [{ day: 'Monday', startTime: '09:00', endTime: '10:00', subject: '', roomId: '', classGroup: '', faculty: '' }]
+                      });
+                      setShowTimetableModal(true);
+                    }}
+                    className="mt-4 text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+                  >
+                    <Plus className="w-4 h-4 inline mr-1" /> Add First Entry
+                  </button>
+                )}
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -397,6 +486,7 @@ export default function DashboardPage() {
                       <th className="text-left py-2">Faculty</th>
                       <th className="text-left py-2">Room</th>
                       <th className="text-left py-2">Class</th>
+                      {user?.role === 'HOD' && <th className="text-left py-2">Actions</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -408,6 +498,41 @@ export default function DashboardPage() {
                         <td className="py-2">{entry.faculty}</td>
                         <td className="py-2">{entry.roomId?.name}</td>
                         <td className="py-2 text-xs">{entry.classGroup}</td>
+                        {user?.role === 'HOD' && (
+                          <td className="py-2">
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => {
+                                  setEditingEntry(entry);
+                                  setTimetableForm({
+                                    department: entry.department,
+                                    semester: entry.semester,
+                                    section: entry.section,
+                                    entries: [{
+                                      day: entry.day,
+                                      startTime: entry.startTime,
+                                      endTime: entry.endTime,
+                                      subject: entry.subject,
+                                      roomId: entry.roomId,
+                                      classGroup: entry.classGroup,
+                                      faculty: entry.faculty
+                                    }]
+                                  });
+                                  setShowTimetableModal(true);
+                                }}
+                                className="text-blue-600 hover:text-blue-800"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteTimetableEntry(entry._id)}
+                                className="text-rose-600 hover:text-rose-800"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -423,8 +548,13 @@ export default function DashboardPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-slate-900">Update Timetable</h2>
-              <button onClick={() => setShowTimetableModal(false)} className="text-slate-400 hover:text-slate-600">
+              <h2 className="text-xl font-bold text-slate-900">
+                {editingEntry ? 'Edit Timetable Entry' : 'Update Timetable'}
+              </h2>
+              <button onClick={() => {
+                setShowTimetableModal(false);
+                setEditingEntry(null);
+              }} className="text-slate-400 hover:text-slate-600">
                 <X className="w-6 h-6" />
               </button>
             </div>
@@ -603,7 +733,10 @@ export default function DashboardPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowTimetableModal(false)}
+                  onClick={() => {
+                    setShowTimetableModal(false);
+                    setEditingEntry(null);
+                  }}
                   className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold py-2 px-4 rounded-lg transition"
                 >
                   Cancel

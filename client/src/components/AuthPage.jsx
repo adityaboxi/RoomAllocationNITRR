@@ -56,9 +56,10 @@ export default function AuthPage() {
     setSuccess('');
     setLoading(true);
 
-    // Validate email domain - backend also validates this
-    if (!formData.email.endsWith('@nitrr.ac.in')) {
-      setError('Only @nitrr.ac.in email addresses are allowed');
+    // Updated email validation - allow @cse.nitrr.ac.in and @gmail.com
+    const isValidEmail = formData.email.endsWith('@cse.nitrr.ac.in') || formData.email.endsWith('@gmail.com');
+    if (!isValidEmail) {
+      setError('Only @cse.nitrr.ac.in or @gmail.com email addresses are allowed');
       setLoading(false);
       return;
     }
@@ -217,7 +218,7 @@ export default function AuthPage() {
                   value={resetEmail}
                   onChange={(e) => setResetEmail(e.target.value)}
                   className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white focus:ring-2 focus:ring-blue-500 outline-none transition"
-                  placeholder="you@nitrr.ac.in"
+                  placeholder="you@cse.nitrr.ac.in or you@gmail.com"
                   required
                 />
               </div>
@@ -470,7 +471,7 @@ export default function AuthPage() {
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                   role === 'HOD' ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800'
                 }`}>
-                  @nitrr.ac.in
+                  @cse.nitrr.ac.in or @gmail.com
                 </span>
               </div>
               <div className="relative">
@@ -480,7 +481,7 @@ export default function AuthPage() {
                   name="email"
                   value={formData.email}
                   onChange={handleInputChange}
-                  placeholder={role === 'HOD' ? 'hod.cs@nitrr.ac.in' : 'dssisodia.cs@nitrr.ac.in'}
+                  placeholder={role === 'HOD' ? 'hod@cse.nitrr.ac.in' : 'faculty@gmail.com'}
                   className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition"
                   required
                 />
