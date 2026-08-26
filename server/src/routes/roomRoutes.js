@@ -1,27 +1,29 @@
 const express = require('express');
 const router = express.Router();
-const { protect, authorize } = require('../middleware/auth');
-const {
-  createRooms,
-  getAllRooms,
-  getRoomById,
-  updateRoom,
-  deleteRoom,
-  getAvailableRooms,
-  getRoomsByDepartment,
-  toggleRoomAvailability
-} = require('../controllers/roomController');
+const { protect } = require('../middleware/auth');
+const Room = require('../models/Room');
 
-// Protected routes (all require authentication)
-router.get('/', protect, getAllRooms);
-router.get('/available', protect, getAvailableRooms);
-router.get('/department/:department', protect, getRoomsByDepartment);
-router.get('/:id', protect, getRoomById);
+// Get all rooms
+router.get('/', protect, async (req, res) => {
+  try {
+    const rooms = await Room.find({ isActive: true });
+    res.json({ success: true, data: rooms });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 
-// HOD only routes
-router.post('/bulk', protect, authorize('hod'), createRooms);
-router.put('/:id', protect, authorize('hod'), updateRoom);
-router.put('/:id/toggle', protect, authorize('hod'), toggleRoomAvailability);
-router.delete('/:id', protect, authorize('hod'), deleteRoom);
+// Create room (HOD only)
+router.post('/', protect, async (req, res) => {
+  try {
+    if (req.user.role !== 'HOD') {
+      return res.status(403).json({ success: false, message: 'Only HOD can create rooms' });
+    }
+    const room = await Room.create(req.body);
+    res.status(201).json({ success: true, data: room });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
 
 module.exports = router;

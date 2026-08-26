@@ -1,3 +1,7 @@
+/**
+ * Simple Logger Utility
+ * No external dependencies
+ */
 
 class Logger {
   constructor() {

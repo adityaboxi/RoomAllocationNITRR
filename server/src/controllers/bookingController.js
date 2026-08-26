@@ -3,14 +3,10 @@ const Room = require('../models/Room');
 const Timetable = require('../models/Timetable');
 const { getDayOfWeek, isOverlapping, generateLockId } = require('../utils/helpers');
 
-// ============================================
-// BOOK A ROOM
-// ============================================
 exports.bookRoom = async (req, res) => {
   try {
     const { roomId, date, startTime, endTime, subject, comment, lockId } = req.body;
 
-    // Validate required fields
     if (!roomId || !date || !startTime || !endTime || !subject) {
       return res.status(400).json({
         success: false,
@@ -18,7 +14,6 @@ exports.bookRoom = async (req, res) => {
       });
     }
 
-    // Validate time slot
     if (startTime >= endTime) {
       return res.status(400).json({
         success: false,
@@ -26,7 +21,6 @@ exports.bookRoom = async (req, res) => {
       });
     }
 
-    // Validate date (cannot book past)
     const bookingDate = new Date(date);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -37,7 +31,6 @@ exports.bookRoom = async (req, res) => {
       });
     }
 
-    // Check if room exists and is available
     const room = await Room.findById(roomId);
     if (!room) {
       return res.status(404).json({
@@ -53,7 +46,13 @@ exports.bookRoom = async (req, res) => {
       });
     }
 
-    // Verify lock if provided
+    if (room.department !== req.user.department) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only book rooms from your department'
+      });
+    }
+
     if (lockId) {
       const lock = await Booking.findOne({ lockId });
       if (!lock) {
@@ -68,13 +67,11 @@ exports.bookRoom = async (req, res) => {
           message: 'You do not have permission to use this lock'
         });
       }
-      // Delete the lock
       await Booking.deleteOne({ lockId });
     }
 
     const day = getDayOfWeek(date);
 
-    // Check for existing booking (double booking prevention)
     const existingBooking = await Booking.findOne({
       room: roomId,
       date: bookingDate,
@@ -91,7 +88,6 @@ exports.bookRoom = async (req, res) => {
       });
     }
 
-    // Check timetable conflict
     const timetableConflict = await Timetable.findOne({
       room: roomId,
       day,
@@ -111,7 +107,6 @@ exports.bookRoom = async (req, res) => {
       }
     }
 
-    // Create booking
     const booking = await Booking.create({
       room: roomId,
       professor: req.user._id,
@@ -142,9 +137,6 @@ exports.bookRoom = async (req, res) => {
   }
 };
 
-// ============================================
-// GET MY BOOKINGS
-// ============================================
 exports.getMyBookings = async (req, res) => {
   try {
     const { status, limit = 50, page = 1 } = req.query;
@@ -162,7 +154,6 @@ exports.getMyBookings = async (req, res) => {
       .skip(skip)
       .lean();
 
-    // Check for conflicts with timetable
     const enrichedBookings = await Promise.all(
       bookings.map(async (booking) => {
         const day = getDayOfWeek(booking.date);
@@ -210,9 +201,6 @@ exports.getMyBookings = async (req, res) => {
   }
 };
 
-// ============================================
-// GET BOOKING BY ID
-// ============================================
 exports.getBookingById = async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id)
@@ -226,7 +214,6 @@ exports.getBookingById = async (req, res) => {
       });
     }
 
-    // Check if user owns this booking or is HOD
     if (
       booking.professor._id.toString() !== req.user._id.toString() &&
       req.user.role !== 'hod'
@@ -251,9 +238,6 @@ exports.getBookingById = async (req, res) => {
   }
 };
 
-// ============================================
-// CANCEL BOOKING
-// ============================================
 exports.cancelBooking = async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id);
@@ -265,7 +249,6 @@ exports.cancelBooking = async (req, res) => {
       });
     }
 
-    // Check if user owns this booking or is HOD
     if (
       booking.professor.toString() !== req.user._id.toString() &&
       req.user.role !== 'hod'
@@ -308,67 +291,6 @@ exports.cancelBooking = async (req, res) => {
   }
 };
 
-// ============================================
-// UPDATE BOOKING
-// ============================================
-exports.updateBooking = async (req, res) => {
-  try {
-    const { subject, comment } = req.body;
-
-    if (!subject && !comment) {
-      return res.status(400).json({
-        success: false,
-        message: 'Subject or comment is required for update'
-      });
-    }
-
-    const booking = await Booking.findById(req.params.id);
-
-    if (!booking) {
-      return res.status(404).json({
-        success: false,
-        message: 'Booking not found'
-      });
-    }
-
-    // Check if user owns this booking
-    if (booking.professor.toString() !== req.user._id.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: 'You do not have permission to update this booking'
-      });
-    }
-
-    if (booking.status !== 'active') {
-      return res.status(400).json({
-        success: false,
-        message: 'Only active bookings can be updated'
-      });
-    }
-
-    if (subject) booking.subject = subject;
-    if (comment) booking.comment = comment;
-
-    await booking.save();
-
-    res.json({
-      success: true,
-      message: 'Booking updated successfully',
-      data: booking
-    });
-  } catch (error) {
-    console.error('Update booking error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update booking',
-      error: error.message
-    });
-  }
-};
-
-// ============================================
-// LOCK ROOM
-// ============================================
 exports.lockRoom = async (req, res) => {
   try {
     const { roomId, date, startTime, endTime } = req.body;
@@ -383,7 +305,6 @@ exports.lockRoom = async (req, res) => {
     const day = getDayOfWeek(date);
     const lockId = generateLockId();
 
-    // Check if room is already locked for this slot
     const existingLock = await Booking.findOne({
       room: roomId,
       date: new Date(date),
@@ -400,7 +321,6 @@ exports.lockRoom = async (req, res) => {
       });
     }
 
-    // Create temporary lock
     const lock = await Booking.create({
       room: roomId,
       professor: req.user._id,
@@ -415,8 +335,6 @@ exports.lockRoom = async (req, res) => {
       lockId,
       lockedAt: new Date()
     });
-
-    // Auto-unlock after 5 minutes (handled by TTL index)
 
     res.json({
       success: true,
@@ -435,9 +353,6 @@ exports.lockRoom = async (req, res) => {
   }
 };
 
-// ============================================
-// UNLOCK ROOM
-// ============================================
 exports.unlockRoom = async (req, res) => {
   try {
     const { lockId } = req.body;
@@ -458,7 +373,6 @@ exports.unlockRoom = async (req, res) => {
       });
     }
 
-    // Only the user who locked can unlock
     if (booking.professor.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
@@ -482,9 +396,6 @@ exports.unlockRoom = async (req, res) => {
   }
 };
 
-// ============================================
-// GET AVAILABLE TIME SLOTS
-// ============================================
 exports.getAvailableTimeSlots = async (req, res) => {
   try {
     const { roomId, date } = req.query;
@@ -499,21 +410,18 @@ exports.getAvailableTimeSlots = async (req, res) => {
     const day = getDayOfWeek(date);
     const bookingDate = new Date(date);
 
-    // Get all bookings for this room on this date
     const bookings = await Booking.find({
       room: roomId,
       date: bookingDate,
       status: 'active'
     }).sort({ startTime: 1 });
 
-    // Get timetable entries for this room on this day
     const timetableEntries = await Timetable.find({
       room: roomId,
       day,
       isActive: true
     }).sort({ startTime: 1 });
 
-    // Generate all time slots (9 AM to 5 PM, 1-hour slots)
     const allSlots = [];
     for (let hour = 9; hour < 17; hour++) {
       const start = `${String(hour).padStart(2, '0')}:00`;
@@ -521,7 +429,6 @@ exports.getAvailableTimeSlots = async (req, res) => {
       allSlots.push({ start, end, label: `${start} - ${end}` });
     }
 
-    // Filter available slots
     const availableSlots = allSlots.filter((slot) => {
       const isBooked = bookings.some((booking) =>
         isOverlapping(slot.start, slot.end, booking.startTime, booking.endTime)
@@ -553,19 +460,14 @@ exports.getAvailableTimeSlots = async (req, res) => {
   }
 };
 
-// ============================================
-// GET ALL BOOKINGS (HOD ONLY)
-// ============================================
 exports.getAllBookings = async (req, res) => {
   try {
-    const { status, department, date, roomId, professorId, limit = 50, page = 1 } = req.query;
+    const { status, department, date, limit = 50, page = 1 } = req.query;
 
     const query = {};
     if (status) query.status = status;
     if (department) query.department = department;
     if (date) query.date = new Date(date);
-    if (roomId) query.room = roomId;
-    if (professorId) query.professor = professorId;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
@@ -599,9 +501,6 @@ exports.getAllBookings = async (req, res) => {
   }
 };
 
-// ============================================
-// GET ROOM BOOKINGS
-// ============================================
 exports.getRoomBookings = async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -627,125 +526,6 @@ exports.getRoomBookings = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch room bookings',
-      error: error.message
-    });
-  }
-};
-
-// ============================================
-// GET BOOKING STATS (HOD ONLY)
-// ============================================
-exports.getBookingStats = async (req, res) => {
-  try {
-    const { department } = req.query;
-
-    const match = {};
-    if (department) match.department = department;
-
-    // Total bookings by status
-    const statusStats = await Booking.aggregate([
-      { $match: match },
-      {
-        $group: {
-          _id: '$status',
-          count: { $sum: 1 }
-        }
-      }
-    ]);
-
-    // Bookings by department
-    const departmentStats = await Booking.aggregate([
-      { $match: match },
-      {
-        $group: {
-          _id: '$department',
-          total: { $sum: 1 },
-          active: {
-            $sum: { $cond: [{ $eq: ['$status', 'active'] }, 1, 0] }
-          },
-          cancelled: {
-            $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0] }
-          }
-        }
-      },
-      { $sort: { total: -1 } }
-    ]);
-
-    // Daily bookings for last 7 days
-    const dailyStats = await Booking.aggregate([
-      {
-        $match: {
-          ...match,
-          date: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
-        }
-      },
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { _id: 1 } }
-    ]);
-
-    const total = await Booking.countDocuments(match);
-
-    res.json({
-      success: true,
-      data: {
-        total,
-        byStatus: statusStats,
-        byDepartment: departmentStats,
-        daily: dailyStats
-      }
-    });
-  } catch (error) {
-    console.error('Get booking stats error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch booking statistics',
-      error: error.message
-    });
-  }
-};
-
-// ============================================
-// GET CONFLICTS (HOD ONLY)
-// ============================================
-exports.getConflicts = async (req, res) => {
-  try {
-    const { department, limit = 50, page = 1 } = req.query;
-
-    const query = { status: 'conflict' };
-    if (department) query.department = department;
-
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-
-    const conflicts = await Booking.find(query)
-      .populate('room')
-      .populate('professor', 'name email')
-      .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip(skip)
-      .lean();
-
-    const total = await Booking.countDocuments(query);
-
-    res.json({
-      success: true,
-      data: conflicts,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        pages: Math.ceil(total / parseInt(limit))
-      }
-    });
-  } catch (error) {
-    console.error('Get conflicts error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch conflicts',
       error: error.message
     });
   }

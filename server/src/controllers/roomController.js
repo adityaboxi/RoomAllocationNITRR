@@ -1,89 +1,14 @@
 const Room = require('../models/Room');
-const Timetable = require('../models/Timetable');
 const Booking = require('../models/Booking');
-const { getDayOfWeek } = require('../utils/helpers');
-
-exports.createRooms = async (req, res) => {
-  try {
-    const { rooms } = req.body;
-    
-    if (!rooms || !Array.isArray(rooms) || rooms.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide an array of rooms'
-      });
-    }
-
-    const validatedRooms = [];
-    const errors = [];
-    
-    for (let i = 0; i < rooms.length; i++) {
-      const room = rooms[i];
-      const { roomNumber, capacity, floor, department, building } = room;
-      
-      if (!roomNumber) errors.push(`Room ${i + 1}: Room number is required`);
-      if (!capacity || capacity < 1) errors.push(`Room ${i + 1}: Capacity must be at least 1`);
-      if (floor === undefined || floor === null || floor < 0) errors.push(`Room ${i + 1}: Floor must be 0 or greater`);
-      if (!department) errors.push(`Room ${i + 1}: Department is required`);
-      if (!building) errors.push(`Room ${i + 1}: Building is required`);
-
-      if (errors.length === 0) {
-        validatedRooms.push({
-          roomNumber: roomNumber.toString().trim().toUpperCase(),
-          capacity: parseInt(capacity),
-          floor: parseInt(floor),
-          department,
-          building: building.trim(),
-          hasProjector: room.hasProjector || false,
-          hasAC: room.hasAC || false,
-          isAvailable: true,
-          isActive: true
-        });
-      }
-    }
-
-    if (errors.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation errors found',
-        errors
-      });
-    }
-
-    const roomNumbers = validatedRooms.map(r => r.roomNumber);
-    const existingRooms = await Room.find({ roomNumber: { $in: roomNumbers } });
-
-    if (existingRooms.length > 0) {
-      const duplicates = existingRooms.map(r => r.roomNumber);
-      return res.status(400).json({
-        success: false,
-        message: 'Some room numbers already exist',
-        duplicateRoomNumbers: duplicates
-      });
-    }
-
-    const createdRooms = await Room.insertMany(validatedRooms);
-
-    res.status(201).json({
-      success: true,
-      message: `${createdRooms.length} rooms created successfully`,
-      data: createdRooms
-    });
-  } catch (error) {
-    console.error('Create rooms error:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
 
 exports.getAllRooms = async (req, res) => {
   try {
-    const { department, building, floor, isAvailable, limit = 100, page = 1 } = req.query;
+    const { department, building, floor, limit = 100, page = 1 } = req.query;
     const query = { isActive: true };
     
     if (department) query.department = department;
     if (building) query.building = building;
     if (floor) query.floor = parseInt(floor);
-    if (isAvailable !== undefined) query.isAvailable = isAvailable === 'true';
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const rooms = await Room.find(query)
@@ -169,18 +94,12 @@ exports.getAvailableRooms = async (req, res) => {
   }
 };
 
-exports.getRoomsByDepartment = async (req, res) => {
+exports.createRoom = async (req, res) => {
   try {
-    const { department } = req.params;
-    const rooms = await Room.find({ department, isActive: true }).lean();
-    
-    res.json({
-      success: true,
-      data: rooms,
-      total: rooms.length
-    });
+    const room = await Room.create(req.body);
+    res.status(201).json({ success: true, data: room });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(400).json({ success: false, message: error.message });
   }
 };
 

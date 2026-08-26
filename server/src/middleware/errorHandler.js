@@ -1,5 +1,3 @@
-const { logger } = require('../utils/logger');
-
 /**
  * Custom error classes
  */
@@ -102,14 +100,13 @@ const handleJWTError = (err) => {
  * Global error handler middleware
  */
 const errorHandler = (err, req, res, next) => {
-  // Log error
-  logger.error(`[ERROR] ${err.message}`, {
-    statusCode: err.statusCode || 500,
-    path: req.path,
-    method: req.method,
-    ip: req.ip,
-    stack: err.stack
-  });
+  // Log error (simple console logging)
+  console.error(`❌ [ERROR] ${err.message}`);
+  console.error(`   Path: ${req.method} ${req.path}`);
+  console.error(`   IP: ${req.ip}`);
+  if (process.env.NODE_ENV === 'development') {
+    console.error(`   Stack: ${err.stack}`);
+  }
 
   // Default error
   let error = err;
