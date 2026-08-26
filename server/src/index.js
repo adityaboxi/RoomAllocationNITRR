@@ -45,6 +45,52 @@ const sendOTPEmail = async (email, otp, purpose = 'forgot') => {
   });
 };
 
+const sendBookingConfirmationEmail = async (booking) => {
+  const html = `
+  <div style="font-family:Arial;max-width:500px;margin:40px auto;background:#fff;padding:30px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1)">
+    <h2 style="color:#059669;text-align:center">✅ Booking Confirmed</h2>
+    <p>Dear <strong>${booking.facultyName}</strong>,</p>
+    <p>Your room booking has been confirmed:</p>
+    <div style="background:#f0fdf4;padding:15px;border-radius:8px;margin:15px 0">
+      <p><strong>Room:</strong> ${booking.roomId?.name}</p>
+      <p><strong>Date:</strong> ${booking.date}</p>
+      <p><strong>Time:</strong> ${booking.startTime} - ${booking.endTime}</p>
+      <p><strong>Purpose:</strong> ${booking.purpose}</p>
+    </div>
+    <hr style="border:1px solid #e5e7eb;margin:20px 0">
+    <p style="text-align:center;color:#9ca3af;font-size:12px">NIT Raipur - Room Allocation System</p>
+  </div>`;
+  await transporter.sendMail({
+    from: process.env.EMAIL_FROM || 'noreply@nitrr.ac.in',
+    to: booking.facultyEmail,
+    subject: '✅ Booking Confirmed',
+    html,
+  });
+};
+
+const sendBookingCancellationEmail = async (booking, reason) => {
+  const html = `
+  <div style="font-family:Arial;max-width:500px;margin:40px auto;background:#fff;padding:30px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1)">
+    <h2 style="color:#dc2626;text-align:center">❌ Booking Cancelled</h2>
+    <p>Dear <strong>${booking.facultyName}</strong>,</p>
+    <p>Your booking has been cancelled:</p>
+    <div style="background:#fef2f2;padding:15px;border-radius:8px;margin:15px 0">
+      <p><strong>Room:</strong> ${booking.roomId?.name}</p>
+      <p><strong>Date:</strong> ${booking.date}</p>
+      <p><strong>Time:</strong> ${booking.startTime} - ${booking.endTime}</p>
+      <p><strong>Reason:</strong> ${reason}</p>
+    </div>
+    <hr style="border:1px solid #e5e7eb;margin:20px 0">
+    <p style="text-align:center;color:#9ca3af;font-size:12px">NIT Raipur - Room Allocation System</p>
+  </div>`;
+  await transporter.sendMail({
+    from: process.env.EMAIL_FROM || 'noreply@nitrr.ac.in',
+    to: booking.facultyEmail,
+    subject: '❌ Booking Cancelled',
+    html,
+  });
+};
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -94,7 +140,7 @@ const loginAttempts = new Map();
 
 // 1. USER SCHEMA
 const UserSchema = new mongoose.Schema({
-  name: { type: String, required: true, trim: true },
+  name: { type: String, required: true, trim: true, maxlength: 100 },
   email: { 
     type: String, 
     required: true, 
@@ -434,6 +480,14 @@ app.post('/api/auth/signup', async (req, res) => {
       });
     }
 
+    // Validate name length
+    if (name.length > 100) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name cannot exceed 100 characters'
+      });
+    }
+
     const user = await User.create({
       name,
       email,
@@ -467,6 +521,65 @@ app.post('/api/auth/signup', async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: 'Server error' 
+    });
+  }
+});
+
+// CHANGE PASSWORD
+app.post('/api/auth/change-password', protect, async (req, res) => {
+  try {
+    const { currentPassword, newPassword, confirmPassword } = req.body;
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'All fields are required'
+      });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Passwords do not match'
+      });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 8 characters'
+      });
+    }
+
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+    if (!passwordRegex.test(newPassword)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must contain at least one uppercase, one lowercase, one number, and one special character'
+      });
+    }
+
+    const user = await User.findById(req.user.id).select('+password');
+    const isMatch = await user.comparePassword(currentPassword);
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'Current password is incorrect'
+      });
+    }
+
+    user.password = newPassword;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Password changed successfully'
+    });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
     });
   }
 });
@@ -516,7 +629,6 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       console.log(`✅ OTP email sent to ${email}`);
     } catch (emailError) {
       console.error(`❌ Failed to send OTP email: ${emailError.message}`);
-      // Still return success - OTP is saved in DB
     }
 
     res.json({
@@ -996,13 +1108,11 @@ app.post('/api/timetable', protect, authorize('HOD'), async (req, res) => {
         continue;
       }
 
-      // Validate time (end time must be after start time)
       if (startTime >= endTime) {
         errors.push(`Entry ${i + 1}: Start time must be before end time`);
         continue;
       }
 
-      // Validate time slot (minimum 30 minutes)
       const [sH, sM] = startTime.split(':').map(Number);
       const [eH, eM] = endTime.split(':').map(Number);
       const durationMinutes = (eH * 60 + eM) - (sH * 60 + sM);
@@ -1051,13 +1161,11 @@ app.post('/api/timetable', protect, authorize('HOD'), async (req, res) => {
       });
     }
 
-    // Deactivate old timetable
     await Timetable.updateMany(
       { department, semester, section, isActive: true },
       { isActive: false, version: { $inc: 1 } }
     );
 
-    // Check for duplicate room usage
     const roomUsage = new Map();
     for (const entry of validatedEntries) {
       const key = `${entry.day}-${entry.roomId.toString()}-${entry.startTime}-${entry.endTime}`;
@@ -1070,7 +1178,6 @@ app.post('/api/timetable', protect, authorize('HOD'), async (req, res) => {
       roomUsage.set(key, true);
     }
 
-    // Check for faculty conflicts
     const facultyConflict = await Timetable.findOne({
       department,
       semester,
@@ -1081,7 +1188,6 @@ app.post('/api/timetable', protect, authorize('HOD'), async (req, res) => {
     });
 
     if (facultyConflict) {
-      // Check if same faculty has overlapping time
       for (const entry of validatedEntries) {
         const existing = await Timetable.findOne({
           department,
@@ -1102,10 +1208,8 @@ app.post('/api/timetable', protect, authorize('HOD'), async (req, res) => {
       }
     }
 
-    // Save new entries
     const createdEntries = await Timetable.insertMany(validatedEntries);
 
-    // Check conflicts with existing bookings
     const activeBookings = await Booking.find({
       department,
       status: 'active'
@@ -1125,6 +1229,15 @@ app.post('/api/timetable', protect, authorize('HOD'), async (req, res) => {
           booking.conflictMessage = `Room ${booking.roomId.name} is now scheduled for ${timetable.subject} from ${timetable.startTime} to ${timetable.endTime}`;
           await booking.save();
           cancelledBookings.push(booking);
+          
+          // Send cancellation email
+          try {
+            await sendBookingCancellationEmail(booking, booking.conflictMessage);
+            booking.notified = true;
+            await booking.save();
+          } catch (emailError) {
+            console.error('Failed to send cancellation email:', emailError.message);
+          }
         }
       }
     }
@@ -1152,7 +1265,8 @@ app.post('/api/timetable', protect, authorize('HOD'), async (req, res) => {
           time: `${b.startTime} - ${b.endTime}`,
           purpose: b.purpose,
           facultyName: b.facultyName,
-          reason: b.conflictMessage
+          reason: b.conflictMessage,
+          notified: b.notified
         }))
       }
     });
@@ -1183,7 +1297,6 @@ app.put('/api/timetable/:id', protect, authorize('HOD'), async (req, res) => {
       });
     }
 
-    // Validate time
     if (startTime && endTime && startTime >= endTime) {
       return res.status(400).json({
         success: false,
@@ -1342,7 +1455,6 @@ app.post('/api/bookings', protect, async (req, res) => {
       });
     }
 
-    // Validate time
     if (startTime >= endTime) {
       return res.status(400).json({
         success: false,
@@ -1350,7 +1462,6 @@ app.post('/api/bookings', protect, async (req, res) => {
       });
     }
 
-    // Validate time slot (minimum 30 minutes)
     const [sH, sM] = startTime.split(':').map(Number);
     const [eH, eM] = endTime.split(':').map(Number);
     const durationMinutes = (eH * 60 + eM) - (sH * 60 + sM);
@@ -1371,7 +1482,6 @@ app.post('/api/bookings', protect, async (req, res) => {
       });
     }
 
-    // Limit booking to 7 days in advance
     const maxDate = new Date();
     maxDate.setDate(maxDate.getDate() + 7);
     if (bookingDate > maxDate) {
@@ -1398,7 +1508,6 @@ app.post('/api/bookings', protect, async (req, res) => {
 
     const day = getDayOfWeek(date);
 
-    // Check if user already has a booking at this time
     const userExistingBooking = await Booking.findOne({
       facultyEmail: req.user.email,
       date,
@@ -1414,14 +1523,18 @@ app.post('/api/bookings', protect, async (req, res) => {
       });
     }
 
-    // Check for conflicting bookings
-    const conflictingBooking = await Booking.findOne({
-      roomId,
-      date,
-      startTime: { $lt: endTime },
-      endTime: { $gt: startTime },
-      status: 'active'
-    });
+    // Use atomic operation to prevent race conditions
+    const conflictingBooking = await Booking.findOneAndUpdate(
+      {
+        roomId,
+        date,
+        startTime: { $lt: endTime },
+        endTime: { $gt: startTime },
+        status: 'active'
+      },
+      { $setOnInsert: { /* no-op */ } },
+      { new: true, upsert: false }
+    );
 
     if (conflictingBooking) {
       return res.status(409).json({
@@ -1431,7 +1544,6 @@ app.post('/api/bookings', protect, async (req, res) => {
       });
     }
 
-    // Check for timetable conflicts
     const timetableConflict = await Timetable.findOne({
       roomId,
       day,
@@ -1464,6 +1576,16 @@ app.post('/api/bookings', protect, async (req, res) => {
     });
 
     const populated = await booking.populate('roomId', 'name');
+
+    // Send confirmation email
+    try {
+      await sendBookingConfirmationEmail(booking);
+      booking.notified = true;
+      await booking.save();
+    } catch (emailError) {
+      console.error('Failed to send confirmation email:', emailError.message);
+    }
+
     res.status(201).json({ success: true, data: populated });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -1473,7 +1595,7 @@ app.post('/api/bookings', protect, async (req, res) => {
 // Cancel booking
 app.put('/api/bookings/:id/cancel', protect, async (req, res) => {
   try {
-    const booking = await Booking.findById(req.params.id);
+    const booking = await Booking.findById(req.params.id).populate('roomId');
     if (!booking) {
       return res.status(404).json({ 
         success: false, 
@@ -1502,7 +1624,6 @@ app.put('/api/bookings/:id/cancel', protect, async (req, res) => {
       });
     }
 
-    // Check if booking date is in the past
     const bookingDate = new Date(booking.date);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -1515,185 +1636,24 @@ app.put('/api/bookings/:id/cancel', protect, async (req, res) => {
     
     booking.status = 'cancelled';
     await booking.save();
+
+    // Send cancellation email
+    try {
+      await sendBookingCancellationEmail(booking, 'Cancelled by user');
+      booking.notified = true;
+      await booking.save();
+    } catch (emailError) {
+      console.error('Failed to send cancellation email:', emailError.message);
+    }
+
     res.json({ success: true, message: 'Booking cancelled', data: booking });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// Lock room for booking
-app.post('/api/bookings/lock', protect, async (req, res) => {
-  try {
-    const { roomId, date, startTime, endTime } = req.body;
-
-    if (!roomId || !date || !startTime || !endTime) {
-      return res.status(400).json({
-        success: false,
-        message: 'roomId, date, startTime and endTime are required'
-      });
-    }
-
-    const day = getDayOfWeek(date);
-    const lockId = generateLockId();
-
-    const existingLock = await Booking.findOne({
-      roomId,
-      date,
-      startTime,
-      endTime,
-      lockedAt: { $exists: true, $ne: null }
-    });
-
-    if (existingLock) {
-      return res.status(409).json({
-        success: false,
-        message: 'Room is currently being booked by another user'
-      });
-    }
-
-    const lock = await Booking.create({
-      roomId,
-      facultyName: req.user.name,
-      facultyEmail: req.user.email,
-      department: req.user.department,
-      date,
-      day,
-      startTime,
-      endTime,
-      purpose: 'LOCKED',
-      comment: 'Room locked for booking',
-      status: 'active',
-      lockId,
-      lockedAt: new Date()
-    });
-
-    res.json({
-      success: true,
-      message: 'Room locked successfully',
-      lockId,
-      expiresIn: '5 minutes',
-      data: lock
-    });
-  } catch (error) {
-    console.error('Lock room error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to lock room',
-      error: error.message
-    });
-  }
-});
-
-// Unlock room
-app.post('/api/bookings/unlock', protect, async (req, res) => {
-  try {
-    const { lockId } = req.body;
-
-    if (!lockId) {
-      return res.status(400).json({
-        success: false,
-        message: 'lockId is required'
-      });
-    }
-
-    const booking = await Booking.findOne({ lockId });
-
-    if (!booking) {
-      return res.status(404).json({
-        success: false,
-        message: 'Lock not found'
-      });
-    }
-
-    if (booking.facultyEmail !== req.user.email && req.user.role !== 'HOD') {
-      return res.status(403).json({
-        success: false,
-        message: 'You do not have permission to unlock this room'
-      });
-    }
-
-    await Booking.deleteOne({ lockId });
-
-    res.json({
-      success: true,
-      message: 'Room unlocked successfully'
-    });
-  } catch (error) {
-    console.error('Unlock room error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to unlock room',
-      error: error.message
-    });
-  }
-});
-
-// Get available time slots for a room
-app.get('/api/bookings/available-slots', protect, async (req, res) => {
-  try {
-    const { roomId, date } = req.query;
-
-    if (!roomId || !date) {
-      return res.status(400).json({
-        success: false,
-        message: 'roomId and date are required'
-      });
-    }
-
-    const day = getDayOfWeek(date);
-
-    const bookings = await Booking.find({
-      roomId,
-      date,
-      status: 'active'
-    }).sort({ startTime: 1 });
-
-    const timetableEntries = await Timetable.find({
-      roomId,
-      day,
-      isActive: true
-    }).sort({ startTime: 1 });
-
-    const allSlots = [];
-    for (let hour = 9; hour < 17; hour++) {
-      const start = `${String(hour).padStart(2, '0')}:00`;
-      const end = `${String(hour + 1).padStart(2, '0')}:00`;
-      allSlots.push({ start, end, label: `${start} - ${end}` });
-    }
-
-    const availableSlots = allSlots.filter((slot) => {
-      const isBooked = bookings.some((booking) =>
-        isOverlapping(slot.start, slot.end, booking.startTime, booking.endTime)
-      );
-      const inTimetable = timetableEntries.some((timetable) =>
-        isOverlapping(slot.start, slot.end, timetable.startTime, timetable.endTime)
-      );
-      return !isBooked && !inTimetable;
-    });
-
-    res.json({
-      success: true,
-      data: {
-        date,
-        day,
-        totalSlots: allSlots.length,
-        availableSlots: availableSlots.length,
-        slots: availableSlots,
-        bookedSlots: allSlots.length - availableSlots.length
-      }
-    });
-  } catch (error) {
-    console.error('Get available time slots error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch time slots',
-      error: error.message
-    });
-  }
-});
-
 // ============================================
-// SEED INITIAL DATA (For testing)
+// SEED INITIAL DATA
 // ============================================
 app.post('/api/seed', async (req, res) => {
   try {
@@ -1757,10 +1717,10 @@ app.get('/', (req, res) => {
     message: '🏫 Room Allocation System API', 
     version: '1.0.0',
     endpoints: {
-      auth: ['POST /api/auth/login', 'POST /api/auth/signup', 'POST /api/auth/forgot-password', 'POST /api/auth/verify-reset-otp', 'POST /api/auth/reset-password', 'GET /api/auth/me'],
+      auth: ['POST /api/auth/login', 'POST /api/auth/signup', 'POST /api/auth/forgot-password', 'POST /api/auth/verify-reset-otp', 'POST /api/auth/reset-password', 'GET /api/auth/me', 'POST /api/auth/change-password'],
       rooms: ['GET /api/rooms', 'GET /api/rooms/:id', 'GET /api/rooms/available', 'POST /api/rooms (HOD)', 'PUT /api/rooms/:id (HOD)', 'PUT /api/rooms/:id/toggle (HOD)', 'DELETE /api/rooms/:id (HOD)', 'GET /api/rooms/:roomId/availability'],
       timetable: ['GET /api/timetable', 'GET /api/timetable/department/:dept', 'POST /api/timetable (HOD)', 'PUT /api/timetable/:id (HOD)', 'DELETE /api/timetable/:id (HOD)'],
-      bookings: ['GET /api/bookings', 'GET /api/bookings/my', 'GET /api/bookings/:id', 'POST /api/bookings', 'PUT /api/bookings/:id/cancel', 'POST /api/bookings/lock', 'POST /api/bookings/unlock', 'GET /api/bookings/available-slots'],
+      bookings: ['GET /api/bookings', 'GET /api/bookings/my', 'GET /api/bookings/:id', 'POST /api/bookings', 'PUT /api/bookings/:id/cancel'],
       seed: ['POST /api/seed']
     }
   });
@@ -1788,6 +1748,7 @@ app.listen(PORT, () => {
   console.log(`   POST   /api/auth/forgot-password`);
   console.log(`   POST   /api/auth/verify-reset-otp`);
   console.log(`   POST   /api/auth/reset-password`);
+  console.log(`   POST   /api/auth/change-password`);
   console.log(`   GET    /api/auth/me`);
   console.log(`   ─────────────────────────────`);
   console.log(`   🏢 ROOMS:`);
@@ -1813,9 +1774,6 @@ app.listen(PORT, () => {
   console.log(`   GET    /api/bookings/:id`);
   console.log(`   POST   /api/bookings`);
   console.log(`   PUT    /api/bookings/:id/cancel`);
-  console.log(`   POST   /api/bookings/lock`);
-  console.log(`   POST   /api/bookings/unlock`);
-  console.log(`   GET    /api/bookings/available-slots`);
   console.log(`   ─────────────────────────────`);
   console.log(`   🌱 SEED:`);
   console.log(`   POST   /api/seed`);
