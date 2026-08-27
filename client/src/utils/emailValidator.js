@@ -1,9 +1,10 @@
 /**
- * Strict Validator for NIT Raipur Faculty & HOD Portal
+ * Strict Validator for NIT Raipur Faculty & HOD Portal (TESTING MODE)
+ * Now only accepts @gmail.com for testing.
  */
 export const validateFacultyAndHodEmail = (email, selectedRole = 'FACULTY') => {
   if (!email || typeof email !== 'string') {
-    return { isValid: false, message: 'Please enter your institutional email address.' };
+    return { isValid: false, message: 'Please enter your email address.' };
   }
 
   const cleanEmail = email.trim().toLowerCase();
@@ -15,65 +16,36 @@ export const validateFacultyAndHodEmail = (email, selectedRole = 'FACULTY') => {
 
   const [localPart, domain] = cleanEmail.split('@');
 
-  // 1. REJECT PUBLIC EMAIL PROVIDERS
-  const publicDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com'];
-  if (publicDomains.includes(domain)) {
+  // ---- TESTING: only allow @gmail.com ----
+  if (domain !== 'gmail.com') {
     return {
       isValid: false,
-      message: 'Personal email addresses are prohibited. Please use your official @nitrr.ac.in ID.',
+      message: 'Only @gmail.com email addresses are allowed for testing.',
     };
   }
 
-  // 2. CHECK NIT RAIPUR ROOT OR SUBDOMAIN
-  const isNitrrDomain = domain === 'nitrr.ac.in' || domain.endsWith('.nitrr.ac.in');
-  if (!isNitrrDomain) {
-    return {
-      isValid: false,
-      message: 'Access Denied: Only official NIT Raipur email addresses are permitted.',
-    };
-  }
-
-  // 3. EXPLICIT STUDENT PATTERN DETECTION FIRST
-  const hasRollNumber = /\d{6,9}/.test(localPart);
-  const hasStudentBatchTag = /\.(btech|mtech|mca|barch|phd)\d{2,4}/i.test(localPart);
-  const isStudentSubdomain = domain.includes('student');
-
-  if (hasRollNumber || hasStudentBatchTag || isStudentSubdomain) {
-    return {
-      isValid: false,
-      message: 'Access Denied: Student accounts are not authorized to access the Faculty Room Booking portal.',
-    };
-  }
-
-  // 4. HOD ROLE STRICT ENFORCEMENT
+  // ---- HOD detection based on prefix ----
   const isHodEmail = localPart.startsWith('hod.') || localPart.startsWith('head.') || localPart === 'hod';
-  
-  if (selectedRole === 'HOD') {
-    if (!isHodEmail) {
-      return {
-        isValid: false,
-        message: 'Access Denied: Only official Head of Department accounts (e.g. hod.cs@nitrr.ac.in) can access the HOD portal. Please switch to the Faculty role.',
-      };
-    }
+
+  // If user selected HOD but email doesn't match HOD pattern
+  if (selectedRole === 'HOD' && !isHodEmail) {
+    return {
+      isValid: false,
+      message: 'HOD role requires email starting with "hod." (e.g., hod.cs@gmail.com).',
+    };
   }
 
-  // 5. FACULTY ROLE RESTRICTION (Blocks accidental HOD login in Faculty tab or invalid format)
-  if (selectedRole === 'FACULTY') {
-    if (isHodEmail) {
-      return {
-        isValid: false,
-        message: 'This is an official HOD email address. Please switch to the HOD authorization role above.',
-      };
-    }
-
-    const facultyPattern = /^[a-z]+(\.[a-z]+)+$/;
-    if (!facultyPattern.test(localPart)) {
-      return {
-        isValid: false,
-        message: 'Invalid Faculty ID format. Please use: initials.dept@nitrr.ac.in (e.g., dssisodia.cs@nitrr.ac.in).',
-      };
-    }
+  // If user selected FACULTY but email matches HOD pattern
+  if (selectedRole === 'FACULTY' && isHodEmail) {
+    return {
+      isValid: false,
+      message: 'This is an HOD email. Please switch to the HOD role.',
+    };
   }
+
+  // Optionally, enforce a format for faculty (e.g., at least two parts with dot)
+  // but we can keep it loose for testing.
+  // You can add a pattern if desired, but not required.
 
   return { isValid: true, message: '' };
 };
