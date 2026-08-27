@@ -23,6 +23,19 @@ export const disconnectSocket = () => {
   }
 };
 
+// --- Event listeners ---
+export const onBookingCreated = (callback) => {
+  if (socket) {
+    socket.on('booking-created', callback);
+  }
+};
+
+export const offBookingCreated = (callback) => {
+  if (socket) {
+    socket.off('booking-created', callback);
+  }
+};
+
 export const onBookingCancelled = (callback) => {
   if (socket) {
     socket.on('booking-cancelled', callback);

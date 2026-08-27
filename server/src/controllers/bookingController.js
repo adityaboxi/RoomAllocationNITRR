@@ -4,7 +4,9 @@ const Timetable = require('../models/Timetable');
 const User = require('../models/User');
 const { getDayOfWeek, generateLockId } = require('../utils/helpers');
 const { sendBookingConfirmationEmail, sendBookingCancellationEmail } = require('../utils/email');
+const { getIO } = require('../utils/socket'); // <-- added
 
+// ---------- GET BOOKINGS (unchanged) ----------
 exports.getBookings = async (req, res) => {
   try {
     const { status, department, date, facultyEmail } = req.query;
@@ -29,6 +31,7 @@ exports.getBookings = async (req, res) => {
   }
 };
 
+// ---------- GET MY BOOKINGS (unchanged) ----------
 exports.getMyBookings = async (req, res) => {
   try {
     const bookings = await Booking.find({ facultyEmail: req.user.email })
@@ -40,6 +43,7 @@ exports.getMyBookings = async (req, res) => {
   }
 };
 
+// ---------- GET BOOKING BY ID (unchanged) ----------
 exports.getBooking = async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id).populate('roomId', 'name roomNumber floor building');
@@ -53,6 +57,7 @@ exports.getBooking = async (req, res) => {
   }
 };
 
+// ---------- GET BOOKINGS BY ROOM (unchanged) ----------
 exports.getBookingsByRoom = async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -67,6 +72,7 @@ exports.getBookingsByRoom = async (req, res) => {
   }
 };
 
+// ---------- GET BOOKINGS BY FACULTY (unchanged) ----------
 exports.getBookingsByFaculty = async (req, res) => {
   try {
     const { facultyEmail } = req.params;
@@ -82,6 +88,7 @@ exports.getBookingsByFaculty = async (req, res) => {
   }
 };
 
+// ---------- CREATE BOOKING (with socket emission) ----------
 exports.createBooking = async (req, res) => {
   try {
     const { roomId, date, startTime, endTime, purpose, comment } = req.body;
@@ -179,12 +186,28 @@ exports.createBooking = async (req, res) => {
 
     const populated = await booking.populate('roomId', 'name roomNumber floor building');
 
+    // Send confirmation email
     try {
       await sendBookingConfirmationEmail(booking);
       booking.notified = true;
       await booking.save();
     } catch (emailError) {
       console.error('Failed to send confirmation email:', emailError.message);
+    }
+
+    // ---------- EMIT SOCKET EVENT ----------
+    const io = getIO();
+    if (io) {
+      io.emit('booking-created', {
+        bookingId: booking.id,
+        roomId: room._id,
+        roomName: room.name,
+        date: booking.date,
+        startTime: booking.startTime,
+        endTime: booking.endTime,
+        purpose: booking.purpose,
+        facultyName: booking.facultyName,
+      });
     }
 
     res.status(201).json({ success: true, data: populated });
@@ -194,6 +217,7 @@ exports.createBooking = async (req, res) => {
   }
 };
 
+// ---------- CANCEL BOOKING (with socket emission) ----------
 exports.cancelBooking = async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id).populate('roomId', 'name');
@@ -216,6 +240,7 @@ exports.cancelBooking = async (req, res) => {
     booking.status = 'cancelled';
     await booking.save();
 
+    // Send cancellation email
     try {
       await sendBookingCancellationEmail(booking, 'Cancelled by user');
       booking.notified = true;
@@ -224,12 +249,27 @@ exports.cancelBooking = async (req, res) => {
       console.error('Failed to send cancellation email:', emailError.message);
     }
 
+    // ---------- EMIT SOCKET EVENT ----------
+    const io = getIO();
+    if (io) {
+      io.emit('booking-cancelled', {
+        bookingId: booking.id,
+        roomId: booking.roomId._id,
+        roomName: booking.roomId.name,
+        date: booking.date,
+        startTime: booking.startTime,
+        endTime: booking.endTime,
+        reason: 'Cancelled by user',
+      });
+    }
+
     res.json({ success: true, message: 'Booking cancelled', data: booking });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
+// ---------- LOCK ROOM (unchanged) ----------
 exports.lockRoom = async (req, res) => {
   try {
     const { roomId, date, startTime, endTime } = req.body;
@@ -276,6 +316,7 @@ exports.lockRoom = async (req, res) => {
   }
 };
 
+// ---------- UNLOCK ROOM (unchanged) ----------
 exports.unlockRoom = async (req, res) => {
   try {
     const { lockId } = req.body;
