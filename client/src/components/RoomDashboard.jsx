@@ -14,13 +14,11 @@ export default function RoomDashboard({ user }) {
   const [selectedRoomReviews, setSelectedRoomReviews] = useState(null);
   const [selectedRoom, setSelectedRoom] = useState(null);
 
-  // Helper to get current time string in HH:MM format
   const getCurrentTimeString = () => {
     const now = new Date();
     return now.toTimeString().slice(0, 5);
   };
 
-  // Helper to get today's date as YYYY-MM-DD
   const getTodayDate = () => {
     return new Date().toISOString().split('T')[0];
   };
@@ -34,7 +32,6 @@ export default function RoomDashboard({ user }) {
       const endH = h + 1;
       const endTime = `${String(endH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
-      // Use the user's department (same for both HOD and Faculty)
       const dept = user.department;
       const roomsData = await getRooms({ department: dept });
       setRooms(roomsData.data || []);
@@ -49,36 +46,40 @@ export default function RoomDashboard({ user }) {
     }
   };
 
+  // --- FIXED: extract reviews array correctly ---
   const fetchReviewsForRoom = async (roomId) => {
     if (loadingReviews[roomId]) return;
     setLoadingReviews(prev => ({ ...prev, [roomId]: true }));
     try {
       const data = await getRoomReviews(roomId);
-      // Expected response: { success: true, data: { reviews: [], avgRating: 0, count: 0 } }
-      setReviews(prev => ({ ...prev, [roomId]: data.data || [] }));
+      // ✅ Correct: extract the reviews array from data.data.reviews
+      const reviewsArray = data.data?.reviews || data.data || [];
+      setReviews(prev => ({ ...prev, [roomId]: reviewsArray }));
+      // If this room is currently selected, update modal
+      if (selectedRoom && selectedRoom.id === roomId) {
+        setSelectedRoomReviews(reviewsArray);
+      }
     } catch (err) {
-      console.error(err);
+      console.error('Failed to fetch reviews:', err);
+      if (selectedRoom && selectedRoom.id === roomId) {
+        setSelectedRoomReviews([]); // show modal with empty state
+      }
     } finally {
       setLoadingReviews(prev => ({ ...prev, [roomId]: false }));
     }
   };
 
+  // --- FIXED: open modal immediately with empty array ---
   const handleViewReviews = (room) => {
     if (reviews[room.id]) {
       setSelectedRoom(room);
       setSelectedRoomReviews(reviews[room.id]);
-    } else {
-      fetchReviewsForRoom(room.id);
-      setSelectedRoom(room);
+      return;
     }
+    setSelectedRoom(room);
+    setSelectedRoomReviews([]); // modal opens immediately
+    fetchReviewsForRoom(room.id);
   };
-
-  // Open modal once reviews are fetched
-  useEffect(() => {
-    if (selectedRoom && reviews[selectedRoom.id]) {
-      setSelectedRoomReviews(reviews[selectedRoom.id]);
-    }
-  }, [reviews, selectedRoom]);
 
   // Initial fetch
   useEffect(() => {
@@ -90,14 +91,14 @@ export default function RoomDashboard({ user }) {
     return () => clearInterval(interval);
   }, []);
 
-  // Socket listeners for real-time updates
+  // Socket listeners
   useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
 
     const handleBookingCreated = () => fetchData();
     const handleBookingCancelled = () => fetchData();
-    const handleTimetableUpdated = () => fetchData(); // <-- new
+    const handleTimetableUpdated = () => fetchData();
 
     socket.on('booking-created', handleBookingCreated);
     socket.on('booking-cancelled', handleBookingCancelled);
@@ -155,7 +156,6 @@ export default function RoomDashboard({ user }) {
                 {room.hasWiFi && <span className="bg-slate-100 px-2 py-0.5 rounded">WiFi</span>}
               </div>
 
-              {/* Review summary */}
               <div className="mt-3 flex items-center gap-2">
                 {avgRating ? (
                   <span className="text-sm font-medium text-amber-600">{avgRating} ★</span>
@@ -178,8 +178,8 @@ export default function RoomDashboard({ user }) {
         })}
       </div>
 
-      {/* Reviews Modal */}
-      {selectedRoom && selectedRoomReviews && (
+      {/* Modal condition – ensure it renders with empty array */}
+      {selectedRoom && selectedRoomReviews !== null && (
         <ReviewsModal
           room={selectedRoom}
           reviews={selectedRoomReviews}
