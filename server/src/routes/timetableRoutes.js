@@ -1,12 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const { protect, authorize } = require('../middleware/auth');
+const { protect } = require('../middleware/auth');
 const {
   getTimetable,
   getTimetableByDepartment,
   getTimetableByFaculty,
   getTimetableByRoom,
   replaceTimetable,
+  updateRoomDayTimetable,
   replaceTimetableFromFile,
   uploadTimetableFile,
   updateTimetableEntry,
@@ -16,21 +17,21 @@ const {
 // All timetable routes require authentication
 router.use(protect);
 
-// Public Timetable View Endpoints
+// Query Endpoints
 router.get('/', getTimetable);
 router.get('/department/:department', getTimetableByDepartment);
 router.get('/faculty/:facultyName', getTimetableByFaculty);
 router.get('/room/:roomId', getTimetableByRoom);
 
-// Administrative Timetable Modification Endpoints (HOD Only)
-router.post('/', authorize('HOD'), replaceTimetable);
+// Modification Endpoints
+router.post('/', replaceTimetable);
+router.post('/room-day', updateRoomDayTimetable);
 router.post(
   '/upload',
-  authorize('HOD'),
   uploadTimetableFile,
   replaceTimetableFromFile
 );
-router.put('/:id', authorize('HOD'), updateTimetableEntry);
-router.delete('/:id', authorize('HOD'), deleteTimetableEntry);
+router.put('/:id', updateTimetableEntry);
+router.delete('/:id', deleteTimetableEntry);
 
 module.exports = router;

@@ -1,0 +1,17 @@
+Day,Start Time,End Time,Subject,RoomId,Class Group,Faculty
+Monday,09:00,09:50,DBMS,F-42,5th Sec A,Prof. DBMS
+Monday,09:50,10:40,ADS,F-42,5th Sec A,Prof. ADS
+Monday,10:40,11:30,SE,F-42,5th Sec A,Prof. SE
+Tuesday,09:00,09:50,DBMS,F-42,5th Sec A,Prof. DBMS
+Tuesday,09:50,10:40,SE,F-42,5th Sec A,Prof. SE
+Tuesday,10:40,11:30,ADS,F-42,5th Sec A,Prof. ADS
+Wednesday,10:40,11:30,ADS,F-42,5th Sec A,Prof. ADS
+Wednesday,11:30,12:20,NLP,F-42,5th Sec A,Prof. NLP
+Wednesday,12:20,13:10,SE,F-42,5th Sec A,Prof. SE
+Wednesday,14:10,15:50,Data Science / Computing Algo & IKS,F-42,5th Sec A,Prof. Data Science
+Thursday,09:00,10:40,DBMS,F-42,5th Sec A,Prof. DBMS
+Thursday,10:40,12:20,NLP,F-42,5th Sec A,Prof. NLP
+Thursday,12:20,13:10,SE,F-42,5th Sec A,Prof. SE
+Thursday,14:10,15:00,Data Science / Computing Algo & IKS,F-42,5th Sec A,Prof. Data Science
+Thursday,15:00,15:50,ADS,F-42,5th Sec A,Prof. ADS
+Friday,11:30,13:10,Summer Internship I,F-42,5th Sec A,Prof. Internship Mentor

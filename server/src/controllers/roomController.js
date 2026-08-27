@@ -2,12 +2,14 @@ const mongoose = require('mongoose');
 const Room = require('../models/Room');
 const Booking = require('../models/Booking');
 const Timetable = require('../models/Timetable');
+const User = require('../models/User');
+const Notification = require('../models/Notification');
 const { getDayOfWeek } = require('../utils/helpers');
+const { sendBookingCancellationEmail } = require('../utils/email');
+const { getIO, emitToUser } = require('../utils/socket');
 
-// Helper to escape regex special characters (prevents ReDoS and regex crashes)
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-// Helper to get normalized current date string YYYY-MM-DD
 const getTodayDateString = () => {
   const now = new Date();
   const year = now.getFullYear();
@@ -16,7 +18,7 @@ const getTodayDateString = () => {
   return `${year}-${month}-${day}`;
 };
 
-// ---------- GET ROOMS (With Safe Search & Filters) ----------
+// ---------- GET ROOMS ----------
 exports.getRooms = async (req, res) => {
   try {
     const {
@@ -30,7 +32,7 @@ exports.getRooms = async (req, res) => {
       hasAC,
       hasSmartBoard,
       hasWiFi,
-      sortBy
+      sortBy,
     } = req.query;
 
     const query = { isActive: true };
@@ -50,7 +52,7 @@ exports.getRooms = async (req, res) => {
       query.$or = [
         { name: { $regex: sanitized, $options: 'i' } },
         { roomNumber: { $regex: sanitized, $options: 'i' } },
-        { building: { $regex: sanitized, $options: 'i' } }
+        { building: { $regex: sanitized, $options: 'i' } },
       ];
     }
 
@@ -61,10 +63,9 @@ exports.getRooms = async (req, res) => {
 
     const rooms = await Room.find(query).sort(sortQuery).lean();
 
-    // Map _id to id for frontend compatibility
     const formatted = rooms.map((r) => ({
       ...r,
-      id: r._id.toString()
+      id: r._id.toString(),
     }));
 
     res.json({ success: true, data: formatted, total: formatted.length });
@@ -95,10 +96,22 @@ exports.getRoom = async (req, res) => {
   }
 };
 
-// ---------- GET AVAILABLE ROOMS (Database-Level Pushdown) ----------
+// ---------- GET AVAILABLE ROOMS ----------
 exports.getAvailableRooms = async (req, res) => {
   try {
-    let { date, startTime, endTime, department, floor, building, roomType, hasProjector, hasAC, hasSmartBoard, hasWiFi } = req.query;
+    let {
+      date,
+      startTime,
+      endTime,
+      department,
+      floor,
+      building,
+      roomType,
+      hasProjector,
+      hasAC,
+      hasSmartBoard,
+      hasWiFi,
+    } = req.query;
 
     if (!date || !startTime || !endTime) {
       return res.status(400).json({ success: false, message: 'date, startTime and endTime are required' });
@@ -120,37 +133,39 @@ exports.getAvailableRooms = async (req, res) => {
     if (hasSmartBoard === 'true') baseQuery.hasSmartBoard = true;
     if (hasWiFi === 'true') baseQuery.hasWiFi = true;
 
-    // Parallel fetch of booked room IDs and timetable room IDs
     const [bookedRoomIds, timetableRoomIds, totalActiveRoomsCount] = await Promise.all([
       Booking.distinct('roomId', {
         date,
         status: 'active',
         startTime: { $lt: endTime },
-        endTime: { $gt: startTime }
+        endTime: { $gt: startTime },
       }),
       Timetable.distinct('roomId', {
         day,
         isActive: true,
         startTime: { $lt: endTime },
-        endTime: { $gt: startTime }
+        endTime: { $gt: startTime },
       }),
-      Room.countDocuments(baseQuery)
+      Room.countDocuments(baseQuery),
     ]);
 
-    const unavailableIds = [...new Set([
-      ...bookedRoomIds.map(id => id.toString()),
-      ...timetableRoomIds.map(id => id.toString())
-    ])];
+    const unavailableIds = [
+      ...new Set([
+        ...bookedRoomIds.map((id) => id.toString()),
+        ...timetableRoomIds.map((id) => id.toString()),
+      ]),
+    ];
 
-    // Push down filtering directly to MongoDB using $nin
     const availableRooms = await Room.find({
       ...baseQuery,
-      _id: { $nin: unavailableIds }
-    }).sort({ floor: 1, roomNumber: 1 }).lean();
+      _id: { $nin: unavailableIds },
+    })
+      .sort({ floor: 1, roomNumber: 1 })
+      .lean();
 
     const formatted = availableRooms.map((r) => ({
       ...r,
-      id: r._id.toString()
+      id: r._id.toString(),
     }));
 
     res.json({
@@ -158,11 +173,272 @@ exports.getAvailableRooms = async (req, res) => {
       data: formatted,
       total: formatted.length,
       unavailable: totalActiveRoomsCount - formatted.length,
-      filters: { department, floor, building, roomType, hasProjector, hasAC, hasSmartBoard, hasWiFi }
+      filters: { department, floor, building, roomType, hasProjector, hasAC, hasSmartBoard, hasWiFi },
     });
   } catch (error) {
     console.error('Get available rooms error:', error);
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ---------- CREATE ROOM ----------
+exports.createRoom = async (req, res) => {
+  try {
+    let { name, roomNumber, capacity, type, floor, building } = req.body;
+
+    if (!name || !roomNumber || !capacity || !type || !floor || !building) {
+      return res.status(400).json({ success: false, message: 'All required room fields must be provided' });
+    }
+
+    const numericCapacity = Number(capacity);
+    if (isNaN(numericCapacity) || numericCapacity <= 0) {
+      return res.status(400).json({ success: false, message: 'Capacity must be a positive integer' });
+    }
+
+    name = name.trim();
+    roomNumber = roomNumber.trim().toUpperCase();
+    const department = req.user.department;
+
+    // Check if an ACTIVE room already exists with this name or number in the department
+    const existing = await Room.findOne({
+      department,
+      isActive: true,
+      $or: [
+        { name: { $regex: new RegExp('^' + escapeRegex(name) + '$', 'i') } },
+        { roomNumber: { $regex: new RegExp('^' + escapeRegex(roomNumber) + '$', 'i') } },
+      ],
+    });
+
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        message: `An active room "${existing.name}" (${existing.roomNumber}) already exists in ${department} department.`,
+      });
+    }
+
+    // Clean up any stale soft-deleted duplicates
+    await Room.deleteMany({
+      department,
+      isActive: false,
+      $or: [
+        { name: { $regex: new RegExp('^' + escapeRegex(name) + '$', 'i') } },
+        { roomNumber: { $regex: new RegExp('^' + escapeRegex(roomNumber) + '$', 'i') } },
+      ],
+    });
+
+    const room = await Room.create({
+      ...req.body,
+      name,
+      roomNumber,
+      capacity: numericCapacity,
+      department,
+      isActive: true,
+      isAvailable: req.body.isAvailable !== undefined ? req.body.isAvailable : true,
+      createdBy: req.user._id,
+      createdByName: req.user.name,
+    });
+
+    res.status(201).json({ success: true, message: 'Room created successfully', data: room });
+  } catch (error) {
+    console.error('Create room error:', error);
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// ---------- UPDATE ROOM ----------
+exports.updateRoom = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid room ID format' });
+    }
+
+    const room = await Room.findById(id);
+    if (!room || !room.isActive) {
+      return res.status(404).json({ success: false, message: 'Room not found' });
+    }
+
+    const isOwner = room.createdBy && room.createdBy.toString() === req.user._id.toString();
+    const isHOD = req.user.role === 'HOD' && room.department === req.user.department;
+
+    if (!isOwner && !isHOD) {
+      return res.status(403).json({
+        success: false,
+        message: `Permission denied: Room "${room.name}" was added by Prof. ${room.createdByName || 'another faculty member'}. Only the creator or the Department HOD can update it.`,
+      });
+    }
+
+    if (req.body.roomNumber) {
+      req.body.roomNumber = req.body.roomNumber.trim().toUpperCase();
+    }
+    if (req.body.name) {
+      req.body.name = req.body.name.trim();
+    }
+    if (req.body.capacity) {
+      req.body.capacity = Number(req.body.capacity);
+    }
+
+    delete req.body.department;
+    delete req.body.createdBy;
+    delete req.body.createdByName;
+
+    const updatedRoom = await Room.findByIdAndUpdate(id, req.body, { new: true, runValidators: true });
+    res.json({ success: true, message: 'Room updated successfully', data: updatedRoom });
+  } catch (error) {
+    console.error('Update room error:', error);
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// ---------- TOGGLE AVAILABILITY ----------
+exports.toggleRoomAvailability = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid room ID format' });
+    }
+
+    const room = await Room.findById(id);
+    if (!room || !room.isActive) {
+      return res.status(404).json({ success: false, message: 'Room not found' });
+    }
+
+    const isOwner = room.createdBy && room.createdBy.toString() === req.user._id.toString();
+    const isHOD = req.user.role === 'HOD' && room.department === req.user.department;
+
+    if (!isOwner && !isHOD) {
+      return res.status(403).json({
+        success: false,
+        message: `Permission denied: Room "${room.name}" was added by Prof. ${room.createdByName || 'another faculty member'}. Only the creator or the Department HOD can toggle availability.`,
+      });
+    }
+
+    room.isAvailable = !room.isAvailable;
+    await room.save();
+
+    res.json({
+      success: true,
+      message: `Room availability set to ${room.isAvailable ? 'Available' : 'Unavailable'}`,
+      data: room,
+    });
+  } catch (error) {
+    console.error('Toggle room error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ---------- DELETE ROOM (WITH COMPLETE CASCADING & PURGE) ----------
+exports.deleteRoom = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid room ID format' });
+    }
+
+    const room = await Room.findById(id);
+    if (!room) {
+      return res.status(404).json({ success: false, message: 'Room not found' });
+    }
+
+    const isOwner = room.createdBy && room.createdBy.toString() === req.user._id.toString();
+    const isHOD = req.user.role === 'HOD' && room.department === req.user.department;
+
+    if (!isOwner && !isHOD) {
+      return res.status(403).json({
+        success: false,
+        message: `Permission denied: Room "${room.name}" was added by Prof. ${room.createdByName || 'another faculty member'}. Only the creator or Department HOD can delete it.`,
+      });
+    }
+
+    // 1. Permanently delete room from collection to free name & roomNumber
+    await Room.findByIdAndDelete(id);
+
+    // 2. Cascade delete all timetable slots scheduled in this room
+    const timetableDeleteResult = await Timetable.deleteMany({ roomId: id });
+
+    // 3. Clear temporary checkout locks on this room
+    await Booking.deleteMany({ roomId: id, purpose: 'TEMPORARY_LOCK' });
+
+    // 4. Find all future active bookings in this room to cancel and notify faculty
+    const todayStr = getTodayDateString();
+    const affectedBookings = await Booking.find({
+      roomId: id,
+      date: { $gte: todayStr },
+      status: 'active',
+    });
+
+    const cancellationReason = `Room "${room.name}" was removed from department inventory.`;
+
+    for (const booking of affectedBookings) {
+      booking.status = 'cancelled';
+      booking.conflictMessage = cancellationReason;
+      await booking.save();
+
+      // Async email & in-app notification
+      (async () => {
+        try {
+          await sendBookingCancellationEmail(booking, cancellationReason);
+        } catch (emailErr) {
+          console.warn('Email dispatch warning:', emailErr.message);
+        }
+
+        const facultyUser = await User.findOne({ email: booking.facultyEmail });
+        if (facultyUser) {
+          emitToUser(facultyUser._id.toString(), 'booking-cancelled', {
+            bookingId: booking.id,
+            roomName: room.name,
+            date: booking.date,
+            startTime: booking.startTime,
+            endTime: booking.endTime,
+            reason: cancellationReason,
+          });
+
+          await Notification.create({
+            userId: facultyUser._id,
+            message: `Booking cancelled: Room "${room.name}" on ${booking.date} (${booking.startTime}-${booking.endTime}) was deleted by department HOD.`,
+            type: 'booking-cancelled',
+            metadata: {
+              roomId: room._id,
+              roomName: room.name,
+              date: booking.date,
+              startTime: booking.startTime,
+              endTime: booking.endTime,
+              bookingId: booking.id,
+            },
+          });
+        }
+      })().catch((err) => console.error('Notification error:', err));
+    }
+
+    // 5. Emit real-time socket event to sync all connected dashboards
+    const io = getIO();
+    if (io) {
+      io.emit('timetable-updated', {
+        department: room.department,
+        roomId: room._id,
+        reason: 'Room deleted',
+      });
+      io.emit('booking-cancelled', {
+        roomId: room._id,
+        roomName: room.name,
+        reason: cancellationReason,
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Room "${room.name}" deleted successfully. Removed ${timetableDeleteResult.deletedCount} timetable slots and cancelled ${affectedBookings.length} future bookings.`,
+      data: {
+        timetableSlotsDeleted: timetableDeleteResult.deletedCount,
+        bookingsCancelled: affectedBookings.length,
+      },
+    });
+  } catch (error) {
+    console.error('Delete room error:', error);
+    res.status(400).json({ success: false, message: error.message });
   }
 };
 
@@ -176,10 +452,8 @@ exports.getRoomsByFloor = async (req, res) => {
       acc[key].push({ ...room, id: room._id.toString() });
       return acc;
     }, {});
-
     res.json({ success: true, data: groupedByFloor });
   } catch (error) {
-    console.error('Get rooms by floor error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -194,10 +468,8 @@ exports.getRoomsByBuilding = async (req, res) => {
       acc[key].push({ ...room, id: room._id.toString() });
       return acc;
     }, {});
-
     res.json({ success: true, data: groupedByBuilding });
   } catch (error) {
-    console.error('Get rooms by building error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -209,164 +481,10 @@ exports.getRoomsByDepartment = async (req, res) => {
     const rooms = await Room.find({ department: department.trim(), isActive: true })
       .sort({ floor: 1, roomNumber: 1 })
       .lean();
-
     const formatted = rooms.map((r) => ({ ...r, id: r._id.toString() }));
     res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
-    console.error('Get rooms by department error:', error);
     res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ---------- CREATE ROOM (HOD Only) ----------
-exports.createRoom = async (req, res) => {
-  try {
-    let { name, roomNumber, capacity, type, floor, building } = req.body;
-
-    if (!name || !roomNumber || !capacity || !type || !floor || !building) {
-      return res.status(400).json({ success: false, message: 'All required room fields must be provided' });
-    }
-
-    const numericCapacity = Number(capacity);
-    if (isNaN(numericCapacity) || numericCapacity <= 0) {
-      return res.status(400).json({ success: false, message: 'Capacity must be a positive integer' });
-    }
-
-    const department = req.user.department;
-    name = name.trim();
-    roomNumber = roomNumber.trim().toUpperCase();
-
-    const room = await Room.create({
-      ...req.body,
-      name,
-      roomNumber,
-      capacity: numericCapacity,
-      department,
-      isActive: true,
-      isAvailable: req.body.isAvailable !== undefined ? req.body.isAvailable : true
-    });
-
-    res.status(201).json({ success: true, message: 'Room created successfully', data: room });
-  } catch (error) {
-    console.error('Create room error:', error);
-    if (error.code === 11000) {
-      return res.status(400).json({ success: false, message: 'A room already exists with this name or room number' });
-    }
-    res.status(400).json({ success: false, message: error.message });
-  }
-};
-
-// ---------- UPDATE ROOM (HOD Only) ----------
-exports.updateRoom = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ success: false, message: 'Invalid room ID format' });
-    }
-
-    const room = await Room.findById(id);
-    if (!room || !room.isActive) {
-      return res.status(404).json({ success: false, message: 'Room not found' });
-    }
-
-    if (room.department !== req.user.department) {
-      return res.status(403).json({ success: false, message: 'You can only update rooms for your department' });
-    }
-
-    if (req.body.roomNumber) {
-      req.body.roomNumber = req.body.roomNumber.trim().toUpperCase();
-    }
-    if (req.body.name) {
-      req.body.name = req.body.name.trim();
-    }
-    if (req.body.capacity) {
-      req.body.capacity = Number(req.body.capacity);
-    }
-
-    // Protect department from being arbitrarily modified
-    delete req.body.department;
-
-    const updatedRoom = await Room.findByIdAndUpdate(id, req.body, { new: true, runValidators: true });
-    res.json({ success: true, message: 'Room updated successfully', data: updatedRoom });
-  } catch (error) {
-    console.error('Update room error:', error);
-    if (error.code === 11000) {
-      return res.status(400).json({ success: false, message: 'A room already exists with this name or room number' });
-    }
-    res.status(400).json({ success: false, message: error.message });
-  }
-};
-
-// ---------- TOGGLE ROOM AVAILABILITY (HOD Only) ----------
-exports.toggleRoomAvailability = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ success: false, message: 'Invalid room ID format' });
-    }
-
-    const room = await Room.findById(id);
-    if (!room || !room.isActive) {
-      return res.status(404).json({ success: false, message: 'Room not found' });
-    }
-
-    if (room.department !== req.user.department) {
-      return res.status(403).json({ success: false, message: 'You can only toggle rooms for your department' });
-    }
-
-    room.isAvailable = !room.isAvailable;
-    await room.save();
-
-    res.json({
-      success: true,
-      message: `Room availability set to ${room.isAvailable ? 'Available' : 'Unavailable'}`,
-      data: room
-    });
-  } catch (error) {
-    console.error('Toggle room availability error:', error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ---------- DELETE ROOM (HOD Only - Safe Soft Delete with Cascade) ----------
-exports.deleteRoom = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ success: false, message: 'Invalid room ID format' });
-    }
-
-    const room = await Room.findById(id);
-    if (!room || !room.isActive) {
-      return res.status(404).json({ success: false, message: 'Room not found' });
-    }
-
-    if (room.department !== req.user.department) {
-      return res.status(403).json({ success: false, message: 'You can only delete rooms for your department' });
-    }
-
-    // Soft delete room to preserve history and prevent dangling references
-    room.isActive = false;
-    room.isAvailable = false;
-    await room.save();
-
-    // Deactivate associated timetable entries
-    await Timetable.updateMany({ roomId: id, isActive: true }, { $set: { isActive: false } });
-
-    // Cancel future active bookings for this room
-    const todayStr = getTodayDateString();
-    await Booking.updateMany(
-      { roomId: id, date: { $gte: todayStr }, status: 'active' },
-      { $set: { status: 'cancelled', conflictMessage: 'Room has been decommissioned by Department HOD' } }
-    );
-
-    res.json({ success: true, message: 'Room deleted successfully and associated schedules updated' });
-  } catch (error) {
-    console.error('Delete room error:', error);
-    res.status(400).json({ success: false, message: error.message });
   }
 };
 
@@ -391,7 +509,7 @@ exports.getRoomAvailability = async (req, res) => {
       day: day.trim(),
       startTime: { $lte: time },
       endTime: { $gt: time },
-      isActive: true
+      isActive: true,
     });
 
     if (ttClash) {
@@ -403,8 +521,8 @@ exports.getRoomAvailability = async (req, res) => {
           subject: ttClash.subject,
           classGroup: ttClash.classGroup,
           faculty: ttClash.faculty,
-          until: ttClash.endTime
-        }
+          until: ttClash.endTime,
+        },
       });
     }
 
@@ -413,7 +531,7 @@ exports.getRoomAvailability = async (req, res) => {
       date: targetDate,
       startTime: { $lte: time },
       endTime: { $gt: time },
-      status: 'active'
+      status: 'active',
     });
 
     if (bookingClash) {
@@ -424,14 +542,13 @@ exports.getRoomAvailability = async (req, res) => {
         details: {
           purpose: bookingClash.purpose,
           facultyName: bookingClash.facultyName,
-          until: bookingClash.endTime
-        }
+          until: bookingClash.endTime,
+        },
       });
     }
 
     res.json({ success: true, available: true, message: 'Room is available' });
   } catch (error) {
-    console.error('Get room availability error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

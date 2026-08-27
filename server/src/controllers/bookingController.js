@@ -3,22 +3,15 @@ const Booking = require('../models/Booking');
 const Room = require('../models/Room');
 const Timetable = require('../models/Timetable');
 const User = require('../models/User');
-const { getDayOfWeek, generateLockId, isOverlapping } = require('../utils/helpers');
+const Notification = require('../models/Notification');
+const { getDayOfWeek, generateLockId } = require('../utils/helpers');
 const { sendBookingConfirmationEmail, sendBookingCancellationEmail } = require('../utils/email');
-const { getIO } = require('../utils/socket');
+const { getIO, emitToUser } = require('../utils/socket');
 
 // Helper to validate HH:mm format
 const isValidTimeFormat = (time) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(time);
 
-// Helper to get normalized current time in IST/local environment
-const getCurrentTimeHHMM = () => {
-  const now = new Date();
-  const h = String(now.getHours()).padStart(2, '0');
-  const m = String(now.getMinutes()).padStart(2, '0');
-  return `${h}:${m}`;
-};
-
-// Helper to get today's date string YYYY-MM-DD
+// Helper to get normalized current date string YYYY-MM-DD
 const getTodayDateString = () => {
   const now = new Date();
   const year = now.getFullYear();
@@ -27,16 +20,26 @@ const getTodayDateString = () => {
   return `${year}-${month}-${day}`;
 };
 
-// ---------- GET BOOKINGS ----------
+// Helper to get normalized current time string HH:mm
+const getCurrentTimeHHMM = () => {
+  const now = new Date();
+  const h = String(now.getHours()).padStart(2, '0');
+  const m = String(now.getMinutes()).padStart(2, '0');
+  return `${h}:${m}`;
+};
+
+// ---------- GET ALL / FILTERED BOOKINGS ----------
 exports.getBookings = async (req, res) => {
   try {
     const { status, department, date, facultyEmail } = req.query;
     const query = {};
+
     if (status) query.status = status;
-    if (department) query.department = department;
-    if (date) query.date = date;
+    if (department) query.department = department.trim();
+    if (date) query.date = date.trim();
     if (facultyEmail) query.facultyEmail = facultyEmail.trim().toLowerCase();
 
+    // HODs can view their entire department; Faculty members view their own bookings by default
     if (req.user.role === 'HOD') {
       if (!department) query.department = req.user.department;
     } else {
@@ -44,47 +47,68 @@ exports.getBookings = async (req, res) => {
     }
 
     const bookings = await Booking.find(query)
-      .populate('roomId', 'name roomNumber floor building department')
-      .sort({ date: -1, startTime: -1 });
+      .populate('roomId', 'name roomNumber floor building department capacity type')
+      .sort({ date: -1, startTime: -1 })
+      .lean();
 
-    res.json({ success: true, data: bookings, total: bookings.length });
+    const formatted = bookings.map((b) => ({
+      ...b,
+      id: b._id.toString(),
+    }));
+
+    res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
     console.error('Get bookings error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ---------- GET MY BOOKINGS ----------
+// ---------- GET LOGGED-IN USER BOOKINGS ----------
 exports.getMyBookings = async (req, res) => {
   try {
     const bookings = await Booking.find({ facultyEmail: req.user.email })
-      .populate('roomId', 'name roomNumber floor building department')
-      .sort({ date: -1, startTime: -1 });
+      .populate('roomId', 'name roomNumber floor building department capacity type')
+      .sort({ date: -1, startTime: -1 })
+      .lean();
 
-    res.json({ success: true, data: bookings, total: bookings.length });
+    const formatted = bookings.map((b) => ({
+      ...b,
+      id: b._id.toString(),
+    }));
+
+    res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
     console.error('Get my bookings error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ---------- GET BOOKING BY ID ----------
+// ---------- GET SINGLE BOOKING BY ID ----------
 exports.getBooking = async (req, res) => {
   try {
-    const booking = await Booking.findById(req.params.id)
-      .populate('roomId', 'name roomNumber floor building department');
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid booking ID format' });
+    }
+
+    const booking = await Booking.findById(id).populate(
+      'roomId',
+      'name roomNumber floor building department capacity type'
+    );
 
     if (!booking) {
       return res.status(404).json({ success: false, message: 'Booking not found' });
     }
 
+    // Access control: Only booking owner or department HOD can view
     if (booking.facultyEmail !== req.user.email && req.user.role !== 'HOD') {
       return res.status(403).json({ success: false, message: 'Not authorized to view this booking' });
     }
 
     res.json({ success: true, data: booking });
   } catch (error) {
-    console.error('Get booking error:', error);
+    console.error('Get booking by ID error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -93,16 +117,26 @@ exports.getBooking = async (req, res) => {
 exports.getBookingsByRoom = async (req, res) => {
   try {
     const { roomId } = req.params;
-    const room = await Room.findById(roomId);
-    if (!room) {
-      return res.status(404).json({ success: false, message: 'Room not found' });
+    const { date } = req.query;
+
+    if (!mongoose.Types.ObjectId.isValid(roomId)) {
+      return res.status(400).json({ success: false, message: 'Invalid room ID format' });
     }
 
-    const bookings = await Booking.find({ roomId, status: 'active' })
-      .populate('roomId', 'name roomNumber floor building department')
-      .sort({ date: 1, startTime: 1 });
+    const query = { roomId, status: 'active' };
+    if (date) query.date = date.trim();
 
-    res.json({ success: true, data: bookings, total: bookings.length });
+    const bookings = await Booking.find(query)
+      .populate('roomId', 'name roomNumber floor building department')
+      .sort({ date: 1, startTime: 1 })
+      .lean();
+
+    const formatted = bookings.map((b) => ({
+      ...b,
+      id: b._id.toString(),
+    }));
+
+    res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
     console.error('Get bookings by room error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -113,154 +147,185 @@ exports.getBookingsByRoom = async (req, res) => {
 exports.getBookingsByFaculty = async (req, res) => {
   try {
     const facultyEmail = req.params.facultyEmail.trim().toLowerCase();
+
+    // Faculty members can only view their own bookings unless user is HOD
     if (req.user.role !== 'HOD' && req.user.email !== facultyEmail) {
-      return res.status(403).json({ success: false, message: 'Not authorized to view these bookings' });
+      return res.status(403).json({ success: false, message: 'Not authorized to view bookings of other faculty members' });
     }
 
     const bookings = await Booking.find({ facultyEmail })
       .populate('roomId', 'name roomNumber floor building department')
-      .sort({ date: -1, startTime: -1 });
+      .sort({ date: -1, startTime: -1 })
+      .lean();
 
-    res.json({ success: true, data: bookings, total: bookings.length });
+    const formatted = bookings.map((b) => ({
+      ...b,
+      id: b._id.toString(),
+    }));
+
+    res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
     console.error('Get bookings by faculty error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ---------- CREATE BOOKING (Race-Condition Protected & Lock-Aware) ----------
+// ---------- CREATE BOOKING (With Standalone Fallback & Transaction Concurrency) ----------
 exports.createBooking = async (req, res) => {
-  const session = await mongoose.startSession();
+  let { roomId, date, startTime, endTime, purpose, comment, lockId } = req.body;
+
+  if (!roomId || !date || !startTime || !endTime || !purpose) {
+    return res.status(400).json({
+      success: false,
+      message: 'All fields (roomId, date, startTime, endTime, purpose) are required',
+    });
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(roomId)) {
+    return res.status(400).json({ success: false, message: 'Invalid room ID format' });
+  }
+
+  startTime = startTime.trim();
+  endTime = endTime.trim();
+  date = date.trim();
+  purpose = purpose.trim();
+
+  // Validate time format
+  if (!isValidTimeFormat(startTime) || !isValidTimeFormat(endTime)) {
+    return res.status(400).json({ success: false, message: 'Invalid time format. Expected HH:mm (24-hour)' });
+  }
+
+  if (startTime >= endTime) {
+    return res.status(400).json({ success: false, message: 'End time must be strictly after start time' });
+  }
+
+  const [sH, sM] = startTime.split(':').map(Number);
+  const [eH, eM] = endTime.split(':').map(Number);
+  const durationMinutes = (eH * 60 + eM) - (sH * 60 + sM);
+  if (durationMinutes < 30) {
+    return res.status(400).json({ success: false, message: 'Booking slot must be at least 30 minutes in duration' });
+  }
+
+  // Date and Time Window Validation
+  const todayStr = getTodayDateString();
+  if (date < todayStr) {
+    return res.status(400).json({ success: false, message: 'Cannot book a past date' });
+  }
+
+  if (date === todayStr) {
+    const currentHHMM = getCurrentTimeHHMM();
+    if (startTime < currentHHMM) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot book past time slots for today (Current server time: ${currentHHMM})`,
+      });
+    }
+  }
+
+  // Maximum 7 days advance reservation limit
+  const todayDate = new Date(todayStr);
+  const maxBookingDate = new Date(todayDate);
+  maxBookingDate.setDate(maxBookingDate.getDate() + 7);
+  const maxDateStr = maxBookingDate.toISOString().split('T')[0];
+
+  if (date > maxDateStr) {
+    return res.status(400).json({ success: false, message: 'Cannot book more than 7 days in advance' });
+  }
+
+  const day = getDayOfWeek(date);
+  if (day === 'Sunday') {
+    return res.status(400).json({ success: false, message: 'Classroom reservations are not permitted on Sundays' });
+  }
+
+  // Session execution helper (supports replica set transactions and standalone mode)
+  let session = null;
+  let useTransaction = false;
+
   try {
-    let { roomId, date, startTime, endTime, purpose, comment, lockId } = req.body;
-
-    if (!roomId || !date || !startTime || !endTime || !purpose) {
-      return res.status(400).json({ success: false, message: 'Room, date, start time, end time, and purpose are required' });
+    session = await mongoose.startSession();
+    try {
+      session.startTransaction();
+      useTransaction = true;
+    } catch {
+      useTransaction = false;
     }
 
-    startTime = startTime.trim();
-    endTime = endTime.trim();
-    date = date.trim();
-    purpose = purpose.trim();
+    const sessionOpt = useTransaction ? { session } : {};
 
-    if (!isValidTimeFormat(startTime) || !isValidTimeFormat(endTime)) {
-      return res.status(400).json({ success: false, message: 'Invalid time format. Expected HH:mm (24-hour format)' });
-    }
-
-    if (startTime >= endTime) {
-      return res.status(400).json({ success: false, message: 'End time must be strictly after start time' });
-    }
-
-    const [sH, sM] = startTime.split(':').map(Number);
-    const [eH, eM] = endTime.split(':').map(Number);
-    const durationMinutes = (eH * 60 + eM) - (sH * 60 + sM);
-    if (durationMinutes < 30) {
-      return res.status(400).json({ success: false, message: 'Booking must be at least 30 minutes in duration' });
-    }
-
-    // Date & Past-Time Validation
-    const todayStr = getTodayDateString();
-    if (date < todayStr) {
-      return res.status(400).json({ success: false, message: 'Cannot book for a past date' });
-    }
-
-    if (date === todayStr) {
-      const currentHHMM = getCurrentTimeHHMM();
-      if (startTime < currentHHMM) {
-        return res.status(400).json({ success: false, message: `Cannot book past time slots for today (Current time: ${currentHHMM})` });
-      }
-    }
-
-    const todayDate = new Date(todayStr);
-    const maxBookingDate = new Date(todayDate);
-    maxBookingDate.setDate(maxBookingDate.getDate() + 7);
-    const maxDateStr = maxBookingDate.toISOString().split('T')[0];
-
-    if (date > maxDateStr) {
-      return res.status(400).json({ success: false, message: 'Cannot book more than 7 days in advance' });
-    }
-
-    const day = getDayOfWeek(date);
-    if (day === 'Sunday') {
-      return res.status(400).json({ success: false, message: 'Bookings are not permitted on Sundays' });
-    }
-
-    // Execute atomic validation and insert in transaction
-    session.startTransaction();
-
-    const room = await Room.findById(roomId).session(session);
+    // 1. Room existence and availability check
+    const room = await Room.findById(roomId, null, sessionOpt);
     if (!room) {
-      await session.abortTransaction();
+      if (useTransaction) await session.abortTransaction();
       return res.status(404).json({ success: false, message: 'Room not found' });
     }
     if (!room.isActive || !room.isAvailable) {
-      await session.abortTransaction();
+      if (useTransaction) await session.abortTransaction();
       return res.status(400).json({ success: false, message: 'Room is currently deactivated or unavailable' });
     }
 
-    // Check if faculty already has another active booking at this time
+    // 2. User double-booking check (faculty cannot have 2 classes at once)
     const userConflictQuery = {
       facultyEmail: req.user.email,
       date,
       startTime: { $lt: endTime },
       endTime: { $gt: startTime },
-      status: 'active'
+      status: 'active',
     };
-    if (lockId) {
-      userConflictQuery.lockId = { $ne: lockId };
+    if (lockId) userConflictQuery.lockId = { $ne: lockId };
+
+    const userConflict = await Booking.findOne(userConflictQuery, null, sessionOpt);
+    if (userConflict) {
+      if (useTransaction) await session.abortTransaction();
+      return res.status(409).json({
+        success: false,
+        message: `You already have another active reservation (${userConflict.startTime} - ${userConflict.endTime}) during this time slot`,
+      });
     }
 
-    const userExistingBooking = await Booking.findOne(userConflictQuery).session(session);
-    if (userExistingBooking) {
-      await session.abortTransaction();
-      return res.status(409).json({ success: false, message: 'You already have another active booking during this time slot' });
-    }
-
-    // Check room conflicts with other bookings
+    // 3. Room conflict check with other bookings
     const roomConflictQuery = {
       roomId,
       date,
       startTime: { $lt: endTime },
       endTime: { $gt: startTime },
-      status: 'active'
+      status: 'active',
     };
-    if (lockId) {
-      roomConflictQuery.lockId = { $ne: lockId };
-    }
+    if (lockId) roomConflictQuery.lockId = { $ne: lockId };
 
-    const conflictingBooking = await Booking.findOne(roomConflictQuery).session(session);
+    const conflictingBooking = await Booking.findOne(roomConflictQuery, null, sessionOpt);
     if (conflictingBooking) {
-      await session.abortTransaction();
+      if (useTransaction) await session.abortTransaction();
       return res.status(409).json({
         success: false,
-        message: `Room is already booked from ${conflictingBooking.startTime} to ${conflictingBooking.endTime}`,
-        conflict: true
+        message: `Room is already reserved from ${conflictingBooking.startTime} to ${conflictingBooking.endTime}`,
+        conflict: true,
       });
     }
 
-    // Check recurring timetable schedule conflicts
+    // 4. Room conflict check with master timetable
     const timetableConflict = await Timetable.findOne({
       roomId,
       day,
       startTime: { $lt: endTime },
       endTime: { $gt: startTime },
-      isActive: true
-    }).session(session);
+      isActive: true,
+    }, null, sessionOpt);
 
     if (timetableConflict) {
-      await session.abortTransaction();
+      if (useTransaction) await session.abortTransaction();
       return res.status(409).json({
         success: false,
         message: `Room is scheduled for class ${timetableConflict.subject} (${timetableConflict.classGroup}) from ${timetableConflict.startTime} to ${timetableConflict.endTime}`,
         conflict: true,
-        timetableConflict
+        timetableConflict,
       });
     }
 
     let booking;
-    // If a lock existed for this user, convert it to a confirmed booking
+
+    // Convert lock if present
     if (lockId) {
-      booking = await Booking.findOne({ lockId, facultyEmail: req.user.email }).session(session);
+      booking = await Booking.findOne({ lockId, facultyEmail: req.user.email }, null, sessionOpt);
       if (booking) {
         booking.roomId = roomId;
         booking.date = date;
@@ -268,46 +333,52 @@ exports.createBooking = async (req, res) => {
         booking.startTime = startTime;
         booking.endTime = endTime;
         booking.purpose = purpose;
-        booking.comment = comment || 'No comment provided';
+        booking.comment = (comment || '').trim() || 'No comment provided';
         booking.facultyName = req.user.name;
         booking.facultyEmail = req.user.email;
         booking.department = req.user.department;
         booking.status = 'active';
         booking.lockId = undefined;
-        booking.lockedAt = undefined; // IMPORTANT: Removes TTL auto-deletion
-        await booking.save({ session });
+        booking.lockedAt = undefined;
+        await booking.save(sessionOpt);
       }
     }
 
     if (!booking) {
-      const created = await Booking.create([{
-        roomId,
-        date,
-        day,
-        startTime,
-        endTime,
-        purpose,
-        comment: comment || 'No comment provided',
-        facultyName: req.user.name,
-        facultyEmail: req.user.email,
-        department: req.user.department,
-        status: 'active',
-        notified: false
-      }], { session });
+      const created = await Booking.create([
+        {
+          roomId,
+          date,
+          day,
+          startTime,
+          endTime,
+          purpose,
+          comment: (comment || '').trim() || 'No comment provided',
+          facultyName: req.user.name,
+          facultyEmail: req.user.email,
+          department: req.user.department,
+          status: 'active',
+          notified: false,
+        },
+      ], sessionOpt);
       booking = created[0];
     }
 
-    await session.commitTransaction();
+    if (useTransaction) {
+      await session.commitTransaction();
+    }
 
-    const populated = await Booking.findById(booking._id)
-      .populate('roomId', 'name roomNumber floor building department');
+    const populated = await Booking.findById(booking._id).populate(
+      'roomId',
+      'name roomNumber floor building department'
+    );
 
-    // Send confirmation email asynchronously
+    // Asynchronous confirmation email dispatch
     sendBookingConfirmationEmail(populated)
       .then(() => Booking.findByIdAndUpdate(booking._id, { notified: true }))
-      .catch((err) => console.error('Failed to send confirmation email:', err.message));
+      .catch((err) => console.error('Confirmation email error:', err.message));
 
-    // Emit Socket.IO event
+    // Emit Socket.IO event for live UI update across all active clients
     const io = getIO();
     if (io) {
       io.emit('booking-created', {
@@ -322,25 +393,44 @@ exports.createBooking = async (req, res) => {
       });
     }
 
-    res.status(201).json({ success: true, message: 'Booking created successfully', data: populated });
+    res.status(201).json({
+      success: true,
+      message: 'Booking created successfully',
+      data: populated,
+    });
   } catch (error) {
-    if (session.inTransaction()) {
+    if (session && useTransaction && session.inTransaction()) {
       await session.abortTransaction();
     }
     console.error('Create booking error:', error);
     if (error.code === 11000) {
-      return res.status(409).json({ success: false, message: 'Room was just booked by another user for this slot. Please choose another time.' });
+      return res.status(409).json({
+        success: false,
+        message: 'This slot was just reserved by another user. Please choose another time.',
+      });
     }
     res.status(400).json({ success: false, message: error.message });
   } finally {
-    session.endSession();
+    if (session) {
+      session.endSession();
+    }
   }
 };
 
 // ---------- CANCEL BOOKING ----------
 exports.cancelBooking = async (req, res) => {
   try {
-    const booking = await Booking.findById(req.params.id).populate('roomId', 'name roomNumber building floor');
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid booking ID format' });
+    }
+
+    const booking = await Booking.findById(id).populate(
+      'roomId',
+      'name roomNumber building floor'
+    );
+
     if (!booking) {
       return res.status(404).json({ success: false, message: 'Booking not found' });
     }
@@ -363,13 +453,14 @@ exports.cancelBooking = async (req, res) => {
     }
 
     booking.status = 'cancelled';
-    booking.conflictMessage = req.user.role === 'HOD' ? 'Cancelled by Department HOD' : 'Cancelled by user';
+    booking.conflictMessage =
+      req.user.role === 'HOD' ? 'Cancelled by Department HOD' : 'Cancelled by user';
     await booking.save();
 
     // Send cancellation email asynchronously
     sendBookingCancellationEmail(booking, booking.conflictMessage)
       .then(() => Booking.findByIdAndUpdate(booking._id, { notified: true }))
-      .catch((err) => console.error('Failed to send cancellation email:', err.message));
+      .catch((err) => console.error('Cancellation email error:', err.message));
 
     // Emit Socket.IO event safely
     const io = getIO();
@@ -385,19 +476,31 @@ exports.cancelBooking = async (req, res) => {
       });
     }
 
-    res.json({ success: true, message: 'Booking cancelled successfully', data: booking });
+    res.json({
+      success: true,
+      message: 'Booking cancelled successfully',
+      data: booking,
+    });
   } catch (error) {
     console.error('Cancel booking error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ---------- LOCK ROOM (Safe Temporary Lock) ----------
+// ---------- LOCK ROOM ----------
 exports.lockRoom = async (req, res) => {
   try {
     let { roomId, date, startTime, endTime } = req.body;
+
     if (!roomId || !date || !startTime || !endTime) {
-      return res.status(400).json({ success: false, message: 'roomId, date, startTime, and endTime are required' });
+      return res.status(400).json({
+        success: false,
+        message: 'roomId, date, startTime, and endTime are required',
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(roomId)) {
+      return res.status(400).json({ success: false, message: 'Invalid room ID format' });
     }
 
     startTime = startTime.trim();
@@ -415,30 +518,34 @@ exports.lockRoom = async (req, res) => {
     const day = getDayOfWeek(date);
     const lockId = generateLockId();
 
-    // Check for any active booking or active lock on this slot
     const existingConflict = await Booking.findOne({
       roomId,
       date,
       startTime: { $lt: endTime },
       endTime: { $gt: startTime },
-      status: 'active'
+      status: 'active',
     });
 
     if (existingConflict) {
-      return res.status(409).json({ success: false, message: 'Room is currently booked or being reserved by another user' });
+      return res.status(409).json({
+        success: false,
+        message: 'Room is currently reserved or locked by another user',
+      });
     }
 
-    // Check timetable conflict before locking
     const ttConflict = await Timetable.findOne({
       roomId,
       day,
       startTime: { $lt: endTime },
       endTime: { $gt: startTime },
-      isActive: true
+      isActive: true,
     });
 
     if (ttConflict) {
-      return res.status(409).json({ success: false, message: `Room is scheduled for ${ttConflict.subject}` });
+      return res.status(409).json({
+        success: false,
+        message: `Room is scheduled for class ${ttConflict.subject}`,
+      });
     }
 
     const lock = await Booking.create({
@@ -454,7 +561,7 @@ exports.lockRoom = async (req, res) => {
       comment: 'Room temporarily locked for checkout',
       status: 'active',
       lockId,
-      lockedAt: new Date()
+      lockedAt: new Date(),
     });
 
     res.json({
@@ -462,7 +569,7 @@ exports.lockRoom = async (req, res) => {
       message: 'Room locked successfully',
       lockId,
       expiresIn: '5 minutes',
-      data: lock
+      data: lock,
     });
   } catch (error) {
     console.error('Lock room error:', error);
@@ -474,6 +581,7 @@ exports.lockRoom = async (req, res) => {
 exports.unlockRoom = async (req, res) => {
   try {
     const { lockId } = req.body;
+
     if (!lockId) {
       return res.status(400).json({ success: false, message: 'lockId is required' });
     }

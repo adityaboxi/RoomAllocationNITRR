@@ -10,28 +10,26 @@ import {
   unlockRoom,
 } from '../services/api';
 import {
-  onBookingCreated,
-  offBookingCreated,
   onBookingCancelled,
+  onBookingCreated,
   offBookingCancelled,
+  offBookingCreated,
 } from '../services/socket';
 import ReviewsModal from './ReviewsModal';
 import {
-  Building2,
   Calendar,
   Clock,
+  Building2,
+  Users,
+  Layers,
+  Star,
   CheckCircle2,
   AlertCircle,
-  Star,
-  Users,
-  ShieldAlert,
-  Layers,
-  Sparkles,
   X,
-  Lock,
+  Sparkles,
+  Info,
 } from 'lucide-react';
 
-// Helper to get today's date in YYYY-MM-DD format
 const getTodayDateString = () => {
   const now = new Date();
   const year = now.getFullYear();
@@ -40,7 +38,6 @@ const getTodayDateString = () => {
   return `${year}-${month}-${day}`;
 };
 
-// Helper to get current HH:mm
 const getCurrentTimeHHMM = () => {
   const now = new Date();
   const h = String(now.getHours()).padStart(2, '0');
@@ -48,54 +45,54 @@ const getCurrentTimeHHMM = () => {
   return `${h}:${m}`;
 };
 
+const getDefaultEndHHMM = (startStr) => {
+  if (!startStr) return '10:00';
+  const [h, m] = startStr.split(':').map(Number);
+  const nextH = (h + 1) % 24;
+  return `${String(nextH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+
 export default function BookingView({ user }) {
   const todayStr = getTodayDateString();
   const currentHHMM = getCurrentTimeHHMM();
+  const defaultEndHHMM = getDefaultEndHHMM(currentHHMM);
 
   const [rooms, setRooms] = useState([]);
   const [availableRoomIds, setAvailableRoomIds] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [myBookings, setMyBookings] = useState([]);
   const [initialLoading, setInitialLoading] = useState(true);
-  const [selectedRoom, setSelectedRoom] = useState(null);
-  const [activeLockId, setActiveLockId] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   const [bookingData, setBookingData] = useState({
     date: todayStr,
-    startTime: '09:00',
-    endTime: '10:00',
+    startTime: currentHHMM,
+    endTime: defaultEndHHMM,
     purpose: '',
     comment: '',
   });
 
-  const [myBookings, setMyBookings] = useState([]);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  const [selectedRoom, setSelectedRoom] = useState(null);
+  const [activeLockId, setActiveLockId] = useState(null);
+
+  // Reviews state
   const [reviews, setReviews] = useState({});
   const [loadingReviews, setLoadingReviews] = useState({});
   const [selectedRoomReviews, setSelectedRoomReviews] = useState(null);
   const [selectedReviewRoom, setSelectedReviewRoom] = useState(null);
 
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
   const abortControllerRef = useRef(null);
 
-  // Auto-dismiss alert banners after 6 seconds
+  // Initial Load
   useEffect(() => {
-    if (error || success) {
-      const timer = setTimeout(() => {
-        setError('');
-        setSuccess('');
-      }, 6000);
-      return () => clearTimeout(timer);
-    }
-  }, [error, success]);
-
-  // Initial Fetch on component mount
-  useEffect(() => {
-    if (user) {
+    if (user?.department) {
       Promise.all([fetchRooms(), fetchMyBookings()]).finally(() => {
         setInitialLoading(false);
       });
     }
-  }, [user]);
+  }, [user?.department]);
 
   // Query room availability whenever date or times change
   useEffect(() => {
@@ -160,12 +157,10 @@ export default function BookingView({ user }) {
       let end = endTime;
 
       if (!end && startTime) {
-        const [h, m] = startTime.split(':').map(Number);
-        const endH = (h + 1) % 24;
-        end = `${String(endH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        end = getDefaultEndHHMM(startTime);
       }
 
-      if (!date || !startTime || !end) {
+      if (!date || !startTime || !end || startTime >= end) {
         setAvailableRoomIds([]);
         return;
       }
@@ -232,7 +227,17 @@ export default function BookingView({ user }) {
   }, [reviews, selectedReviewRoom]);
 
   const handleBookingInput = (e) => {
-    setBookingData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    const { name, value } = e.target;
+    setBookingData((prev) => {
+      const updated = { ...prev, [name]: value };
+      // Auto-set End Time to +1 hour if user changes Start Time
+      if (name === 'startTime' && value) {
+        if (!prev.endTime || prev.endTime <= value) {
+          updated.endTime = getDefaultEndHHMM(value);
+        }
+      }
+      return updated;
+    });
     setError('');
   };
 
@@ -279,7 +284,7 @@ export default function BookingView({ user }) {
     }
 
     if (startTime >= endTime) {
-      setError('Start time must be before end time.');
+      setError('Start time must be strictly before end time.');
       return;
     }
 
@@ -368,11 +373,16 @@ export default function BookingView({ user }) {
 
       {/* Date & Time Selection Filter Bar */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-        <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-100">
-          <Clock className="w-4 h-4 text-indigo-600" />
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-            Select Reservation Window
-          </h3>
+        <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-indigo-600" />
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+              Select Desired Booking Slot
+            </h3>
+          </div>
+          <span className="text-xs text-slate-400 font-mono">
+            Server Time: {currentHHMM}
+          </span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -415,12 +425,17 @@ export default function BookingView({ user }) {
       {/* Available Department Rooms Grid */}
       <div>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-            <Building2 className="w-5 h-5 text-indigo-600" />
-            <span>Available Rooms in {user?.department}</span>
-          </h3>
-          <span className="text-xs font-semibold text-slate-500">
-            {availableRoomIds.length} of {rooms.length} Available
+          <div>
+            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <Building2 className="w-5 h-5 text-indigo-600" />
+              <span>Room Availability for {bookingData.date} ({bookingData.startTime} - {bookingData.endTime})</span>
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Green rooms are free during your selected time window.
+            </p>
+          </div>
+          <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg">
+            {availableRoomIds.length} of {rooms.length} Free
           </span>
         </div>
 
@@ -471,7 +486,7 @@ export default function BookingView({ user }) {
                             : 'bg-rose-100 text-rose-800'
                         }`}
                       >
-                        {available ? 'Available' : 'Booked / Busy'}
+                        {available ? 'Free for Slot' : 'Occupied / Class'}
                       </span>
                     </div>
 
@@ -536,7 +551,7 @@ export default function BookingView({ user }) {
                         onClick={() => handleSelectRoom(room)}
                         className="w-full bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-800 transition-colors shadow-sm"
                       >
-                        Reserve Slot
+                        Reserve This Room
                       </button>
                     ) : (
                       <button
@@ -544,7 +559,7 @@ export default function BookingView({ user }) {
                         disabled
                         className="w-full bg-slate-100 text-slate-400 px-4 py-2 rounded-xl text-xs font-semibold cursor-not-allowed"
                       >
-                        Slot Unavailable
+                        Unavailable for this slot
                       </button>
                     )}
                   </div>

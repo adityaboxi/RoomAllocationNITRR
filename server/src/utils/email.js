@@ -1,142 +1,162 @@
 const nodemailer = require('nodemailer');
 
-// Initialize Nodemailer transporter with connection pool
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: parseInt(process.env.SMTP_PORT, 10) || 587,
-  secure: process.env.SMTP_SECURE === 'true', // true for 465, false for other ports
-  auth: {
-    user: process.env.SMTP_USER || process.env.FROM_EMAIL,
-    pass: process.env.SMTP_PASS,
-  },
-  pool: true,
-  maxConnections: 5,
-  maxMessages: 100,
-});
+const isLoggingOnly = process.env.ENABLE_EMAIL_LOGGING_ONLY === 'true';
+const smtpUser = process.env.SMTP_USER || process.env.FROM_EMAIL;
+const smtpPass = process.env.SMTP_PASS;
 
-// Helper to get normalized sender address
-const getFromAddress = () =>
-  process.env.EMAIL_FROM ||
-  process.env.FROM_EMAIL ||
-  process.env.SMTP_USER ||
-  'noreply@nitrr.ac.in';
+let transporter = null;
 
-/**
- * Send OTP email for password reset or email verification
- * @param {string} email - Recipient email
- * @param {string} otp - 6-digit OTP
- * @param {string} purpose - 'forgot' or 'signup'
- */
+if (smtpUser && smtpPass && !isLoggingOnly) {
+  transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: parseInt(process.env.SMTP_PORT, 10) || 587,
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: {
+      user: smtpUser,
+      pass: smtpPass,
+    },
+    pool: true,
+    maxConnections: 5,
+    maxMessages: 100,
+  });
+}
+
+const getSenderAddress = () => {
+  const fromName = process.env.FROM_NAME || 'NIT Raipur Room Allocation';
+  const fromEmail = process.env.FROM_EMAIL || process.env.SMTP_USER || 'noreply@nitrr.ac.in';
+  return `"${fromName}" <${fromEmail}>`;
+};
+
+// ---------- SEND OTP EMAIL ----------
 exports.sendOTPEmail = async (email, otp, purpose = 'forgot') => {
-  const subject = purpose === 'forgot' ? '🔑 Password Reset OTP' : '✉️ Email Verification OTP';
+  const subject =
+    purpose === 'forgot'
+      ? 'NIT Raipur: Password Reset OTP'
+      : 'NIT Raipur: Account Verification OTP';
+
+  const expiryMin = parseInt(process.env.OTP_EXPIRY_MINUTES, 10) || 5;
+
   const html = `
-  <div style="font-family:Arial, sans-serif;max-width:500px;margin:40px auto;background:#ffffff;padding:30px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1);border:1px solid #e2e8f0;">
-    <h2 style="color:#1e40af;text-align:center;margin-top:0;">🏫 NITRR Room Allocation</h2>
-    <p style="text-align:center;color:#4b5563;font-size:16px;">${purpose === 'forgot' ? 'Password Reset Request' : 'Account Verification'}</p>
-    <div style="background:#eff6ff;padding:20px;text-align:center;border-radius:8px;margin:20px 0;border:1px dashed #3b82f6;">
-      <span style="font-size:36px;font-weight:700;color:#1e40af;letter-spacing:6px;font-family:monospace;">${otp}</span>
+  <div style="font-family:Arial, sans-serif;max-width:500px;margin:30px auto;background:#ffffff;padding:30px;border-radius:16px;border:1px solid #e2e8f0;box-shadow:0 4px 12px rgba(0,0,0,0.05)">
+    <div style="text-align:center;margin-bottom:20px;">
+      <h2 style="color:#0f172a;margin:0;font-size:22px;font-weight:800;">🏫 NIT Raipur</h2>
+      <p style="color:#64748b;font-size:13px;margin-top:4px;">Department Room Allocation System</p>
     </div>
-    <p style="text-align:center;color:#6b7280;font-size:14px;margin-bottom:5px;">Valid for <strong>5 minutes</strong>.</p>
-    <p style="text-align:center;color:#dc2626;font-size:13px;margin-top:0;">⚠️ If you did not request this, please ignore this email.</p>
-    <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;">
-    <p style="text-align:center;color:#9ca3af;font-size:12px;margin-bottom:0;">NIT Raipur — Room Allocation System</p>
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;padding:20px;text-align:center;border-radius:12px;margin:20px 0">
+      <div style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">${subject}</div>
+      <span style="font-size:36px;font-weight:900;color:#4f46e5;letter-spacing:8px;font-family:monospace;">${otp}</span>
+    </div>
+    <p style="text-align:center;color:#475569;font-size:13px;margin:10px 0;">This code is valid for <strong>${expiryMin} minutes</strong>.</p>
+    <p style="text-align:center;color:#dc2626;font-size:12px;margin:0;">⚠️ Do not share this code with anyone.</p>
+    <hr style="border:none;border-top:1px solid #f1f5f9;margin:24px 0 16px 0;" />
+    <p style="text-align:center;color:#94a3b8;font-size:11px;margin:0;">National Institute of Technology Raipur — Automated Dispatch</p>
   </div>`;
 
-  console.log(`📧 [OTP Dispatch] Recipient: ${email} | Code: ${otp} | Purpose: ${purpose}`);
+  if (!transporter || isLoggingOnly) {
+    console.log(`\n📧 [EMAIL SIMULATION] To: ${email} | Subject: ${subject} | OTP: ${otp}`);
+    return;
+  }
 
-  // Only attempt transport if SMTP credentials are provided
-  if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-    try {
-      await transporter.sendMail({
-        from: `NITRR Room Allocation <${getFromAddress()}>`,
-        to: email,
-        subject,
-        html,
-      });
-      console.log(`✅ OTP email successfully delivered to ${email}`);
-    } catch (err) {
-      console.error(`❌ SMTP transport failed for ${email}:`, err.message);
-    }
+  try {
+    await transporter.sendMail({
+      from: getSenderAddress(),
+      to: email,
+      subject,
+      html,
+    });
+    console.log(`✅ [EMAIL DISPATCHED] OTP successfully sent to: ${email}`);
+  } catch (error) {
+    console.error(`❌ [EMAIL ERROR] Failed sending to ${email}:`, error.message);
+    console.log(`📧 [FALLBACK OTP LOG] For: ${email} -> ${otp}`);
   }
 };
 
-/**
- * Send booking confirmation email
- * @param {Object} booking - Booking document (with populated roomId)
- */
+// ---------- SEND BOOKING CONFIRMATION EMAIL ----------
 exports.sendBookingConfirmationEmail = async (booking) => {
+  if (!booking?.facultyEmail) return;
+
   const roomName = booking.roomId?.name || 'Classroom';
-  const roomNumber = booking.roomId?.roomNumber ? `(${booking.roomId.roomNumber})` : '';
+  const roomNumber = booking.roomId?.roomNumber || '';
   const building = booking.roomId?.building || 'Main Campus';
   const floor = booking.roomId?.floor || 'Ground Floor';
 
   const html = `
-  <div style="font-family:Arial, sans-serif;max-width:520px;margin:40px auto;background:#ffffff;padding:30px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1);border:1px solid #e2e8f0;">
-    <h2 style="color:#059669;text-align:center;margin-top:0;">✅ Booking Confirmed</h2>
-    <p style="color:#374151;font-size:15px;">Dear <strong>${booking.facultyName}</strong>,</p>
-    <p style="color:#4b5563;font-size:14px;">Your room allocation request has been approved and confirmed:</p>
-    <div style="background:#f0fdf4;padding:18px;border-radius:8px;margin:18px 0;border-left:4px solid #10b981;">
-      <p style="margin:6px 0;color:#1f2937;"><strong>Room:</strong> ${roomName} ${roomNumber}</p>
-      <p style="margin:6px 0;color:#1f2937;"><strong>Location:</strong> ${building}, ${floor}</p>
-      <p style="margin:6px 0;color:#1f2937;"><strong>Date:</strong> ${booking.date}</p>
-      <p style="margin:6px 0;color:#1f2937;"><strong>Time:</strong> ${booking.startTime} - ${booking.endTime}</p>
-      <p style="margin:6px 0;color:#1f2937;"><strong>Purpose:</strong> ${booking.purpose}</p>
-      ${booking.comment ? `<p style="margin:6px 0;color:#1f2937;"><strong>Notes:</strong> ${booking.comment}</p>` : ''}
+  <div style="font-family:Arial, sans-serif;max-width:540px;margin:30px auto;background:#ffffff;padding:30px;border-radius:16px;border:1px solid #e2e8f0;box-shadow:0 4px 12px rgba(0,0,0,0.05)">
+    <div style="text-align:center;margin-bottom:20px;">
+      <h2 style="color:#059669;margin:0;font-size:22px;font-weight:800;">✅ Reservation Confirmed</h2>
+      <p style="color:#64748b;font-size:13px;margin-top:4px;">NIT Raipur Room Allocation</p>
     </div>
-    <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;">
-    <p style="text-align:center;color:#9ca3af;font-size:12px;margin-bottom:0;">NIT Raipur — Room Allocation System</p>
+    <p style="color:#1e293b;font-size:14px;line-height:1.5;">Dear <strong>${booking.facultyName}</strong>,</p>
+    <p style="color:#475569;font-size:13px;margin-top:0;">Your classroom reservation request has been registered successfully:</p>
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;padding:18px;border-radius:12px;margin:18px 0;font-size:13px;color:#166534;line-height:1.7;">
+      <div><strong>Room:</strong> ${roomName} (${roomNumber})</div>
+      <div><strong>Location:</strong> ${building}, ${floor}</div>
+      <div><strong>Date:</strong> ${booking.date} (${booking.day})</div>
+      <div><strong>Time Slot:</strong> ${booking.startTime} - ${booking.endTime}</div>
+      <div><strong>Purpose:</strong> ${booking.purpose}</div>
+      ${booking.comment && booking.comment !== 'No comment provided' ? `<div><strong>Notes:</strong> ${booking.comment}</div>` : ''}
+    </div>
+    <hr style="border:none;border-top:1px solid #f1f5f9;margin:24px 0 16px 0;" />
+    <p style="text-align:center;color:#94a3b8;font-size:11px;margin:0;">National Institute of Technology Raipur — Academic Scheduling</p>
   </div>`;
 
-  if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-    try {
-      await transporter.sendMail({
-        from: `NITRR Room Allocation <${getFromAddress()}>`,
-        to: booking.facultyEmail,
-        subject: `✅ Booking Confirmed: ${roomName} (${booking.date})`,
-        html,
-      });
-      console.log(`✅ Confirmation email sent to ${booking.facultyEmail}`);
-    } catch (err) {
-      console.error(`❌ Failed to send confirmation email to ${booking.facultyEmail}:`, err.message);
-    }
+  if (!transporter || isLoggingOnly) {
+    console.log(`\n📧 [EMAIL SIMULATION] Booking Confirmation to ${booking.facultyEmail} for ${roomName} on ${booking.date}`);
+    return;
+  }
+
+  try {
+    await transporter.sendMail({
+      from: getSenderAddress(),
+      to: booking.facultyEmail,
+      subject: `✅ Booking Confirmed: ${roomName} (${booking.date})`,
+      html,
+    });
+    console.log(`✅ Confirmation email sent to ${booking.facultyEmail}`);
+  } catch (error) {
+    console.error(`❌ Failed to send confirmation email to ${booking.facultyEmail}:`, error.message);
   }
 };
 
-/**
- * Send booking cancellation email
- * @param {Object} booking - Booking document (with populated roomId)
- * @param {string} reason - Cancellation reason
- */
+// ---------- SEND BOOKING CANCELLATION EMAIL ----------
 exports.sendBookingCancellationEmail = async (booking, reason) => {
+  if (!booking?.facultyEmail) return;
+
   const roomName = booking.roomId?.name || 'Classroom';
-  const roomNumber = booking.roomId?.roomNumber ? `(${booking.roomId.roomNumber})` : '';
+  const roomNumber = booking.roomId?.roomNumber || '';
 
   const html = `
-  <div style="font-family:Arial, sans-serif;max-width:520px;margin:40px auto;background:#ffffff;padding:30px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1);border:1px solid #e2e8f0;">
-    <h2 style="color:#dc2626;text-align:center;margin-top:0;">❌ Booking Cancelled</h2>
-    <p style="color:#374151;font-size:15px;">Dear <strong>${booking.facultyName}</strong>,</p>
-    <p style="color:#4b5563;font-size:14px;">Your scheduled room reservation has been cancelled:</p>
-    <div style="background:#fef2f2;padding:18px;border-radius:8px;margin:18px 0;border-left:4px solid #ef4444;">
-      <p style="margin:6px 0;color:#1f2937;"><strong>Room:</strong> ${roomName} ${roomNumber}</p>
-      <p style="margin:6px 0;color:#1f2937;"><strong>Date:</strong> ${booking.date}</p>
-      <p style="margin:6px 0;color:#1f2937;"><strong>Time:</strong> ${booking.startTime} - ${booking.endTime}</p>
-      <p style="margin:6px 0;color:#b91c1c;"><strong>Reason:</strong> ${reason || 'Schedule adjustment by Department HOD'}</p>
+  <div style="font-family:Arial, sans-serif;max-width:540px;margin:30px auto;background:#ffffff;padding:30px;border-radius:16px;border:1px solid #e2e8f0;box-shadow:0 4px 12px rgba(0,0,0,0.05)">
+    <div style="text-align:center;margin-bottom:20px;">
+      <h2 style="color:#dc2626;margin:0;font-size:22px;font-weight:800;">❌ Reservation Cancelled</h2>
+      <p style="color:#64748b;font-size:13px;margin-top:4px;">NIT Raipur Room Allocation</p>
     </div>
-    <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;">
-    <p style="text-align:center;color:#9ca3af;font-size:12px;margin-bottom:0;">NIT Raipur — Room Allocation System</p>
+    <p style="color:#1e293b;font-size:14px;line-height:1.5;">Dear <strong>${booking.facultyName}</strong>,</p>
+    <p style="color:#475569;font-size:13px;margin-top:0;">Your scheduled reservation has been cancelled:</p>
+    <div style="background:#fef2f2;border:1px solid #fecaca;padding:18px;border-radius:12px;margin:18px 0;font-size:13px;color:#991b1b;line-height:1.7;">
+      <div><strong>Room:</strong> ${roomName} (${roomNumber})</div>
+      <div><strong>Date:</strong> ${booking.date} (${booking.day})</div>
+      <div><strong>Time Slot:</strong> ${booking.startTime} - ${booking.endTime}</div>
+      <div><strong>Reason:</strong> ${reason || 'Schedule adjustment'}</div>
+    </div>
+    <hr style="border:none;border-top:1px solid #f1f5f9;margin:24px 0 16px 0;" />
+    <p style="text-align:center;color:#94a3b8;font-size:11px;margin:0;">National Institute of Technology Raipur — Academic Scheduling</p>
   </div>`;
 
-  if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-    try {
-      await transporter.sendMail({
-        from: `NITRR Room Allocation <${getFromAddress()}>`,
-        to: booking.facultyEmail,
-        subject: `❌ Booking Cancelled: ${roomName} (${booking.date})`,
-        html,
-      });
-      console.log(`✅ Cancellation email sent to ${booking.facultyEmail}`);
-    } catch (err) {
-      console.error(`❌ Failed to send cancellation email to ${booking.facultyEmail}:`, err.message);
-    }
+  if (!transporter || isLoggingOnly) {
+    console.log(`\n📧 [EMAIL SIMULATION] Cancellation Notice to ${booking.facultyEmail} for ${roomName}: ${reason}`);
+    return;
+  }
+
+  try {
+    await transporter.sendMail({
+      from: getSenderAddress(),
+      to: booking.facultyEmail,
+      subject: `❌ Booking Cancelled: ${roomName} on ${booking.date}`,
+      html,
+    });
+    console.log(`✅ Cancellation email sent to ${booking.facultyEmail}`);
+  } catch (error) {
+    console.error(`❌ Failed to send cancellation email:`, error.message);
   }
 };

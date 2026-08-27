@@ -5,14 +5,12 @@ const RoomSchema = new mongoose.Schema(
     name: {
       type: String,
       required: true,
-      unique: true,
       trim: true,
       index: true,
     },
     roomNumber: {
       type: String,
       required: true,
-      unique: true,
       uppercase: true,
       trim: true,
       index: true,
@@ -78,18 +76,31 @@ const RoomSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      index: true,
+    },
+    createdByName: {
+      type: String,
+      trim: true,
+      default: 'Department Admin',
+    },
   },
   {
     timestamps: true,
   }
 );
 
-// High-Performance Query Indexes for Filtering & Availability Lookups
+// High-Performance Query Indexes
+RoomSchema.index({ department: 1, name: 1 });
+RoomSchema.index({ department: 1, roomNumber: 1 });
 RoomSchema.index({ department: 1, isActive: 1, isAvailable: 1 });
 RoomSchema.index({ floor: 1, roomNumber: 1 });
 RoomSchema.index({ building: 1, floor: 1 });
+RoomSchema.index({ createdBy: 1 });
 
-// Transform _id to id for JSON serialization
+// Transform _id to id for JSON output
 RoomSchema.set('toJSON', {
   virtuals: true,
   transform: (doc, ret) => {
@@ -100,7 +111,7 @@ RoomSchema.set('toJSON', {
   },
 });
 
-// Transform _id to id for Object serialization
+// Transform _id to id for Object output
 RoomSchema.set('toObject', {
   virtuals: true,
   transform: (doc, ret) => {

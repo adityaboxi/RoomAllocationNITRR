@@ -1,30 +1,41 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 
-// ---------- GENERATE 6-DIGIT SECURE OTP ----------
-exports.generateOTP = () => crypto.randomInt(100000, 999999).toString();
+// ---------- TIMEZONE-SAFE LOCAL DAY OF WEEK PARSER ----------
+exports.getDayOfWeek = (dateString) => {
+  if (!dateString || typeof dateString !== 'string') return 'Monday';
 
-// ---------- TIMEZONE-SAFE DAY OF WEEK PARSER ----------
-// Avoids UTC midnight timezone skew by constructing local Date components explicitly
-exports.getDayOfWeek = (dateStr) => {
-  if (!dateStr || typeof dateStr !== 'string') return 'Monday';
-
-  const parts = dateStr.trim().split('-');
+  const parts = dateString.trim().split('-');
   if (parts.length === 3) {
     const year = parseInt(parts[0], 10);
     const monthIndex = parseInt(parts[1], 10) - 1;
     const day = parseInt(parts[2], 10);
     const localDate = new Date(year, monthIndex, day);
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const days = [
+      'Sunday',
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+    ];
     return days[localDate.getDay()];
   }
 
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  return days[new Date(dateStr).getDay()] || 'Monday';
+  const days = [
+    'Sunday',
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+  ];
+  return days[new Date(dateString).getDay()] || 'Monday';
 };
 
-// ---------- SAFE TIME OVERLAP DETECTOR ----------
-// Returns true if [start1, end1) intersects with [start2, end2)
+// ---------- TIME OVERLAP VALIDATOR ----------
 exports.isOverlapping = (start1, end1, start2, end2) => {
   if (!start1 || !end1 || !start2 || !end2) return false;
 
@@ -41,14 +52,16 @@ exports.isOverlapping = (start1, end1, start2, end2) => {
   return s1 < e2 && s2 < e1;
 };
 
-// ---------- GENERATE CRYPTOGRAPHIC LOCK ID ----------
+// ---------- 6-DIGIT OTP GENERATOR ----------
+exports.generateOTP = () => crypto.randomInt(100000, 999999).toString();
+
+// ---------- CRYPTOGRAPHIC LOCK ID GENERATOR ----------
 exports.generateLockId = () =>
   `lock_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
 
-// ---------- GENERATE JWT AUTH TOKEN ----------
-exports.generateToken = (userId) =>
-  jwt.sign(
-    { userId: userId.toString() },
-    process.env.JWT_SECRET || 'default_jwt_secret',
-    { expiresIn: '7d' }
-  );
+// ---------- JWT TOKEN GENERATOR (Wired to .env) ----------
+exports.generateToken = (userId) => {
+  const secret = process.env.JWT_SECRET || 'nitrr_secret_key_default';
+  const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
+  return jwt.sign({ userId }, secret, { expiresIn });
+};

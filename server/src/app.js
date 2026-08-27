@@ -15,18 +15,32 @@ const { errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
 
-// ---------- GLOBAL MIDDLEWARES ----------
-const allowedOrigin = process.env.CLIENT_URL || 'http://localhost:5173';
+// ---------- GLOBAL CORS CONFIGURATION ----------
+const allowedOrigins = (
+  process.env.CORS_ORIGIN ||
+  process.env.CLIENT_URL ||
+  'http://localhost:5173'
+)
+  .split(',')
+  .map((url) => url.trim());
 
 app.use(
   cors({
-    origin: allowedOrigin,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, curl, or Postman)
+      if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+        callback(null, true);
+      } else {
+        callback(null, true); // Permissive in development
+      }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   })
 );
 
+// Body Parsing Middlewares
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -39,20 +53,21 @@ app.use('/api/reviews', reviewRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/stats', statsRoutes);
 
-// ---------- HEALTH CHECK & API INFO ----------
+// ---------- HEALTH CHECK & ROOT DIRECTORY ----------
 app.get('/health', (req, res) => {
   res.json({
     status: 'OK',
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
   });
 });
 
 app.get('/', (req, res) => {
   res.json({
     success: true,
-    message: '🏫 Room Allocation System API — NIT Raipur',
-    version: '2.1.0',
+    message: '🏫 Room Allocation & Master Scheduling System API — NIT Raipur',
+    version: '2.2.0',
     endpoints: {
       auth: [
         'POST /api/auth/login',
@@ -72,21 +87,22 @@ app.get('/', (req, res) => {
         'GET /api/rooms/floors',
         'GET /api/rooms/buildings',
         'GET /api/rooms/department/:department',
-        'POST /api/rooms (HOD only)',
-        'PUT /api/rooms/:id (HOD only)',
-        'PUT /api/rooms/:id/toggle (HOD only)',
-        'DELETE /api/rooms/:id (HOD only)',
         'GET /api/rooms/:roomId/availability',
+        'POST /api/rooms (Faculty or HOD)',
+        'PUT /api/rooms/:id (Creator or HOD)',
+        'PUT /api/rooms/:id/toggle (Creator or HOD)',
+        'DELETE /api/rooms/:id (Creator or HOD)',
       ],
       timetable: [
         'GET /api/timetable',
-        'GET /api/timetable/department/:dept',
-        'GET /api/timetable/faculty/:name',
+        'GET /api/timetable/department/:department',
+        'GET /api/timetable/faculty/:facultyName',
         'GET /api/timetable/room/:roomId',
-        'POST /api/timetable (HOD only)',
-        'POST /api/timetable/upload (HOD only)',
-        'PUT /api/timetable/:id (HOD only)',
-        'DELETE /api/timetable/:id (HOD only)',
+        'POST /api/timetable (Semester/Section Replacement)',
+        'POST /api/timetable/room-day (Room & Day-Wise Replacement)',
+        'POST /api/timetable/upload (Excel/CSV Stream Upload)',
+        'PUT /api/timetable/:id',
+        'DELETE /api/timetable/:id',
       ],
       bookings: [
         'GET /api/bookings',

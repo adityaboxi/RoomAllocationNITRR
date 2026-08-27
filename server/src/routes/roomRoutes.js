@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { protect, authorize } = require('../middleware/auth');
+const { protect } = require('../middleware/auth');
 const {
   getRooms,
   getRoom,
@@ -18,7 +18,7 @@ const {
 // All room routes require authentication
 router.use(protect);
 
-// Publicly Readable Room Query Endpoints
+// Query Endpoints
 router.get('/', getRooms);
 router.get('/available', getAvailableRooms);
 router.get('/floors', getRoomsByFloor);
@@ -27,10 +27,10 @@ router.get('/department/:department', getRoomsByDepartment);
 router.get('/:roomId/availability', getRoomAvailability);
 router.get('/:id', getRoom);
 
-// Administrative Room Modification Endpoints (HOD Only)
-router.post('/', authorize('HOD'), createRoom);
-router.put('/:id', authorize('HOD'), updateRoom);
-router.put('/:id/toggle', authorize('HOD'), toggleRoomAvailability);
-router.delete('/:id', authorize('HOD'), deleteRoom);
+// Modification Endpoints (Creator or HOD verified in controller)
+router.post('/', createRoom);
+router.put('/:id', updateRoom);
+router.put('/:id/toggle', toggleRoomAvailability);
+router.delete('/:id', deleteRoom);
 
 module.exports = router;
