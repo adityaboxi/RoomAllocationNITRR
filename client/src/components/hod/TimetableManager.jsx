@@ -5,6 +5,7 @@ export default function TimetableManager({ user }) {
   const [rooms, setRooms] = useState([]);
   const [timetable, setTimetable] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [semester, setSemester] = useState('1st');
   const [section, setSection] = useState('A');
   const [entries, setEntries] = useState([]);
@@ -41,6 +42,7 @@ export default function TimetableManager({ user }) {
     fetchTimetable();
   }, [semester, section]);
 
+  // ----- Manual entries -----
   const handleAddEntry = () => {
     setEntries([...entries, { day: 'Monday', startTime: '09:00', endTime: '10:00', subject: '', roomId: '', classGroup: '', faculty: '' }]);
   };
@@ -89,6 +91,36 @@ export default function TimetableManager({ user }) {
     }
   };
 
+  // ----- File upload -----
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('semester', semester);
+    formData.append('section', section);
+
+    setUploading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('http://localhost:3000/api/timetable/upload', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message);
+      setSuccess(data.message);
+      setEntries([]);
+      fetchTimetable();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // ----- Update & Delete -----
   const handleUpdateEntry = async (entryId, updatedData) => {
     setLoading(true);
     try {
@@ -163,6 +195,19 @@ export default function TimetableManager({ user }) {
               {loading ? 'Replacing...' : 'Replace Timetable'}
             </button>
           </form>
+
+          {/* File upload section */}
+          <div className="mt-6 border-t pt-4">
+            <h4 className="text-sm font-semibold text-slate-700 mb-2">Or upload Excel/CSV</h4>
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={handleFileUpload}
+              disabled={uploading}
+              className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+            />
+            <p className="text-xs text-slate-400 mt-1">Expected columns: Day, Start Time, End Time, Subject, RoomId, Class Group, Faculty</p>
+          </div>
         </div>
 
         <div className="lg:col-span-2">

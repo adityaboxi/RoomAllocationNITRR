@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { Building2, LogOut, ShieldCheck, GraduationCap, Bell } from 'lucide-react';
 
 export default function Navbar({ currentUser, onLogout, notifications, onClearNotifications }) {
@@ -21,8 +22,8 @@ export default function Navbar({ currentUser, onLogout, notifications, onClearNo
 
         {currentUser ? (
           <div className="flex items-center gap-4">
-            <button
-              onClick={onClearNotifications}
+            <Link
+              to="/notifications"
               className="relative p-2 rounded-lg hover:bg-slate-800 transition-colors"
               title="Notifications"
             >
@@ -32,7 +33,7 @@ export default function Navbar({ currentUser, onLogout, notifications, onClearNo
                   {unreadCount}
                 </span>
               )}
-            </button>
+            </Link>
 
             <div className="hidden sm:flex items-center gap-2 bg-slate-800/80 border border-slate-700 px-3 py-1.5 rounded-xl">
               {currentUser.role === 'HOD' ? (

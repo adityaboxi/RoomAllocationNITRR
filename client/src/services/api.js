@@ -7,7 +7,7 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Request interceptor to add token
+// Request interceptor – add token
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -19,7 +19,7 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor to handle errors
+// Response interceptor – extract data
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
@@ -28,7 +28,7 @@ api.interceptors.response.use(
   }
 );
 
-// --- AUTH ---
+// ---------- AUTH ----------
 export const login = (email, password) => api.post('/api/auth/login', { email, password });
 export const signup = (name, email, password, confirmPassword, department) =>
   api.post('/api/auth/signup', { name, email, password, confirmPassword, department });
@@ -39,7 +39,7 @@ export const resetPassword = (email, resetToken, newPassword, confirmPassword) =
 export const changePassword = (currentPassword, newPassword, confirmPassword) =>
   api.post('/api/auth/change-password', { currentPassword, newPassword, confirmPassword });
 
-// --- ROOMS ---
+// ---------- ROOMS ----------
 export const getRooms = (params = {}) => api.get('/api/rooms', { params });
 export const getRoom = (id) => api.get(`/api/rooms/${id}`);
 export const getAvailableRooms = (date, startTime, endTime, filters = {}) =>
@@ -52,7 +52,7 @@ export const getRoomAvailability = (roomId, day, time) =>
   api.get(`/api/rooms/${roomId}/availability?day=${day}&time=${time}`);
 export const getRoomsByDepartment = (department) => api.get(`/api/rooms/department/${department}`);
 
-// --- TIMETABLE ---
+// ---------- TIMETABLE ----------
 export const getTimetable = (params = {}) => api.get('/api/timetable', { params });
 export const getTimetableByDepartment = (department, params = {}) =>
   api.get(`/api/timetable/department/${department}`, { params });
@@ -63,7 +63,7 @@ export const replaceTimetable = (data) => api.post('/api/timetable', data);
 export const updateTimetableEntry = (id, data) => api.put(`/api/timetable/${id}`, data);
 export const deleteTimetableEntry = (id) => api.delete(`/api/timetable/${id}`);
 
-// --- BOOKINGS ---
+// ---------- BOOKINGS ----------
 export const getBookings = (params = {}) => api.get('/api/bookings', { params });
 export const getMyBookings = () => api.get('/api/bookings/my');
 export const getBooking = (id) => api.get(`/api/bookings/${id}`);
@@ -74,5 +74,12 @@ export const unlockRoom = (lockId) => api.post('/api/bookings/unlock', { lockId 
 export const getBookingsByRoom = (roomId) => api.get(`/api/bookings/room/${roomId}`);
 export const getBookingsByFaculty = (facultyEmail) => api.get(`/api/bookings/faculty/${facultyEmail}`);
 
-// --- STATS ---
+// ---------- STATS ----------
 export const getDepartmentStats = (department) => api.get(`/api/stats/department/${department}`);
+
+// ---------- NOTIFICATIONS ----------
+export const getNotifications = () => api.get('/api/notifications');
+export const markAsRead = (id) => api.put(`/api/notifications/${id}/read`);
+export const markAllAsRead = () => api.put('/api/notifications/read-all');
+export const deleteNotification = (id) => api.delete(`/api/notifications/${id}`);
+export const deleteAll = () => api.delete('/api/notifications');

@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import AuthPage from './components/AuthPage';
 import Dashboard from './components/Dashboard';
+import NotificationCenter from './components/NotificationCenter';
 import { initSocket, disconnectSocket, onBookingCancelled } from './services/socket';
 
 export default function App() {
@@ -57,18 +59,23 @@ export default function App() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col">
-      <Navbar
-        currentUser={currentUser}
-        onLogout={handleLogout}
-        notifications={notifications}
-        onClearNotifications={() => setNotifications([])}
-      />
-      {!currentUser ? (
-        <AuthPage onLoginSuccess={handleLoginSuccess} />
-      ) : (
-        <Dashboard user={currentUser} />
-      )}
-    </div>
+    <BrowserRouter>
+      <div className="min-h-screen bg-slate-100 flex flex-col">
+        <Navbar
+          currentUser={currentUser}
+          onLogout={handleLogout}
+          notifications={notifications}
+          onClearNotifications={() => setNotifications([])}
+        />
+        {!currentUser ? (
+          <AuthPage onLoginSuccess={handleLoginSuccess} />
+        ) : (
+          <Routes>
+            <Route path="/" element={<Dashboard user={currentUser} />} />
+            <Route path="/notifications" element={<NotificationCenter user={currentUser} />} />
+          </Routes>
+        )}
+      </div>
+    </BrowserRouter>
   );
 }
