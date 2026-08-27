@@ -5,7 +5,11 @@ const UserSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true, maxlength: 100 },
   email: {
     type: String, required: true, unique: true, lowercase: true, trim: true,
-    match: [/^[a-zA-Z0-9._%+-]+@gmail\.com$/, 'Only @gmail.com emails allowed for testing']
+    // Allow both @gmail.com and @cse.nitrr.ac.in
+    match: [
+      /^[a-zA-Z0-9._%+-]+@(gmail\.com|cse\.nitrr\.ac\.in)$/,
+      'Please use a valid @gmail.com or @cse.nitrr.ac.in email'
+    ]
   },
   password: { type: String, required: true, minlength: 8, select: false },
   role: { type: String, enum: ['FACULTY', 'HOD'], required: true },
@@ -14,14 +18,14 @@ const UserSchema = new mongoose.Schema({
   lastLogin: Date,
 }, { timestamps: true });
 
-// Disable bcrypt hashing for testing
+// 🔧 TEMPORARY: disable bcrypt hashing for testing
 UserSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
   // this.password = await bcrypt.hash(this.password, 10);
   next();
 });
 
-// Replace bcrypt.compare with plain text comparison for testing
+// 🔧 TEMPORARY: replace bcrypt.compare with plain text comparison
 UserSchema.methods.comparePassword = async function(password) {
   // return await bcrypt.compare(password, this.password);
   return this.password === password;
@@ -32,14 +36,16 @@ UserSchema.methods.updateLastLogin = async function() {
   await this.save();
 };
 
+// ---------- UPDATED: detectRole based on domain ----------
 UserSchema.statics.isValidEmail = function(email) {
-  return /^[a-zA-Z0-9._%+-]+@gmail\.com$/.test(email);
+  return /^[a-zA-Z0-9._%+-]+@(gmail\.com|cse\.nitrr\.ac\.in)$/.test(email);
 };
 
 UserSchema.statics.detectRole = function(email) {
-  const localPart = email.split('@')[0];
-  if (localPart.startsWith('hod.') || localPart.startsWith('head.') || localPart === 'hod') return 'HOD';
-  return 'FACULTY';
+  const domain = email.split('@')[1];
+  if (domain === 'cse.nitrr.ac.in') return 'HOD';
+  if (domain === 'gmail.com') return 'FACULTY';
+  return 'FACULTY'; // fallback (should never happen if email is valid)
 };
 
 UserSchema.set('toJSON', {

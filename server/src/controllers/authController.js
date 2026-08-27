@@ -63,7 +63,8 @@ exports.signup = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Password must contain uppercase, lowercase, number, and special character' });
     }
     if (!User.isValidEmail(email)) {
-      return res.status(400).json({ success: false, message: 'Only @gmail.com emails allowed' });
+      // ✅ Updated error message
+      return res.status(400).json({ success: false, message: 'Only @gmail.com or @cse.nitrr.ac.in emails are allowed' });
     }
     if (name.length > 100) {
       return res.status(400).json({ success: false, message: 'Name cannot exceed 100 characters' });
