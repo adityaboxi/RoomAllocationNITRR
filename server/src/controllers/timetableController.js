@@ -172,10 +172,10 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
     throw new Error('No valid entries to add');
   }
 
-  // Deactivate old timetable
+  // Deactivate old timetable – FIXED
   await Timetable.updateMany(
     { department, semester, section, isActive: true },
-    { isActive: false, version: { $inc: 1 } }
+    { $set: { isActive: false }, $inc: { version: 1 } }
   );
 
   // Check duplicate room usage & faculty conflicts
