@@ -4,6 +4,8 @@ const authRoutes = require('./routes/authRoutes');
 const roomRoutes = require('./routes/roomRoutes');
 const timetableRoutes = require('./routes/timetableRoutes');
 const bookingRoutes = require('./routes/bookingRoutes');
+const reviewRoutes = require('./routes/reviewRoutes');
+const notificationRoutes = require('./routes/notificationRoutes'); // <-- added
 const { errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -20,6 +22,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/timetable', timetableRoutes);
 app.use('/api/bookings', bookingRoutes);
+app.use('/api/reviews', reviewRoutes);
+app.use('/api/notifications', notificationRoutes); // <-- added
 
 // Health check
 app.get('/health', (req, res) => {
@@ -29,8 +33,8 @@ app.get('/health', (req, res) => {
 app.get('/', (req, res) => {
   res.json({
     success: true,
-    message: '🏫 Room Allocation System API (TESTING MODE – only @gmail.com)',
-    version: '2.0.0-test-gmail',
+    message: '🏫 Room Allocation System API',
+    version: '2.0.0',
     endpoints: {
       auth: [
         'POST /api/auth/login',
@@ -73,6 +77,18 @@ app.get('/', (req, res) => {
         'PUT /api/bookings/:id/cancel',
         'POST /api/bookings/lock',
         'POST /api/bookings/unlock'
+      ],
+      notifications: [
+        'GET /api/notifications',
+        'PUT /api/notifications/:id/read',
+        'PUT /api/notifications/read-all',
+        'DELETE /api/notifications/:id',
+        'DELETE /api/notifications'
+      ],
+      reviews: [
+        'GET /api/reviews/pending',
+        'POST /api/reviews',
+        'GET /api/reviews/room/:roomId'
       ]
     }
   });

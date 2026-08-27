@@ -83,3 +83,29 @@ export const markAsRead = (id) => api.put(`/api/notifications/${id}/read`);
 export const markAllAsRead = () => api.put('/api/notifications/read-all');
 export const deleteNotification = (id) => api.delete(`/api/notifications/${id}`);
 export const deleteAll = () => api.delete('/api/notifications');
+
+// ---------- REVIEWS (NEW) ----------
+/**
+ * Create a review for a booking (only by the faculty who booked it)
+ * @param {string} bookingId - ID of the booking to review
+ * @param {number} rating - Rating from 1 to 5
+ * @param {string} comment - Review comment
+ */
+export const createReview = (bookingId, rating, comment) =>
+  api.post('/api/reviews', { bookingId, rating, comment });
+
+/**
+ * Get all reviews for a specific room
+ * @param {string} roomId - Room ID
+ */
+export const getRoomReviews = (roomId) => api.get(`/api/reviews/room/${roomId}`);
+
+/**
+ * Get all bookings that are eligible for review (ended and not yet reviewed) for the current user
+ */
+export const getPendingReviews = () => api.get('/api/reviews/pending');
+
+/**
+ * Get all reviews written by the current user
+ */
+export const getMyReviews = () => api.get('/api/reviews/my');

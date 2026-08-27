@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { getRooms, getAvailableRooms } from '../services/api';
+import { getRooms, getAvailableRooms, getRoomReviews } from '../services/api';
 import { getSocket } from '../services/socket';
+import ReviewsModal from './ReviewsModal';
 
 export default function RoomDashboard({ user }) {
   const [rooms, setRooms] = useState([]);
@@ -8,6 +9,10 @@ export default function RoomDashboard({ user }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [reviews, setReviews] = useState({});
+  const [loadingReviews, setLoadingReviews] = useState({});
+  const [selectedRoomReviews, setSelectedRoomReviews] = useState(null);
+  const [selectedRoom, setSelectedRoom] = useState(null);
 
   // Helper to get current time string in HH:MM format
   const getCurrentTimeString = () => {
@@ -24,18 +29,16 @@ export default function RoomDashboard({ user }) {
     setLoading(true);
     try {
       const date = getTodayDate();
-      // We'll use current time as start, and +1 hour as end for checking availability
       const startTime = getCurrentTimeString();
       const [h, m] = startTime.split(':').map(Number);
       const endH = h + 1;
       const endTime = `${String(endH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
-      // Fetch all rooms (department-specific if user is HOD)
-      const dept = user.role === 'HOD' ? user.department : user.department;
+      // Use the user's department (same for both HOD and Faculty)
+      const dept = user.department;
       const roomsData = await getRooms({ department: dept });
       setRooms(roomsData.data || []);
 
-      // Fetch available rooms for current time slot
       const availData = await getAvailableRooms(date, startTime, endTime, { department: dept });
       const ids = (availData.data || []).map(r => r.id);
       setAvailableRoomIds(ids);
@@ -46,10 +49,40 @@ export default function RoomDashboard({ user }) {
     }
   };
 
+  const fetchReviewsForRoom = async (roomId) => {
+    if (loadingReviews[roomId]) return;
+    setLoadingReviews(prev => ({ ...prev, [roomId]: true }));
+    try {
+      const data = await getRoomReviews(roomId);
+      // Expected response: { success: true, data: { reviews: [], avgRating: 0, count: 0 } }
+      setReviews(prev => ({ ...prev, [roomId]: data.data || [] }));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingReviews(prev => ({ ...prev, [roomId]: false }));
+    }
+  };
+
+  const handleViewReviews = (room) => {
+    if (reviews[room.id]) {
+      setSelectedRoom(room);
+      setSelectedRoomReviews(reviews[room.id]);
+    } else {
+      fetchReviewsForRoom(room.id);
+      setSelectedRoom(room);
+    }
+  };
+
+  // Open modal once reviews are fetched
+  useEffect(() => {
+    if (selectedRoom && reviews[selectedRoom.id]) {
+      setSelectedRoomReviews(reviews[selectedRoom.id]);
+    }
+  }, [reviews, selectedRoom]);
+
   // Initial fetch
   useEffect(() => {
     fetchData();
-    // Refresh every 30 seconds to keep time updated
     const interval = setInterval(() => {
       setCurrentTime(new Date());
       fetchData();
@@ -62,19 +95,18 @@ export default function RoomDashboard({ user }) {
     const socket = getSocket();
     if (!socket) return;
 
-    const handleBookingCreated = () => {
-      fetchData();
-    };
-    const handleBookingCancelled = () => {
-      fetchData();
-    };
+    const handleBookingCreated = () => fetchData();
+    const handleBookingCancelled = () => fetchData();
+    const handleTimetableUpdated = () => fetchData(); // <-- new
 
     socket.on('booking-created', handleBookingCreated);
     socket.on('booking-cancelled', handleBookingCancelled);
+    socket.on('timetable-updated', handleTimetableUpdated);
 
     return () => {
       socket.off('booking-created', handleBookingCreated);
       socket.off('booking-cancelled', handleBookingCancelled);
+      socket.off('timetable-updated', handleTimetableUpdated);
     };
   }, []);
 
@@ -98,6 +130,12 @@ export default function RoomDashboard({ user }) {
         {rooms.length === 0 && <p className="text-slate-500">No rooms found.</p>}
         {rooms.map((room) => {
           const available = isRoomAvailable(room.id);
+          const roomReviews = reviews[room.id] || [];
+          const avgRating = roomReviews.length > 0
+            ? (roomReviews.reduce((acc, r) => acc + r.rating, 0) / roomReviews.length).toFixed(1)
+            : null;
+          const reviewCount = roomReviews.length;
+
           return (
             <div key={room.id} className="bg-white border border-slate-200 rounded-xl shadow-sm p-5 flex flex-col">
               <div className="flex justify-between items-start">
@@ -116,6 +154,22 @@ export default function RoomDashboard({ user }) {
                 {room.hasSmartBoard && <span className="bg-slate-100 px-2 py-0.5 rounded">SmartBoard</span>}
                 {room.hasWiFi && <span className="bg-slate-100 px-2 py-0.5 rounded">WiFi</span>}
               </div>
+
+              {/* Review summary */}
+              <div className="mt-3 flex items-center gap-2">
+                {avgRating ? (
+                  <span className="text-sm font-medium text-amber-600">{avgRating} ★</span>
+                ) : (
+                  <span className="text-xs text-slate-400">No reviews</span>
+                )}
+                <button
+                  onClick={() => handleViewReviews(room)}
+                  className="text-xs text-indigo-600 hover:text-indigo-800"
+                >
+                  {reviewCount > 0 ? `(${reviewCount})` : 'Add review'}
+                </button>
+              </div>
+
               <div className="mt-4 text-xs text-slate-400">
                 {available ? 'Free now' : 'Currently booked'}
               </div>
@@ -123,6 +177,18 @@ export default function RoomDashboard({ user }) {
           );
         })}
       </div>
+
+      {/* Reviews Modal */}
+      {selectedRoom && selectedRoomReviews && (
+        <ReviewsModal
+          room={selectedRoom}
+          reviews={selectedRoomReviews}
+          onClose={() => {
+            setSelectedRoom(null);
+            setSelectedRoomReviews(null);
+          }}
+        />
+      )}
     </div>
   );
 }

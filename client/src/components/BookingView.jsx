@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { getRooms, getAvailableRooms, createBooking, getMyBookings, cancelBooking } from '../services/api';
+import { getRooms, getAvailableRooms, createBooking, getMyBookings, cancelBooking, getRoomReviews } from '../services/api';
+import ReviewsModal from './ReviewsModal';
 
 export default function BookingView({ user }) {
   const [rooms, setRooms] = useState([]);
@@ -16,6 +17,10 @@ export default function BookingView({ user }) {
   const [myBookings, setMyBookings] = useState([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [reviews, setReviews] = useState({});
+  const [loadingReviews, setLoadingReviews] = useState({});
+  const [selectedRoomReviews, setSelectedRoomReviews] = useState(null);
+  const [selectedReviewRoom, setSelectedReviewRoom] = useState(null);
 
   useEffect(() => {
     fetchRooms();
@@ -68,6 +73,35 @@ export default function BookingView({ user }) {
       setError(err.message);
     }
   };
+
+  const fetchReviewsForRoom = async (roomId) => {
+    if (loadingReviews[roomId]) return;
+    setLoadingReviews(prev => ({ ...prev, [roomId]: true }));
+    try {
+      const data = await getRoomReviews(roomId);
+      setReviews(prev => ({ ...prev, [roomId]: data.data || [] }));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingReviews(prev => ({ ...prev, [roomId]: false }));
+    }
+  };
+
+  const handleViewReviews = (room) => {
+    if (reviews[room.id]) {
+      setSelectedReviewRoom(room);
+      setSelectedRoomReviews(reviews[room.id]);
+    } else {
+      fetchReviewsForRoom(room.id);
+      setSelectedReviewRoom(room);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedReviewRoom && reviews[selectedReviewRoom.id]) {
+      setSelectedRoomReviews(reviews[selectedReviewRoom.id]);
+    }
+  }, [reviews, selectedReviewRoom]);
 
   const handleBookingInput = (e) => {
     setBookingData({ ...bookingData, [e.target.name]: e.target.value });
@@ -153,6 +187,12 @@ export default function BookingView({ user }) {
         {rooms.length === 0 && <p className="text-slate-500">No rooms found.</p>}
         {rooms.map((room) => {
           const available = isRoomAvailable(room.id);
+          const roomReviews = reviews[room.id] || [];
+          const avgRating = roomReviews.length > 0
+            ? (roomReviews.reduce((acc, r) => acc + r.rating, 0) / roomReviews.length).toFixed(1)
+            : null;
+          const reviewCount = roomReviews.length;
+
           return (
             <div key={room.id} className="bg-white border border-slate-200 rounded-xl shadow-sm p-5 flex flex-col">
               <div className="flex justify-between items-start">
@@ -171,6 +211,22 @@ export default function BookingView({ user }) {
                 {room.hasSmartBoard && <span className="bg-slate-100 px-2 py-0.5 rounded">SmartBoard</span>}
                 {room.hasWiFi && <span className="bg-slate-100 px-2 py-0.5 rounded">WiFi</span>}
               </div>
+
+              {/* Review summary */}
+              <div className="mt-3 flex items-center gap-2">
+                {avgRating ? (
+                  <span className="text-sm font-medium text-amber-600">{avgRating} ★</span>
+                ) : (
+                  <span className="text-xs text-slate-400">No reviews</span>
+                )}
+                <button
+                  onClick={() => handleViewReviews(room)}
+                  className="text-xs text-indigo-600 hover:text-indigo-800"
+                >
+                  {reviewCount > 0 ? `(${reviewCount})` : 'Add review'}
+                </button>
+              </div>
+
               <div className="mt-4">
                 {available ? (
                   <button
@@ -286,6 +342,18 @@ export default function BookingView({ user }) {
           </div>
         )}
       </div>
+
+      {/* Reviews Modal */}
+      {selectedReviewRoom && selectedRoomReviews && (
+        <ReviewsModal
+          room={selectedReviewRoom}
+          reviews={selectedRoomReviews}
+          onClose={() => {
+            setSelectedReviewRoom(null);
+            setSelectedRoomReviews(null);
+          }}
+        />
+      )}
     </div>
   );
 }

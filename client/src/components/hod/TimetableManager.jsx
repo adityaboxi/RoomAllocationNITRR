@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { getRooms, getTimetable, replaceTimetable, updateTimetableEntry, deleteTimetableEntry } from '../../services/api';
 
+// Use environment variable for API base, fallback to relative (proxied by Vite)
+const API_BASE = import.meta.env.VITE_API_URL || '';
+
 export default function TimetableManager({ user }) {
   const [rooms, setRooms] = useState([]);
   const [timetable, setTimetable] = useState([]);
@@ -103,7 +106,8 @@ export default function TimetableManager({ user }) {
     setUploading(true);
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch('http://localhost:3000/api/timetable/upload', {
+      // Use relative path – Vite proxies /api to backend
+      const res = await fetch(`${API_BASE}/api/timetable/upload`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData,

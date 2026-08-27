@@ -1554,6 +1554,8 @@ server.listen(PORT, () => {
   console.log(`   ─────────────────────────────\n`);
 });*/
 
+
+
 const app = require('./app');
 const http = require('http');
 const connectDB = require('./config/db');
@@ -1572,11 +1574,11 @@ const server = http.createServer(app);
 initSocket(server);
 
 server.listen(PORT, () => {
-  console.log(`\n🚀 Server running on http://localhost:${PORT} (TESTING MODE – only @gmail.com)`);
+  console.log(`\n🚀 Server running on http://localhost:${PORT}`);
   console.log(`📡 Socket.IO server attached`);
   console.log(`📧 Email sending DISABLED – OTPs are printed to console.`);
-  console.log(`🔐 Password hashing DISABLED – passwords stored in plain text.`);
-  console.log(`📧 Allowed domains: @gmail.com only`);
+  console.log(`🔐 Password hashing ENABLED – passwords are hashed with bcrypt.`);
+  console.log(`📧 Allowed domains: @gmail.com (Faculty), @cse.nitrr.ac.in (HOD)`);
   console.log(`\n📋 API Endpoints:`);
   console.log(`   ─────────────────────────────`);
   console.log(`   🔐 AUTH:`);
@@ -1620,5 +1622,17 @@ server.listen(PORT, () => {
   console.log(`   PUT    /api/bookings/:id/cancel`);
   console.log(`   POST   /api/bookings/lock`);
   console.log(`   POST   /api/bookings/unlock`);
+  console.log(`   ─────────────────────────────`);
+  console.log(`   📋 NOTIFICATIONS:`);
+  console.log(`   GET    /api/notifications`);
+  console.log(`   PUT    /api/notifications/:id/read`);
+  console.log(`   PUT    /api/notifications/read-all`);
+  console.log(`   DELETE /api/notifications/:id`);
+  console.log(`   DELETE /api/notifications`);
+  console.log(`   ─────────────────────────────`);
+  console.log(`   📋 REVIEWS:`);
+  console.log(`   GET    /api/reviews/pending`);
+  console.log(`   POST   /api/reviews`);
+  console.log(`   GET    /api/reviews/room/:roomId`);
   console.log(`   ─────────────────────────────\n`);
 });

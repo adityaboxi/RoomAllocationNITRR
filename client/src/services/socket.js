@@ -1,10 +1,13 @@
 import { io } from 'socket.io-client';
 
+// Use environment variable, fallback to localhost:3000
+const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
 let socket = null;
 
 export const initSocket = (token) => {
   if (!socket) {
-    socket = io('http://localhost:3000', {
+    socket = io(SOCKET_URL, {
       query: { token },
       transports: ['websocket'],
     });

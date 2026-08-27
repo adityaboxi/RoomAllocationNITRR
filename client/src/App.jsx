@@ -4,7 +4,9 @@ import Navbar from './components/Navbar';
 import AuthPage from './components/AuthPage';
 import Dashboard from './components/Dashboard';
 import NotificationCenter from './components/NotificationCenter';
+import ReviewPopup from './components/ReviewPopup';
 import { initSocket, disconnectSocket, onBookingCancelled } from './services/socket';
+import { getPendingReviews } from './services/api';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(() => {
@@ -12,7 +14,34 @@ export default function App() {
     return saved ? JSON.parse(saved) : null;
   });
   const [notifications, setNotifications] = useState([]);
+  const [pendingReviews, setPendingReviews] = useState([]);
+  const [showReviewPopup, setShowReviewPopup] = useState(false);
+  const [currentPending, setCurrentPending] = useState(null);
 
+  // Fetch pending reviews after login
+  const fetchPendingReviews = async () => {
+    if (!currentUser) return;
+    try {
+      const data = await getPendingReviews();
+      const pending = data.data || [];
+      setPendingReviews(pending);
+      if (pending.length > 0) {
+        setCurrentPending(pending[0]);
+        setShowReviewPopup(true);
+      }
+    } catch (err) {
+      console.error('Failed to fetch pending reviews:', err);
+    }
+  };
+
+  // Check pending reviews on user login
+  useEffect(() => {
+    if (currentUser) {
+      fetchPendingReviews();
+    }
+  }, [currentUser]);
+
+  // Socket listeners
   useEffect(() => {
     if (currentUser) {
       const token = localStorage.getItem('token');
@@ -50,6 +79,35 @@ export default function App() {
     setCurrentUser(null);
     disconnectSocket();
     setNotifications([]);
+    setPendingReviews([]);
+    setShowReviewPopup(false);
+  };
+
+  // Review popup handlers
+  const handleReviewSubmit = (review) => {
+    // Remove the reviewed booking from pending list
+    const updated = pendingReviews.filter(p => p.id !== currentPending.id);
+    setPendingReviews(updated);
+    if (updated.length > 0) {
+      setCurrentPending(updated[0]);
+      setShowReviewPopup(true);
+    } else {
+      setShowReviewPopup(false);
+      setCurrentPending(null);
+    }
+  };
+
+  const handleReviewSkip = () => {
+    // Skip the current booking, move to next
+    const updated = pendingReviews.slice(1);
+    setPendingReviews(updated);
+    if (updated.length > 0) {
+      setCurrentPending(updated[0]);
+      setShowReviewPopup(true);
+    } else {
+      setShowReviewPopup(false);
+      setCurrentPending(null);
+    }
   };
 
   useEffect(() => {
@@ -70,10 +128,20 @@ export default function App() {
         {!currentUser ? (
           <AuthPage onLoginSuccess={handleLoginSuccess} />
         ) : (
-          <Routes>
-            <Route path="/" element={<Dashboard user={currentUser} />} />
-            <Route path="/notifications" element={<NotificationCenter user={currentUser} />} />
-          </Routes>
+          <>
+            <Routes>
+              <Route path="/" element={<Dashboard user={currentUser} />} />
+              <Route path="/notifications" element={<NotificationCenter user={currentUser} />} />
+            </Routes>
+            {/* Review Popup */}
+            {showReviewPopup && currentPending && (
+              <ReviewPopup
+                booking={currentPending}
+                onSubmit={handleReviewSubmit}
+                onSkip={handleReviewSkip}
+              />
+            )}
+          </>
         )}
       </div>
     </BrowserRouter>

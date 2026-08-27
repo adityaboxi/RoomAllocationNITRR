@@ -5,7 +5,7 @@ const User = require('../models/User');
 const Notification = require('../models/Notification');
 const { getDayOfWeek, isOverlapping } = require('../utils/helpers');
 const { sendBookingCancellationEmail } = require('../utils/email');
-const { emitToUser } = require('../utils/socket');
+const { emitToUser, getIO } = require('../utils/socket'); // added getIO
 const multer = require('multer');
 const ExcelJS = require('exceljs');
 const { parse } = require('csv-parse');
@@ -54,7 +54,7 @@ const cancelConflictingBookings = async (timetableEntries, department) => {
           console.error('Failed to send cancellation email:', emailError.message);
         }
 
-        // Send socket notification
+        // Send socket notification to the affected user
         const facultyUser = await User.findOne({ email: booking.facultyEmail });
         if (facultyUser) {
           emitToUser(facultyUser._id.toString(), 'booking-cancelled', {
@@ -278,6 +278,18 @@ exports.replaceTimetable = async (req, res) => {
       userId: req.user._id
     });
 
+    // ---------- EMIT GLOBAL TIMETABLE-UPDATED EVENT ----------
+    const io = getIO();
+    if (io) {
+      io.emit('timetable-updated', {
+        department,
+        semester,
+        section,
+        entriesAdded: result.entriesAdded,
+        bookingsCancelled: result.bookingsCancelled,
+      });
+    }
+
     res.status(201).json({
       success: true,
       message: `Timetable for ${department} department updated successfully`,
@@ -409,6 +421,18 @@ exports.replaceTimetableFromFile = async (req, res) => {
       userId: req.user._id
     });
 
+    // ---------- EMIT GLOBAL TIMETABLE-UPDATED EVENT ----------
+    const io = getIO();
+    if (io) {
+      io.emit('timetable-updated', {
+        department: req.user.department,
+        semester,
+        section,
+        entriesAdded: result.entriesAdded,
+        bookingsCancelled: result.bookingsCancelled,
+      });
+    }
+
     res.status(201).json({
       success: true,
       message: `Timetable replaced via file. ${result.bookingsCancelled} bookings cancelled.`,
@@ -434,9 +458,8 @@ exports.replaceTimetableFromFile = async (req, res) => {
   }
 };
 
-// ---------- UPDATE & DELETE (unchanged) ----------
+// ---------- UPDATE & DELETE ----------
 exports.updateTimetableEntry = async (req, res) => {
-  // ... (same as previous – kept for completeness)
   try {
     const { id } = req.params;
     const { startTime, endTime, subject, roomId, classGroup, faculty } = req.body;
