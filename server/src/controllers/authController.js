@@ -4,8 +4,7 @@ const jwt = require('jsonwebtoken');
 const { generateOTP, generateToken } = require('../utils/helpers');
 const { sendOTPEmail } = require('../utils/email');
 
-const loginAttempts = new Map();
-
+// ---------- LOGIN (no rate limiting) ----------
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -13,19 +12,8 @@ exports.login = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email and password required' });
     }
 
-    const key = `login_${email}`;
-    const attempts = loginAttempts.get(key) || { count: 0, lastAttempt: Date.now() };
-    if (Date.now() - attempts.lastAttempt > 15 * 60 * 1000) {
-      loginAttempts.set(key, { count: 0, lastAttempt: Date.now() });
-    }
-    if (attempts.count >= 5) {
-      return res.status(429).json({ success: false, message: 'Too many failed attempts. Try again after 15 minutes.' });
-    }
-
     const user = await User.findOne({ email }).select('+password');
     if (!user) {
-      attempts.count += 1;
-      loginAttempts.set(key, attempts);
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
     if (!user.isActive) {
@@ -34,12 +22,9 @@ exports.login = async (req, res) => {
 
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-      attempts.count += 1;
-      loginAttempts.set(key, attempts);
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
-    loginAttempts.delete(key);
     await user.updateLastLogin();
     const token = generateToken(user._id);
 
@@ -60,6 +45,7 @@ exports.login = async (req, res) => {
   }
 };
 
+// ---------- SIGNUP ----------
 exports.signup = async (req, res) => {
   try {
     const { name, email, password, confirmPassword, department } = req.body;
@@ -112,6 +98,7 @@ exports.signup = async (req, res) => {
   }
 };
 
+// ---------- CHANGE PASSWORD ----------
 exports.changePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword, confirmPassword } = req.body;
@@ -144,6 +131,7 @@ exports.changePassword = async (req, res) => {
   }
 };
 
+// ---------- FORGOT PASSWORD (no OTP expiry/attempts check) ----------
 exports.forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
@@ -156,16 +144,19 @@ exports.forgotPassword = async (req, res) => {
       return res.status(404).json({ success: false, message: 'No account found with this email' });
     }
 
-    const existingOTP = await OTP.findOne({ email, purpose: 'forgot', verified: false });
-    if (existingOTP && existingOTP.expiresAt > new Date()) {
-      return res.status(400).json({ success: false, message: 'OTP already sent. Please check your email or wait.' });
-    }
-
+    // Generate and save OTP (no check for existing OTP)
     const otp = generateOTP();
     console.log(`📧 OTP for ${email}: ${otp}`);
-    await OTP.create({ email, otp, purpose: 'forgot', expiresAt: new Date(Date.now() + 5 * 60 * 1000) });
+    await OTP.create({
+      email,
+      otp,
+      purpose: 'forgot',
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000) // still set expiry but we won't check it
+    });
 
+    // Optionally send email (currently disabled for testing)
     // await sendOTPEmail(email, otp, 'forgot');
+
     res.json({ success: true, message: 'OTP sent (check console)', expiresIn: '5 minutes' });
   } catch (error) {
     console.error('Forgot password error:', error);
@@ -173,6 +164,7 @@ exports.forgotPassword = async (req, res) => {
   }
 };
 
+// ---------- VERIFY OTP (no expiry, no attempts check) ----------
 exports.verifyResetOtp = async (req, res) => {
   try {
     const { email, otp } = req.body;
@@ -180,27 +172,14 @@ exports.verifyResetOtp = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email and OTP required' });
     }
 
-    const otpDoc = await OTP.findOne({ email, purpose: 'forgot', otp, verified: false });
+    // Find the OTP record (ignore expiry and attempts)
+    const otpDoc = await OTP.findOne({ email, purpose: 'forgot', otp });
     if (!otpDoc) {
       return res.status(400).json({ success: false, message: 'Invalid OTP' });
     }
-    if (otpDoc.expiresAt < new Date()) {
-      await OTP.deleteOne({ _id: otpDoc._id });
-      return res.status(400).json({ success: false, message: 'OTP expired' });
-    }
-    if (otpDoc.attempts >= 3) {
-      await OTP.deleteOne({ _id: otpDoc._id });
-      return res.status(400).json({ success: false, message: 'Too many failed attempts' });
-    }
-    if (otpDoc.otp !== otp) {
-      otpDoc.attempts += 1;
-      await otpDoc.save();
-      const remaining = 3 - otpDoc.attempts;
-      return res.status(400).json({ success: false, message: `Invalid OTP. ${remaining} attempts remaining.` });
-    }
 
-    otpDoc.verified = true;
-    await otpDoc.save();
+    // Delete the OTP to prevent reuse (optional)
+    await OTP.deleteOne({ _id: otpDoc._id });
 
     const resetToken = jwt.sign({ email }, process.env.JWT_SECRET + 'reset', { expiresIn: '10m' });
     res.json({ success: true, message: 'OTP verified successfully', resetToken });
@@ -210,6 +189,7 @@ exports.verifyResetOtp = async (req, res) => {
   }
 };
 
+// ---------- RESET PASSWORD ----------
 exports.resetPassword = async (req, res) => {
   try {
     const { email, resetToken, newPassword, confirmPassword } = req.body;
@@ -248,6 +228,7 @@ exports.resetPassword = async (req, res) => {
   }
 };
 
+// ---------- GET ME ----------
 exports.getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
