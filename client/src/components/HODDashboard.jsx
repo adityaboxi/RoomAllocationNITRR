@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import RoomManager from './hod/RoomManager';
 import TimetableManager from './hod/TimetableManager';
+import BookingView from './BookingView';
 import { getDepartmentStats } from '../services/api';
 
 export default function HODDashboard({ user }) {
   const [stats, setStats] = useState(null);
-  const [activeTab, setActiveTab] = useState('rooms');
+  const [activeTab, setActiveTab] = useState('rooms'); // 'rooms' | 'timetable' | 'book'
 
   useEffect(() => {
     fetchStats();
@@ -47,11 +48,18 @@ export default function HODDashboard({ user }) {
           >
             Manage Timetable
           </button>
+          <button
+            onClick={() => setActiveTab('book')}
+            className={`py-2 px-4 text-sm font-semibold ${activeTab === 'book' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-500 hover:text-slate-900'}`}
+          >
+            Book Room
+          </button>
         </nav>
       </div>
 
       {activeTab === 'rooms' && <RoomManager user={user} />}
       {activeTab === 'timetable' && <TimetableManager user={user} />}
+      {activeTab === 'book' && <BookingView user={user} />}
     </div>
   );
 }

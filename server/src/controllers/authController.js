@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const { generateOTP, generateToken } = require('../utils/helpers');
 const { sendOTPEmail } = require('../utils/email');
 
-// ---------- LOGIN (no rate limiting) ----------
+// ---------- LOGIN ----------
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -45,7 +45,7 @@ exports.login = async (req, res) => {
   }
 };
 
-// ---------- SIGNUP ----------
+// ---------- DIRECT SIGNUP (kept as fallback, but frontend uses OTP flow) ----------
 exports.signup = async (req, res) => {
   try {
     const { name, email, password, confirmPassword, department } = req.body;
@@ -63,7 +63,6 @@ exports.signup = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Password must contain uppercase, lowercase, number, and special character' });
     }
     if (!User.isValidEmail(email)) {
-      // ✅ Updated error message
       return res.status(400).json({ success: false, message: 'Only @gmail.com or @cse.nitrr.ac.in emails are allowed' });
     }
     if (name.length > 100) {
@@ -145,19 +144,16 @@ exports.forgotPassword = async (req, res) => {
       return res.status(404).json({ success: false, message: 'No account found with this email' });
     }
 
-    // Generate and save OTP (no check for existing OTP)
     const otp = generateOTP();
     console.log(`📧 OTP for ${email}: ${otp}`);
     await OTP.create({
       email,
       otp,
       purpose: 'forgot',
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000) // still set expiry but we won't check it
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000)
     });
 
-    // Optionally send email (currently disabled for testing)
     // await sendOTPEmail(email, otp, 'forgot');
-
     res.json({ success: true, message: 'OTP sent (check console)', expiresIn: '5 minutes' });
   } catch (error) {
     console.error('Forgot password error:', error);
@@ -165,7 +161,7 @@ exports.forgotPassword = async (req, res) => {
   }
 };
 
-// ---------- VERIFY OTP (no expiry, no attempts check) ----------
+// ---------- VERIFY RESET OTP ----------
 exports.verifyResetOtp = async (req, res) => {
   try {
     const { email, otp } = req.body;
@@ -173,13 +169,11 @@ exports.verifyResetOtp = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email and OTP required' });
     }
 
-    // Find the OTP record (ignore expiry and attempts)
     const otpDoc = await OTP.findOne({ email, purpose: 'forgot', otp });
     if (!otpDoc) {
       return res.status(400).json({ success: false, message: 'Invalid OTP' });
     }
 
-    // Delete the OTP to prevent reuse (optional)
     await OTP.deleteOne({ _id: otpDoc._id });
 
     const resetToken = jwt.sign({ email }, process.env.JWT_SECRET + 'reset', { expiresIn: '10m' });
@@ -245,5 +239,103 @@ exports.getMe = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// ---------- SEND SIGNUP OTP (step 1) ----------
+exports.sendSignupOtp = async (req, res) => {
+  try {
+    const { name, email, password, confirmPassword, department } = req.body;
+    if (!name || !email || !password || !confirmPassword || !department) {
+      return res.status(400).json({ success: false, message: 'All fields are required' });
+    }
+    if (password !== confirmPassword) {
+      return res.status(400).json({ success: false, message: 'Passwords do not match' });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 8 characters' });
+    }
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+    if (!passwordRegex.test(password)) {
+      return res.status(400).json({ success: false, message: 'Password must contain uppercase, lowercase, number, and special character' });
+    }
+    if (!User.isValidEmail(email)) {
+      return res.status(400).json({ success: false, message: 'Only @gmail.com or @cse.nitrr.ac.in emails are allowed' });
+    }
+    if (name.length > 100) {
+      return res.status(400).json({ success: false, message: 'Name cannot exceed 100 characters' });
+    }
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ success: false, message: 'User already exists with this email' });
+    }
+
+    const otp = generateOTP();
+    console.log(`📧 Signup OTP for ${email}: ${otp}`);
+
+    await OTP.create({
+      email,
+      otp,
+      purpose: 'signup',
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+      userData: { name, email, password, department },
+    });
+
+    // await sendOTPEmail(email, otp, 'signup');
+    res.json({ success: true, message: 'OTP sent to your email (check console)', expiresIn: '5 minutes' });
+  } catch (error) {
+    console.error('Send signup OTP error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// ---------- VERIFY SIGNUP OTP (step 2) ----------
+exports.verifySignupOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) {
+      return res.status(400).json({ success: false, message: 'Email and OTP required' });
+    }
+
+    const otpDoc = await OTP.findOne({ email, purpose: 'signup', otp });
+    if (!otpDoc) {
+      return res.status(400).json({ success: false, message: 'Invalid OTP' });
+    }
+    if (otpDoc.expiresAt < new Date()) {
+      await OTP.deleteOne({ _id: otpDoc._id });
+      return res.status(400).json({ success: false, message: 'OTP expired' });
+    }
+
+    const { name, password, department } = otpDoc.userData;
+    if (!name || !password || !department) {
+      return res.status(400).json({ success: false, message: 'Incomplete user data' });
+    }
+
+    const role = User.detectRole(email);
+    const user = await User.create({ name, email, password, role, department, isActive: true });
+
+    await OTP.deleteOne({ _id: otpDoc._id });
+
+    const token = generateToken(user._id);
+    await user.updateLastLogin();
+
+    res.status(201).json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        department: user.department,
+      },
+    });
+  } catch (error) {
+    console.error('Verify signup OTP error:', error);
+    if (error.code === 11000) {
+      return res.status(400).json({ success: false, message: 'User already exists with this email' });
+    }
+    res.status(500).json({ success: false, message: 'OTP verification failed' });
   }
 };
