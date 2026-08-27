@@ -1,46 +1,66 @@
 const socketIo = require('socket.io');
 const jwt = require('jsonwebtoken');
 
-let io;
-const onlineUsers = new Map();
+let io = null;
 
+// ---------- INITIALIZE SOCKET.IO SERVER ----------
 exports.initSocket = (server) => {
+  const allowedOrigin = process.env.CLIENT_URL || 'http://localhost:5173';
+
   io = socketIo(server, {
     cors: {
-      origin: 'http://localhost:5173',
+      origin: allowedOrigin,
+      methods: ['GET', 'POST'],
       credentials: true,
     },
+    pingTimeout: 60000,
+    pingInterval: 25000,
   });
 
+  // JWT Authentication Middleware for Socket Connections
   io.use((socket, next) => {
-    const token = socket.handshake.query.token;
-    if (!token) return next(new Error('Authentication error'));
+    const token =
+      socket.handshake.query?.token ||
+      socket.handshake.auth?.token ||
+      socket.handshake.headers?.authorization?.split(' ')[1];
+
+    if (!token) {
+      return next(new Error('Authentication error: Token required'));
+    }
+
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      socket.userId = decoded.userId;
+      const decoded = jwt.verify(
+        token,
+        process.env.JWT_SECRET || 'default_jwt_secret'
+      );
+      socket.userId = decoded.userId.toString();
       next();
-    } catch {
-      next(new Error('Invalid token'));
+    } catch (err) {
+      return next(new Error('Authentication error: Invalid or expired token'));
     }
   });
 
+  // Connection Lifecycle Handlers
   io.on('connection', (socket) => {
-    console.log(`🔌 User ${socket.userId} connected`);
-    onlineUsers.set(socket.userId, socket.id);
-    socket.on('disconnect', () => {
-      console.log(`🔌 User ${socket.userId} disconnected`);
-      onlineUsers.delete(socket.userId);
+    // Join a dedicated room named after the userId
+    // This delivers events to all open tabs/devices belonging to this user
+    socket.join(socket.userId);
+    console.log(`🔌 Socket connected: User ${socket.userId} (Socket: ${socket.id})`);
+
+    socket.on('disconnect', (reason) => {
+      console.log(`🔌 Socket disconnected: User ${socket.userId} (Reason: ${reason})`);
     });
   });
 
   return io;
 };
 
+// ---------- EMIT EVENT TO SPECIFIC USER (Across all tabs) ----------
 exports.emitToUser = (userId, event, data) => {
-  const socketId = onlineUsers.get(userId);
-  if (socketId) {
-    io.to(socketId).emit(event, data);
+  if (io && userId) {
+    io.to(userId.toString()).emit(event, data);
   }
 };
 
+// ---------- GET ACTIVE IO INSTANCE ----------
 exports.getIO = () => io;

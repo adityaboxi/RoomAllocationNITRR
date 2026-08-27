@@ -1,66 +1,128 @@
+const mongoose = require('mongoose');
 const Notification = require('../models/Notification');
 
-// Get all notifications for the logged-in user
+// ---------- GET NOTIFICATIONS ----------
+// Retrieves notifications for the logged-in user with unread count and pagination support
 exports.getNotifications = async (req, res) => {
   try {
-    const notifications = await Notification.find({ userId: req.user.id })
-      .sort({ createdAt: -1 });
-    res.json({ success: true, data: notifications });
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const skip = (page - 1) * limit;
+
+    const [notifications, total, unreadCount] = await Promise.all([
+      Notification.find({ userId: req.user._id || req.user.id })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Notification.countDocuments({ userId: req.user._id || req.user.id }),
+      Notification.countDocuments({ userId: req.user._id || req.user.id, read: false }),
+    ]);
+
+    // Format IDs for frontend consistency
+    const formatted = notifications.map((n) => ({
+      ...n,
+      id: n._id.toString(),
+    }));
+
+    res.json({
+      success: true,
+      data: formatted,
+      total,
+      unreadCount,
+      page,
+      pages: Math.ceil(total / limit) || 1,
+    });
   } catch (error) {
+    console.error('Get notifications error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// Mark a single notification as read
+// ---------- MARK SINGLE AS READ (Atomic) ----------
 exports.markAsRead = async (req, res) => {
   try {
     const { id } = req.params;
-    const notification = await Notification.findOne({ _id: id, userId: req.user.id });
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid notification ID format' });
+    }
+
+    const notification = await Notification.findOneAndUpdate(
+      { _id: id, userId: req.user._id || req.user.id },
+      { $set: { read: true } },
+      { new: true }
+    );
+
     if (!notification) {
       return res.status(404).json({ success: false, message: 'Notification not found' });
     }
-    notification.read = true;
-    await notification.save();
-    res.json({ success: true, message: 'Notification marked as read' });
+
+    res.json({ success: true, message: 'Notification marked as read', data: notification });
   } catch (error) {
+    console.error('Mark notification as read error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// Mark all notifications as read for the user
+// ---------- MARK ALL AS READ (Bulk Atomic) ----------
 exports.markAllAsRead = async (req, res) => {
   try {
-    await Notification.updateMany(
-      { userId: req.user.id, read: false },
-      { read: true }
+    const result = await Notification.updateMany(
+      { userId: req.user._id || req.user.id, read: false },
+      { $set: { read: true } }
     );
-    res.json({ success: true, message: 'All notifications marked as read' });
+
+    res.json({
+      success: true,
+      message: 'All notifications marked as read',
+      modifiedCount: result.modifiedCount,
+    });
   } catch (error) {
+    console.error('Mark all notifications read error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// Delete a single notification
+// ---------- DELETE SINGLE NOTIFICATION (Atomic) ----------
 exports.deleteNotification = async (req, res) => {
   try {
     const { id } = req.params;
-    const notification = await Notification.findOne({ _id: id, userId: req.user.id });
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid notification ID format' });
+    }
+
+    const notification = await Notification.findOneAndDelete({
+      _id: id,
+      userId: req.user._id || req.user.id,
+    });
+
     if (!notification) {
       return res.status(404).json({ success: false, message: 'Notification not found' });
     }
-    await notification.deleteOne();
-    res.json({ success: true, message: 'Notification deleted' });
+
+    res.json({ success: true, message: 'Notification deleted successfully' });
   } catch (error) {
+    console.error('Delete notification error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// Delete all notifications for the user
+// ---------- DELETE ALL NOTIFICATIONS (Bulk) ----------
 exports.deleteAll = async (req, res) => {
   try {
-    await Notification.deleteMany({ userId: req.user.id });
-    res.json({ success: true, message: 'All notifications deleted' });
+    const result = await Notification.deleteMany({
+      userId: req.user._id || req.user.id,
+    });
+
+    res.json({
+      success: true,
+      message: 'All notifications deleted successfully',
+      deletedCount: result.deletedCount,
+    });
   } catch (error) {
+    console.error('Delete all notifications error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

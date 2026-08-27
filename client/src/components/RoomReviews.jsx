@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getRoomReviews } from '../services/api';
+import { Star, MessageSquare } from 'lucide-react';
 
 export default function RoomReviews({ roomId }) {
   const [reviews, setReviews] = useState([]);
@@ -8,40 +9,84 @@ export default function RoomReviews({ roomId }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
+
     if (roomId) {
+      const fetchReviews = async () => {
+        setLoading(true);
+        try {
+          const data = await getRoomReviews(roomId);
+          const reviewList = data.data?.reviews || (Array.isArray(data.data) ? data.data : []);
+          const average =
+            data.data?.avgRating !== undefined
+              ? data.data.avgRating
+              : reviewList.length > 0
+              ? reviewList.reduce((sum, r) => sum + r.rating, 0) / reviewList.length
+              : 0;
+
+          if (isMounted) {
+            setReviews(reviewList);
+            setAvgRating(Number(average) || 0);
+            setCount(data.data?.count !== undefined ? data.data.count : reviewList.length);
+          }
+        } catch (err) {
+          console.warn('Room review lookup notice:', err.message);
+        } finally {
+          if (isMounted) {
+            setLoading(false);
+          }
+        }
+      };
+
       fetchReviews();
     }
+
+    return () => {
+      isMounted = false;
+    };
   }, [roomId]);
 
-  const fetchReviews = async () => {
-    try {
-      const data = await getRoomReviews(roomId);
-      setReviews(data.data.reviews || []);
-      setAvgRating(data.data.avgRating || 0);
-      setCount(data.data.count || 0);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  if (loading) {
+    return <div className="text-[11px] text-slate-400">Loading ratings...</div>;
+  }
 
-  if (loading) return <div className="text-xs text-slate-400">Loading reviews...</div>;
-  if (count === 0) return <div className="text-xs text-slate-400">No reviews yet</div>;
+  if (count === 0) {
+    return <div className="text-[11px] text-slate-400">No ratings yet</div>;
+  }
 
   return (
-    <div className="mt-2">
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-semibold text-amber-500">★ {avgRating.toFixed(1)}</span>
-        <span className="text-xs text-slate-500">({count} review{count > 1 ? 's' : ''})</span>
+    <div className="mt-2 space-y-1">
+      <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1 text-amber-500">
+          <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+          <span className="text-xs font-bold">{avgRating.toFixed(1)}</span>
+        </div>
+        <span className="text-[11px] text-slate-400">
+          ({count} review{count > 1 ? 's' : ''})
+        </span>
       </div>
-      <div className="mt-1 max-h-20 overflow-y-auto space-y-1">
-        {reviews.slice(0, 3).map((r) => (
-          <div key={r.id} className="text-xs text-slate-600 border-b border-slate-100 pb-1">
-            <span className="font-semibold">★ {r.rating}</span> {r.comment && <span>— {r.comment}</span>}
+
+      <div className="max-h-20 overflow-y-auto space-y-1 pr-1">
+        {reviews.slice(0, 3).map((r, idx) => {
+          const reviewId = r.id || r._id || idx;
+          return (
+            <div
+              key={reviewId}
+              className="text-[11px] text-slate-600 border-b border-slate-100 pb-1 flex items-start gap-1 leading-tight"
+            >
+              <span className="font-bold text-amber-600 flex items-center flex-shrink-0">
+                {r.rating}★
+              </span>
+              <span className="truncate">{r.comment || 'Class concluded'}</span>
+            </div>
+          );
+        })}
+
+        {reviews.length > 3 && (
+          <div className="text-[10px] text-slate-400 font-semibold">
+            +{reviews.length - 3} more reviews
           </div>
-        ))}
-        {reviews.length > 3 && <div className="text-xs text-slate-400">+{reviews.length - 3} more</div>}
+        )}
       </div>
     </div>
   );

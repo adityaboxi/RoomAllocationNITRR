@@ -10,22 +10,27 @@ const {
   replaceTimetableFromFile,
   uploadTimetableFile,
   updateTimetableEntry,
-  deleteTimetableEntry
+  deleteTimetableEntry,
 } = require('../controllers/timetableController');
 
-router.get('/', protect, getTimetable);
-router.get('/department/:department', protect, getTimetableByDepartment);
-router.get('/faculty/:facultyName', protect, getTimetableByFaculty);
-router.get('/room/:roomId', protect, getTimetableByRoom);
-router.post('/', protect, authorize('HOD'), replaceTimetable);
+// All timetable routes require authentication
+router.use(protect);
+
+// Public Timetable View Endpoints
+router.get('/', getTimetable);
+router.get('/department/:department', getTimetableByDepartment);
+router.get('/faculty/:facultyName', getTimetableByFaculty);
+router.get('/room/:roomId', getTimetableByRoom);
+
+// Administrative Timetable Modification Endpoints (HOD Only)
+router.post('/', authorize('HOD'), replaceTimetable);
 router.post(
   '/upload',
-  protect,
   authorize('HOD'),
   uploadTimetableFile,
   replaceTimetableFromFile
 );
-router.put('/:id', protect, authorize('HOD'), updateTimetableEntry);
-router.delete('/:id', protect, authorize('HOD'), deleteTimetableEntry);
+router.put('/:id', authorize('HOD'), updateTimetableEntry);
+router.delete('/:id', authorize('HOD'), deleteTimetableEntry);
 
 module.exports = router;

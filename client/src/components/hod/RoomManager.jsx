@@ -1,72 +1,125 @@
 import React, { useState, useEffect } from 'react';
-import { getRooms, createRoom, updateRoom, toggleRoomAvailability, deleteRoom } from '../../services/api';
+import {
+  getRooms,
+  createRoom,
+  updateRoom,
+  toggleRoomAvailability,
+  deleteRoom,
+} from '../../services/api';
+import {
+  Building2,
+  Plus,
+  Edit2,
+  Trash2,
+  Power,
+  CheckCircle2,
+  AlertCircle,
+  Users,
+  Layers,
+  Sparkles,
+  X,
+} from 'lucide-react';
 
 export default function RoomManager({ user }) {
   const [rooms, setRooms] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [fetchLoading, setFetchLoading] = useState(true);
   const [editingRoom, setEditingRoom] = useState(null);
-  const [formData, setFormData] = useState({
+
+  const initialFormState = {
     name: '',
     roomNumber: '',
     capacity: '',
     type: 'Classroom',
     floor: '',
-    building: '',
+    building: 'Main Building',
     hasProjector: false,
     hasAC: false,
     hasSmartBoard: false,
     hasWiFi: false,
     isAvailable: true,
-  });
+  };
+
+  const [formData, setFormData] = useState(initialFormState);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
   useEffect(() => {
     fetchRooms();
-  }, []);
+  }, [user?.department]);
 
   const fetchRooms = async () => {
+    setFetchLoading(true);
+    setError('');
     try {
-      const data = await getRooms({ department: user.department });
+      const data = await getRooms({ department: user?.department });
       setRooms(data.data || []);
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Failed to load department rooms');
+    } finally {
+      setFetchLoading(false);
     }
   };
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setFormData({ ...formData, [name]: type === 'checkbox' ? checked : value });
+    setFormData((prev) => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value,
+    }));
+    setError('');
+    setSuccess('');
+  };
+
+  const resetForm = () => {
+    setFormData(initialFormState);
+    setEditingRoom(null);
+    setError('');
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError('');
+    setSuccess('');
+
+    // Input Validation
+    if (!formData.name.trim() || !formData.roomNumber.trim()) {
+      setError('Please provide a room name and room number.');
+      return;
+    }
+
+    const capacityNum = parseInt(formData.capacity, 10);
+    if (isNaN(capacityNum) || capacityNum <= 0) {
+      setError('Room capacity must be a positive integer.');
+      return;
+    }
+
     setLoading(true);
+
+    const payload = {
+      ...formData,
+      name: formData.name.trim(),
+      roomNumber: formData.roomNumber.trim().toUpperCase(),
+      capacity: capacityNum,
+      floor: formData.floor.trim(),
+      building: formData.building.trim(),
+      department: user?.department,
+    };
+
     try {
       if (editingRoom) {
-        await updateRoom(editingRoom.id, formData);
-        setSuccess('Room updated.');
+        const roomId = editingRoom.id || editingRoom._id;
+        await updateRoom(roomId, payload);
+        setSuccess(`Room "${payload.name}" updated successfully.`);
       } else {
-        await createRoom(formData);
-        setSuccess('Room created.');
+        await createRoom(payload);
+        setSuccess(`Room "${payload.name}" created successfully.`);
       }
-      setFormData({
-        name: '',
-        roomNumber: '',
-        capacity: '',
-        type: 'Classroom',
-        floor: '',
-        building: '',
-        hasProjector: false,
-        hasAC: false,
-        hasSmartBoard: false,
-        hasWiFi: false,
-        isAvailable: true,
-      });
-      setEditingRoom(null);
-      fetchRooms();
+
+      resetForm();
+      await fetchRooms();
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Failed to save room details');
     } finally {
       setLoading(false);
     }
@@ -75,128 +128,266 @@ export default function RoomManager({ user }) {
   const handleEdit = (room) => {
     setEditingRoom(room);
     setFormData({
-      name: room.name,
-      roomNumber: room.roomNumber,
-      capacity: room.capacity,
-      type: room.type,
-      floor: room.floor,
-      building: room.building,
-      hasProjector: room.hasProjector || false,
-      hasAC: room.hasAC || false,
-      hasSmartBoard: room.hasSmartBoard || false,
-      hasWiFi: room.hasWiFi || false,
-      isAvailable: room.isAvailable,
+      name: room.name || '',
+      roomNumber: room.roomNumber || '',
+      capacity: room.capacity || '',
+      type: room.type || 'Classroom',
+      floor: room.floor || '',
+      building: room.building || 'Main Building',
+      hasProjector: !!room.hasProjector,
+      hasAC: !!room.hasAC,
+      hasSmartBoard: !!room.hasSmartBoard,
+      hasWiFi: !!room.hasWiFi,
+      isAvailable: room.isAvailable !== undefined ? room.isAvailable : true,
     });
+    setError('');
+    setSuccess('');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleToggle = async (roomId) => {
+  const handleToggle = async (room) => {
+    const roomId = room.id || room._id;
     try {
       await toggleRoomAvailability(roomId);
-      fetchRooms();
-      setSuccess('Room availability toggled.');
+      await fetchRooms();
+      setSuccess(`Room "${room.name}" availability toggled.`);
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Failed to toggle room status');
     }
   };
 
-  const handleDelete = async (roomId) => {
-    if (!window.confirm('Delete this room?')) return;
+  const handleDelete = async (room) => {
+    const roomId = room.id || room._id;
+    const confirmDelete = window.confirm(
+      `Are you sure you want to delete "${room.name}" (${room.roomNumber})?\n\nThis will soft-decommission the room and cancel conflicting future schedules.`
+    );
+    if (!confirmDelete) return;
+
     try {
       await deleteRoom(roomId);
-      fetchRooms();
-      setSuccess('Room deleted.');
+      await fetchRooms();
+      setSuccess(`Room "${room.name}" deleted successfully.`);
+      if (editingRoom && (editingRoom.id === roomId || editingRoom._id === roomId)) {
+        resetForm();
+      }
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Failed to delete room');
     }
   };
 
   return (
-    <div>
-      {error && <div className="bg-rose-50 text-rose-800 p-3 rounded mb-4">{error}</div>}
-      {success && <div className="bg-emerald-50 text-emerald-800 p-3 rounded mb-4">{success}</div>}
+    <div className="space-y-6">
+      {/* Alert Banners */}
+      {error && (
+        <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
+          <AlertCircle className="w-5 h-5 mr-2 text-rose-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">{error}</div>
+          <button onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-          <h3 className="text-lg font-semibold mb-4">{editingRoom ? 'Edit Room' : 'Add Room'}</h3>
-          <form onSubmit={handleSubmit} className="space-y-3">
-            <input
-              name="name"
-              value={formData.name}
-              onChange={handleChange}
-              placeholder="Room Name"
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-              required
-            />
-            <input
-              name="roomNumber"
-              value={formData.roomNumber}
-              onChange={handleChange}
-              placeholder="Room Number"
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-              required
-            />
-            <input
-              name="capacity"
-              type="number"
-              value={formData.capacity}
-              onChange={handleChange}
-              placeholder="Capacity"
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-              required
-            />
-            <select
-              name="type"
-              value={formData.type}
-              onChange={handleChange}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-            >
-              <option value="Classroom">Classroom</option>
-              <option value="Lab">Lab</option>
-              <option value="Auditorium">Auditorium</option>
-              <option value="Lecture Hall">Lecture Hall</option>
-              <option value="Seminar Hall">Seminar Hall</option>
-              <option value="Conference Room">Conference Room</option>
-            </select>
-            <input
-              name="floor"
-              value={formData.floor}
-              onChange={handleChange}
-              placeholder="Floor"
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-              required
-            />
-            <input
-              name="building"
-              value={formData.building}
-              onChange={handleChange}
-              placeholder="Building"
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-              required
-            />
-            <div className="grid grid-cols-2 gap-2">
-              <label className="flex items-center text-sm">
-                <input type="checkbox" name="hasProjector" checked={formData.hasProjector} onChange={handleChange} className="mr-2" />
-                Projector
-              </label>
-              <label className="flex items-center text-sm">
-                <input type="checkbox" name="hasAC" checked={formData.hasAC} onChange={handleChange} className="mr-2" />
-                AC
-              </label>
-              <label className="flex items-center text-sm">
-                <input type="checkbox" name="hasSmartBoard" checked={formData.hasSmartBoard} onChange={handleChange} className="mr-2" />
-                SmartBoard
-              </label>
-              <label className="flex items-center text-sm">
-                <input type="checkbox" name="hasWiFi" checked={formData.hasWiFi} onChange={handleChange} className="mr-2" />
-                WiFi
-              </label>
+      {success && (
+        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start text-emerald-800 text-sm font-medium animate-fadeIn">
+          <CheckCircle2 className="w-5 h-5 mr-2 text-emerald-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">{success}</div>
+          <button onClick={() => setSuccess('')} className="text-emerald-500 hover:text-emerald-700">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Left Column: Form Card */}
+        <div className="lg:col-span-4 bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm">
+          <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                {editingRoom ? <Edit2 className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+              </div>
+              <h3 className="text-base font-bold text-slate-900">
+                {editingRoom ? 'Edit Room Details' : 'Add New Room'}
+              </h3>
             </div>
-            <div className="flex gap-2">
-              <button type="submit" disabled={loading} className="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50">
-                {loading ? 'Saving...' : editingRoom ? 'Update' : 'Add'}
+            {editingRoom && (
+              <button
+                type="button"
+                onClick={resetForm}
+                className="text-xs text-slate-500 hover:text-slate-700 font-semibold"
+              >
+                Cancel Edit
               </button>
+            )}
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Room Name / Title *
+              </label>
+              <input
+                name="name"
+                value={formData.name}
+                onChange={handleChange}
+                placeholder="e.g. Alan Turing Lab"
+                className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-indigo-600 focus:bg-white bg-slate-50/50 outline-none transition-all"
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Room Number *
+                </label>
+                <input
+                  name="roomNumber"
+                  value={formData.roomNumber}
+                  onChange={handleChange}
+                  placeholder="e.g. CS-101"
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm uppercase focus:ring-2 focus:ring-indigo-600 focus:bg-white bg-slate-50/50 outline-none transition-all"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Capacity (Seats) *
+                </label>
+                <input
+                  name="capacity"
+                  type="number"
+                  min="1"
+                  value={formData.capacity}
+                  onChange={handleChange}
+                  placeholder="e.g. 60"
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-indigo-600 focus:bg-white bg-slate-50/50 outline-none transition-all"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Room Type *
+                </label>
+                <select
+                  name="type"
+                  value={formData.type}
+                  onChange={handleChange}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-600 focus:bg-white bg-slate-50/50 outline-none transition-all"
+                >
+                  <option value="Classroom">Classroom</option>
+                  <option value="Lab">Lab</option>
+                  <option value="Auditorium">Auditorium</option>
+                  <option value="Lecture Hall">Lecture Hall</option>
+                  <option value="Seminar Hall">Seminar Hall</option>
+                  <option value="Conference Room">Conference Room</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Floor *
+                </label>
+                <input
+                  name="floor"
+                  value={formData.floor}
+                  onChange={handleChange}
+                  placeholder="e.g. Ground Floor"
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-indigo-600 focus:bg-white bg-slate-50/50 outline-none transition-all"
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Building *
+              </label>
+              <input
+                name="building"
+                value={formData.building}
+                onChange={handleChange}
+                placeholder="e.g. Main Building / CSE Block"
+                className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-indigo-600 focus:bg-white bg-slate-50/50 outline-none transition-all"
+                required
+              />
+            </div>
+
+            {/* Amenities Checkboxes */}
+            <div className="pt-2">
+              <label className="block text-xs font-semibold text-slate-700 mb-2">
+                Available Amenities
+              </label>
+              <div className="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+                <label className="flex items-center text-xs font-medium text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    name="hasProjector"
+                    checked={formData.hasProjector}
+                    onChange={handleChange}
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 mr-2"
+                  />
+                  Projector
+                </label>
+                <label className="flex items-center text-xs font-medium text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    name="hasAC"
+                    checked={formData.hasAC}
+                    onChange={handleChange}
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 mr-2"
+                  />
+                  Air Conditioning
+                </label>
+                <label className="flex items-center text-xs font-medium text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    name="hasSmartBoard"
+                    checked={formData.hasSmartBoard}
+                    onChange={handleChange}
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 mr-2"
+                  />
+                  Smart Board
+                </label>
+                <label className="flex items-center text-xs font-medium text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    name="hasWiFi"
+                    checked={formData.hasWiFi}
+                    onChange={handleChange}
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 mr-2"
+                  />
+                  High-Speed WiFi
+                </label>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex-1 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-slate-800 transition-all shadow-sm disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {loading ? (
+                  <span>Saving...</span>
+                ) : (
+                  <>
+                    <span>{editingRoom ? 'Update Room' : 'Create Room'}</span>
+                    <Sparkles className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+
               {editingRoom && (
-                <button type="button" onClick={() => { setEditingRoom(null); setFormData({ name: '', roomNumber: '', capacity: '', type: 'Classroom', floor: '', building: '', hasProjector: false, hasAC: false, hasSmartBoard: false, hasWiFi: false, isAvailable: true }); }} className="bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-slate-300">
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  className="bg-slate-100 text-slate-700 px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-slate-200 transition-all"
+                >
                   Cancel
                 </button>
               )}
@@ -204,38 +395,135 @@ export default function RoomManager({ user }) {
           </form>
         </div>
 
-        <div className="lg:col-span-2">
-          <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-            <table className="min-w-full">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="text-left p-3 text-sm font-semibold">Name</th>
-                  <th className="text-left p-3 text-sm font-semibold">Number</th>
-                  <th className="text-left p-3 text-sm font-semibold">Capacity</th>
-                  <th className="text-left p-3 text-sm font-semibold">Status</th>
-                  <th className="text-left p-3 text-sm font-semibold">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rooms.map((room) => (
-                  <tr key={room.id} className="border-t">
-                    <td className="p-3 text-sm">{room.name}</td>
-                    <td className="p-3 text-sm">{room.roomNumber}</td>
-                    <td className="p-3 text-sm">{room.capacity}</td>
-                    <td className="p-3 text-sm">
-                      <span className={`px-2 py-0.5 text-xs rounded-full ${room.isAvailable ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
-                        {room.isAvailable ? 'Available' : 'Unavailable'}
-                      </span>
-                    </td>
-                    <td className="p-3 text-sm space-x-2">
-                      <button onClick={() => handleEdit(room)} className="text-indigo-600 hover:text-indigo-800 text-sm">Edit</button>
-                      <button onClick={() => handleToggle(room.id)} className="text-amber-600 hover:text-amber-800 text-sm">Toggle</button>
-                      <button onClick={() => handleDelete(room.id)} className="text-rose-600 hover:text-rose-800 text-sm">Delete</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {/* Right Column: Rooms Table */}
+        <div className="lg:col-span-8">
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-2.5">
+                <Building2 className="w-5 h-5 text-slate-600" />
+                <h3 className="text-base font-bold text-slate-900">
+                  {user?.department} Department Rooms ({rooms.length})
+                </h3>
+              </div>
+            </div>
+
+            {fetchLoading ? (
+              <div className="p-12 text-center text-slate-400 text-sm">Loading rooms...</div>
+            ) : rooms.length === 0 ? (
+              <div className="p-12 text-center text-slate-500">
+                <Building2 className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                <p className="text-sm font-medium">No rooms configured for this department yet.</p>
+                <p className="text-xs text-slate-400 mt-1">
+                  Use the form on the left to add your first classroom or laboratory.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-slate-200">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="text-left px-4 py-3 text-xs font-bold text-slate-600 uppercase tracking-wider">
+                        Room
+                      </th>
+                      <th className="text-left px-4 py-3 text-xs font-bold text-slate-600 uppercase tracking-wider">
+                        Location / Type
+                      </th>
+                      <th className="text-left px-4 py-3 text-xs font-bold text-slate-600 uppercase tracking-wider">
+                        Capacity
+                      </th>
+                      <th className="text-left px-4 py-3 text-xs font-bold text-slate-600 uppercase tracking-wider">
+                        Status
+                      </th>
+                      <th className="text-right px-4 py-3 text-xs font-bold text-slate-600 uppercase tracking-wider">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {rooms.map((room) => {
+                      const roomId = room.id || room._id;
+                      const isCurrentlyEditing =
+                        editingRoom && (editingRoom.id === roomId || editingRoom._id === roomId);
+
+                      return (
+                        <tr
+                          key={roomId}
+                          className={`hover:bg-slate-50/80 transition-colors ${
+                            isCurrentlyEditing ? 'bg-indigo-50/50' : ''
+                          }`}
+                        >
+                          <td className="px-4 py-3.5 text-sm">
+                            <div className="font-bold text-slate-900">{room.name}</div>
+                            <div className="text-xs text-slate-500 font-mono mt-0.5">
+                              {room.roomNumber}
+                            </div>
+                          </td>
+
+                          <td className="px-4 py-3.5 text-sm">
+                            <div className="text-slate-800 font-medium">{room.type}</div>
+                            <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
+                              <Layers className="w-3 h-3" />
+                              <span>
+                                {room.floor}, {room.building}
+                              </span>
+                            </div>
+                          </td>
+
+                          <td className="px-4 py-3.5 text-sm text-slate-700">
+                            <div className="flex items-center gap-1 font-semibold">
+                              <Users className="w-3.5 h-3.5 text-slate-400" />
+                              <span>{room.capacity}</span>
+                            </div>
+                          </td>
+
+                          <td className="px-4 py-3.5 text-sm">
+                            <span
+                              className={`inline-flex items-center px-2.5 py-1 text-xs font-bold rounded-full ${
+                                room.isAvailable
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-rose-100 text-rose-800'
+                              }`}
+                            >
+                              {room.isAvailable ? 'Available' : 'Unavailable'}
+                            </span>
+                          </td>
+
+                          <td className="px-4 py-3.5 text-sm text-right space-x-1.5 whitespace-nowrap">
+                            <button
+                              onClick={() => handleEdit(room)}
+                              className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                              title="Edit Room"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+
+                            <button
+                              onClick={() => handleToggle(room)}
+                              className={`p-1.5 rounded-lg transition-colors ${
+                                room.isAvailable
+                                  ? 'text-amber-600 hover:bg-amber-50'
+                                  : 'text-emerald-600 hover:bg-emerald-50'
+                              }`}
+                              title={room.isAvailable ? 'Deactivate room' : 'Activate room'}
+                            >
+                              <Power className="w-4 h-4" />
+                            </button>
+
+                            <button
+                              onClick={() => handleDelete(room)}
+                              className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-lg transition-colors"
+                              title="Delete Room"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       </div>

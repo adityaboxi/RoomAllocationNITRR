@@ -9,10 +9,14 @@ const {
   deleteAll,
 } = require('../controllers/notificationController');
 
-router.get('/', protect, getNotifications);
-router.put('/:id/read', protect, markAsRead);
-router.put('/read-all', protect, markAllAsRead);
-router.delete('/:id', protect, deleteNotification);
-router.delete('/', protect, deleteAll);
+// All notification endpoints require authentication
+router.use(protect);
+
+// Notification Query & Status Modification Endpoints
+router.get('/', getNotifications);
+router.put('/read-all', markAllAsRead);
+router.put('/:id/read', markAsRead);
+router.delete('/:id', deleteNotification);
+router.delete('/', deleteAll);
 
 module.exports = router;

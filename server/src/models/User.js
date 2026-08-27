@@ -1,60 +1,135 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
-const UserSchema = new mongoose.Schema({
-  name: { type: String, required: true, trim: true, maxlength: 100 },
-  email: {
-    type: String, required: true, unique: true, lowercase: true, trim: true,
-    // Allow both @gmail.com and @cse.nitrr.ac.in
-    match: [
-      /^[a-zA-Z0-9._%+-]+@(gmail\.com|cse\.nitrr\.ac\.in)$/,
-      'Please use a valid @gmail.com or @cse.nitrr.ac.in email'
-    ]
+const UserSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: [true, 'Name is required'],
+      trim: true,
+      maxlength: [100, 'Name cannot exceed 100 characters'],
+    },
+    email: {
+      type: String,
+      required: [true, 'Email is required'],
+      unique: true,
+      lowercase: true,
+      trim: true,
+      match: [
+        /^[a-zA-Z0-9._%+-]+@(gmail\.com|([a-zA-Z0-9-]+\.)*nitrr\.ac\.in)$/,
+        'Please provide a valid @gmail.com or @nitrr.ac.in email address',
+      ],
+      index: true,
+    },
+    password: {
+      type: String,
+      required: [true, 'Password is required'],
+      minlength: [8, 'Password must be at least 8 characters long'],
+      select: false,
+    },
+    role: {
+      type: String,
+      enum: ['FACULTY', 'HOD'],
+      required: true,
+      default: 'FACULTY',
+      index: true,
+    },
+    department: {
+      type: String,
+      required: [true, 'Department is required'],
+      trim: true,
+      index: true,
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true,
+    },
+    lastLogin: {
+      type: Date,
+    },
   },
-  password: { type: String, required: true, minlength: 8, select: false },
-  role: { type: String, enum: ['FACULTY', 'HOD'], required: true },
-  department: { type: String, required: true },
-  isActive: { type: Boolean, default: true },
-  lastLogin: Date,
-}, { timestamps: true });
+  {
+    timestamps: true,
+  }
+);
 
-// 🔧 ENABLED: bcrypt hashing for password
-UserSchema.pre('save', async function(next) {
+// High-Performance Query Indexes
+UserSchema.index({ department: 1, role: 1 });
+
+// Bcrypt password hashing pre-save hook
+UserSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
-  this.password = await bcrypt.hash(this.password, 10);
-  next();
+  try {
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+    next();
+  } catch (err) {
+    next(err);
+  }
 });
 
-// 🔧 ENABLED: bcrypt comparison for login
-UserSchema.methods.comparePassword = async function(password) {
-  return await bcrypt.compare(password, this.password);
+// Password verification method
+UserSchema.methods.comparePassword = async function (enteredPassword) {
+  if (!this.password) return false;
+  return await bcrypt.compare(enteredPassword, this.password);
 };
 
-UserSchema.methods.updateLastLogin = async function() {
+// Update last login timestamp without revalidating password
+UserSchema.methods.updateLastLogin = async function () {
   this.lastLogin = new Date();
-  await this.save();
+  return await this.save({ validateModifiedOnly: true });
 };
 
-// ---------- detectRole based on domain ----------
-UserSchema.statics.isValidEmail = function(email) {
-  return /^[a-zA-Z0-9._%+-]+@(gmail\.com|cse\.nitrr\.ac\.in)$/.test(email);
+// Static helper to validate email domain
+UserSchema.statics.isValidEmail = function (email) {
+  if (!email || typeof email !== 'string') return false;
+  const regex = /^[a-zA-Z0-9._%+-]+@(gmail\.com|([a-zA-Z0-9-]+\.)*nitrr\.ac\.in)$/i;
+  return regex.test(email.trim().toLowerCase());
 };
 
-UserSchema.statics.detectRole = function(email) {
-  const domain = email.split('@')[1];
-  if (domain === 'cse.nitrr.ac.in') return 'HOD';
-  if (domain === 'gmail.com') return 'FACULTY';
-  return 'FACULTY'; // fallback
+// Static helper to detect default role
+UserSchema.statics.detectRole = function (email) {
+  if (!email || typeof email !== 'string') return 'FACULTY';
+  const normalized = email.trim().toLowerCase();
+  const [localPart, domain] = normalized.split('@');
+
+  // Detect HOD designations via local prefix or departmental head addresses
+  if (
+    localPart.startsWith('hod.') ||
+    localPart.startsWith('head.') ||
+    localPart === 'hod' ||
+    localPart.includes('hod') ||
+    domain === 'cse.nitrr.ac.in'
+  ) {
+    return 'HOD';
+  }
+
+  return 'FACULTY';
 };
 
+// Transform _id to id and remove password on JSON serialization
 UserSchema.set('toJSON', {
+  virtuals: true,
   transform: (doc, ret) => {
     ret.id = ret._id.toString();
     delete ret._id;
     delete ret.__v;
     delete ret.password;
     return ret;
-  }
+  },
+});
+
+// Transform _id to id and remove password on Object serialization
+UserSchema.set('toObject', {
+  virtuals: true,
+  transform: (doc, ret) => {
+    ret.id = ret._id.toString();
+    delete ret._id;
+    delete ret.__v;
+    delete ret.password;
+    return ret;
+  },
 });
 
 module.exports = mongoose.model('User', UserSchema);

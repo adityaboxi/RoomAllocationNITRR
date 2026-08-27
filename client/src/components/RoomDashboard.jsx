@@ -1,184 +1,439 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { getRooms, getAvailableRooms, getRoomReviews } from '../services/api';
 import { getSocket } from '../services/socket';
 import ReviewsModal from './ReviewsModal';
+import {
+  Building2,
+  Clock,
+  Search,
+  Filter,
+  Star,
+  Users,
+  Layers,
+  Sparkles,
+  CheckCircle2,
+  AlertCircle,
+  RefreshCw,
+  X,
+} from 'lucide-react';
+
+const getTodayDateString = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getCurrentTimeString = () => {
+  const now = new Date();
+  const h = String(now.getHours()).padStart(2, '0');
+  const m = String(now.getMinutes()).padStart(2, '0');
+  return `${h}:${m}`;
+};
 
 export default function RoomDashboard({ user }) {
   const [rooms, setRooms] = useState([]);
   const [availableRoomIds, setAvailableRoomIds] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Search & Filter state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedFloor, setSelectedFloor] = useState('ALL');
+  const [filterProjector, setFilterProjector] = useState(false);
+  const [filterAC, setFilterAC] = useState(false);
+  const [filterSmartBoard, setFilterSmartBoard] = useState(false);
+
+  // Reviews state
   const [reviews, setReviews] = useState({});
   const [loadingReviews, setLoadingReviews] = useState({});
   const [selectedRoomReviews, setSelectedRoomReviews] = useState(null);
   const [selectedRoom, setSelectedRoom] = useState(null);
 
-  const getCurrentTimeString = () => {
-    const now = new Date();
-    return now.toTimeString().slice(0, 5);
-  };
+  const isMountedRef = useRef(true);
 
-  const getTodayDate = () => {
-    return new Date().toISOString().split('T')[0];
-  };
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = async (isManual = false) => {
+    if (isManual) setRefreshing(true);
+    setError('');
+
     try {
-      const date = getTodayDate();
+      const date = getTodayDateString();
       const startTime = getCurrentTimeString();
       const [h, m] = startTime.split(':').map(Number);
-      const endH = h + 1;
+      const endH = (h + 1) % 24;
       const endTime = `${String(endH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
-      const dept = user.department;
-      const roomsData = await getRooms({ department: dept });
-      setRooms(roomsData.data || []);
+      const dept = user?.department;
 
-      const availData = await getAvailableRooms(date, startTime, endTime, { department: dept });
-      const ids = (availData.data || []).map(r => r.id);
-      setAvailableRoomIds(ids);
+      const [roomsRes, availRes] = await Promise.all([
+        getRooms({ department: dept }),
+        getAvailableRooms(date, startTime, endTime, { department: dept }),
+      ]);
+
+      if (isMountedRef.current) {
+        setRooms(roomsRes.data || []);
+        const ids = (availRes.data || []).map((r) => r.id || r._id);
+        setAvailableRoomIds(ids);
+        setCurrentTime(new Date());
+      }
     } catch (err) {
-      setError(err.message);
+      if (isMountedRef.current) {
+        setError(err.message || 'Failed to refresh room availability');
+      }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   };
 
-  // --- FIXED: extract reviews array correctly ---
   const fetchReviewsForRoom = async (roomId) => {
     if (loadingReviews[roomId]) return;
-    setLoadingReviews(prev => ({ ...prev, [roomId]: true }));
+    setLoadingReviews((prev) => ({ ...prev, [roomId]: true }));
+
     try {
       const data = await getRoomReviews(roomId);
-      // ✅ Correct: extract the reviews array from data.data.reviews
       const reviewsArray = data.data?.reviews || data.data || [];
-      setReviews(prev => ({ ...prev, [roomId]: reviewsArray }));
-      // If this room is currently selected, update modal
-      if (selectedRoom && selectedRoom.id === roomId) {
-        setSelectedRoomReviews(reviewsArray);
+      if (isMountedRef.current) {
+        setReviews((prev) => ({ ...prev, [roomId]: reviewsArray }));
+        if (selectedRoom && (selectedRoom.id === roomId || selectedRoom._id === roomId)) {
+          setSelectedRoomReviews(reviewsArray);
+        }
       }
     } catch (err) {
-      console.error('Failed to fetch reviews:', err);
-      if (selectedRoom && selectedRoom.id === roomId) {
-        setSelectedRoomReviews([]); // show modal with empty state
+      console.error('Failed to fetch room reviews:', err);
+      if (isMountedRef.current && selectedRoom && (selectedRoom.id === roomId || selectedRoom._id === roomId)) {
+        setSelectedRoomReviews([]);
       }
     } finally {
-      setLoadingReviews(prev => ({ ...prev, [roomId]: false }));
+      if (isMountedRef.current) {
+        setLoadingReviews((prev) => ({ ...prev, [roomId]: false }));
+      }
     }
   };
 
-  // --- FIXED: open modal immediately with empty array ---
   const handleViewReviews = (room) => {
-    if (reviews[room.id]) {
-      setSelectedRoom(room);
-      setSelectedRoomReviews(reviews[room.id]);
-      return;
-    }
+    const roomId = room.id || room._id;
     setSelectedRoom(room);
-    setSelectedRoomReviews([]); // modal opens immediately
-    fetchReviewsForRoom(room.id);
+
+    if (reviews[roomId]) {
+      setSelectedRoomReviews(reviews[roomId]);
+    } else {
+      setSelectedRoomReviews([]);
+      fetchReviewsForRoom(roomId);
+    }
   };
 
-  // Initial fetch
+  // Initial fetch and 30-second interval poll
   useEffect(() => {
     fetchData();
     const interval = setInterval(() => {
-      setCurrentTime(new Date());
       fetchData();
     }, 30000);
-    return () => clearInterval(interval);
-  }, []);
 
-  // Socket listeners
+    return () => clearInterval(interval);
+  }, [user?.department]);
+
+  // Real-time socket listeners
   useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
 
-    const handleBookingCreated = () => fetchData();
-    const handleBookingCancelled = () => fetchData();
-    const handleTimetableUpdated = () => fetchData();
+    const handleUpdate = () => fetchData();
 
-    socket.on('booking-created', handleBookingCreated);
-    socket.on('booking-cancelled', handleBookingCancelled);
-    socket.on('timetable-updated', handleTimetableUpdated);
+    socket.on('booking-created', handleUpdate);
+    socket.on('booking-cancelled', handleUpdate);
+    socket.on('timetable-updated', handleUpdate);
 
     return () => {
-      socket.off('booking-created', handleBookingCreated);
-      socket.off('booking-cancelled', handleBookingCancelled);
-      socket.off('timetable-updated', handleTimetableUpdated);
+      socket.off('booking-created', handleUpdate);
+      socket.off('booking-cancelled', handleUpdate);
+      socket.off('timetable-updated', handleUpdate);
     };
   }, []);
 
-  const isRoomAvailable = (roomId) => availableRoomIds.includes(roomId);
+  const isRoomAvailable = (room) => {
+    const id = room.id || room._id;
+    return availableRoomIds.includes(id);
+  };
 
-  if (loading && rooms.length === 0) {
-    return <div className="text-slate-500">Loading rooms...</div>;
-  }
+  // Extract unique floors
+  const floors = ['ALL', ...new Set(rooms.map((r) => r.floor).filter(Boolean))];
+
+  // Filtered rooms
+  const filteredRooms = rooms.filter((room) => {
+    const matchesSearch =
+      searchTerm === '' ||
+      room.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      room.roomNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      room.building.toLowerCase().includes(searchTerm.toLowerCase());
+
+    const matchesFloor = selectedFloor === 'ALL' || room.floor === selectedFloor;
+    const matchesProjector = !filterProjector || room.hasProjector;
+    const matchesAC = !filterAC || room.hasAC;
+    const matchesSmartBoard = !filterSmartBoard || room.hasSmartBoard;
+
+    return matchesSearch && matchesFloor && matchesProjector && matchesAC && matchesSmartBoard;
+  });
 
   return (
-    <div>
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-slate-900">Live Room Status</h2>
-        <span className="text-sm text-slate-500">
-          Updated at {currentTime.toLocaleTimeString()}
-        </span>
-      </div>
-      {error && <div className="bg-rose-50 text-rose-800 p-3 rounded mb-4">{error}</div>}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {rooms.length === 0 && <p className="text-slate-500">No rooms found.</p>}
-        {rooms.map((room) => {
-          const available = isRoomAvailable(room.id);
-          const roomReviews = reviews[room.id] || [];
-          const avgRating = roomReviews.length > 0
-            ? (roomReviews.reduce((acc, r) => acc + r.rating, 0) / roomReviews.length).toFixed(1)
-            : null;
-          const reviewCount = roomReviews.length;
-
-          return (
-            <div key={room.id} className="bg-white border border-slate-200 rounded-xl shadow-sm p-5 flex flex-col">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="font-bold text-lg">{room.name}</h3>
-                  <p className="text-sm text-slate-600">{room.floor} • Cap: {room.capacity}</p>
-                  <p className="text-xs text-slate-500">{room.building}</p>
-                </div>
-                <span className={`inline-block px-3 py-1 text-xs font-semibold rounded-full ${available ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
-                  {available ? 'Available' : 'Booked'}
-                </span>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
-                {room.hasProjector && <span className="bg-slate-100 px-2 py-0.5 rounded">Projector</span>}
-                {room.hasAC && <span className="bg-slate-100 px-2 py-0.5 rounded">AC</span>}
-                {room.hasSmartBoard && <span className="bg-slate-100 px-2 py-0.5 rounded">SmartBoard</span>}
-                {room.hasWiFi && <span className="bg-slate-100 px-2 py-0.5 rounded">WiFi</span>}
-              </div>
-
-              <div className="mt-3 flex items-center gap-2">
-                {avgRating ? (
-                  <span className="text-sm font-medium text-amber-600">{avgRating} ★</span>
-                ) : (
-                  <span className="text-xs text-slate-400">No reviews</span>
-                )}
-                <button
-                  onClick={() => handleViewReviews(room)}
-                  className="text-xs text-indigo-600 hover:text-indigo-800"
-                >
-                  {reviewCount > 0 ? `(${reviewCount})` : 'Add review'}
-                </button>
-              </div>
-
-              <div className="mt-4 text-xs text-slate-400">
-                {available ? 'Free now' : 'Currently booked'}
-              </div>
+    <div className="space-y-6">
+      {/* Header Controls Bar */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+              <Building2 className="w-4 h-4" />
             </div>
-          );
-        })}
+            <div>
+              <h2 className="text-base font-bold text-slate-900 leading-tight">
+                Live Department Room Occupancy
+              </h2>
+              <p className="text-xs text-slate-400">
+                Real-time occupancy status for {user?.department}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-slate-500 flex items-center gap-1 font-mono">
+              <Clock className="w-3.5 h-3.5 text-slate-400" />
+              <span>{currentTime.toLocaleTimeString()}</span>
+            </span>
+
+            <button
+              type="button"
+              onClick={() => fetchData(true)}
+              disabled={refreshing}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Search & Filter Controls */}
+        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+          <div className="sm:col-span-6 relative">
+            <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search by room name, number, or building..."
+              className="w-full pl-10 pr-3.5 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs sm:text-sm outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          <div className="sm:col-span-6 flex flex-wrap items-center gap-2">
+            <select
+              value={selectedFloor}
+              onChange={(e) => setSelectedFloor(e.target.value)}
+              className="border border-slate-200 bg-slate-50/50 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600"
+            >
+              {floors.map((fl) => (
+                <option key={fl} value={fl}>
+                  {fl === 'ALL' ? 'All Floors' : fl}
+                </option>
+              ))}
+            </select>
+
+            <button
+              type="button"
+              onClick={() => setFilterProjector(!filterProjector)}
+              className={`px-3 py-2 text-xs font-bold rounded-xl border transition-all ${
+                filterProjector
+                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+              }`}
+            >
+              Projector
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setFilterAC(!filterAC)}
+              className={`px-3 py-2 text-xs font-bold rounded-xl border transition-all ${
+                filterAC
+                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+              }`}
+            >
+              AC
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setFilterSmartBoard(!filterSmartBoard)}
+              className={`px-3 py-2 text-xs font-bold rounded-xl border transition-all ${
+                filterSmartBoard
+                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+              }`}
+            >
+              SmartBoard
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Modal condition – ensure it renders with empty array */}
+      {error && (
+        <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
+          <AlertCircle className="w-5 h-5 mr-2 text-rose-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">{error}</div>
+          <button onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Room Status Cards Grid */}
+      {loading && rooms.length === 0 ? (
+        <div className="p-16 text-center text-slate-400 text-sm">
+          Loading live room availability...
+        </div>
+      ) : filteredRooms.length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center text-slate-400">
+          <Building2 className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+          <p className="font-semibold text-slate-700 text-sm">No rooms match your filter criteria.</p>
+          <p className="text-xs text-slate-400 mt-1">Try clearing some search filters.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {filteredRooms.map((room) => {
+            const roomId = room.id || room._id;
+            const available = isRoomAvailable(room);
+            const roomReviews = reviews[roomId] || [];
+            const avgRating =
+              roomReviews.length > 0
+                ? (
+                    roomReviews.reduce((acc, r) => acc + r.rating, 0) / roomReviews.length
+                  ).toFixed(1)
+                : null;
+            const reviewCount = roomReviews.length;
+
+            return (
+              <div
+                key={roomId}
+                className={`bg-white border rounded-2xl p-5 shadow-sm flex flex-col justify-between transition-all duration-200 ${
+                  available
+                    ? 'border-slate-200 hover:border-indigo-300 hover:shadow-md'
+                    : 'border-slate-200/70 bg-slate-50/50'
+                }`}
+              >
+                <div>
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <h3 className="font-bold text-base text-slate-900 leading-tight">
+                        {room.name}
+                      </h3>
+                      <div className="text-xs font-mono text-slate-500 mt-0.5">
+                        {room.roomNumber}
+                      </div>
+                    </div>
+
+                    <span
+                      className={`px-2.5 py-1 text-xs font-bold rounded-full ${
+                        available
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-rose-100 text-rose-800'
+                      }`}
+                    >
+                      {available ? 'Free Now' : 'Class / Booked'}
+                    </span>
+                  </div>
+
+                  <div className="text-xs text-slate-600 flex items-center gap-2 mt-2">
+                    <span className="flex items-center gap-1 font-medium">
+                      <Users className="w-3.5 h-3.5 text-slate-400" />
+                      Cap: {room.capacity}
+                    </span>
+                    <span>•</span>
+                    <span className="flex items-center gap-1">
+                      <Layers className="w-3.5 h-3.5 text-slate-400" />
+                      {room.floor}, {room.building}
+                    </span>
+                  </div>
+
+                  {/* Amenities Badges */}
+                  <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+                    {room.hasProjector && (
+                      <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md font-medium">
+                        Projector
+                      </span>
+                    )}
+                    {room.hasAC && (
+                      <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md font-medium">
+                        AC
+                      </span>
+                    )}
+                    {room.hasSmartBoard && (
+                      <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md font-medium">
+                        SmartBoard
+                      </span>
+                    )}
+                    {room.hasWiFi && (
+                      <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md font-medium">
+                        WiFi
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Review Summary */}
+                  <div className="mt-3.5 flex items-center justify-between pt-2 border-t border-slate-100">
+                    <div className="flex items-center gap-1">
+                      <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                      <span className="text-xs font-bold text-slate-700">
+                        {avgRating ? `${avgRating} ★` : 'No reviews'}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleViewReviews(room)}
+                      className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+                    >
+                      {reviewCount > 0 ? `(${reviewCount} reviews)` : 'Reviews'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-2 border-t border-slate-100 text-center">
+                  <span
+                    className={`text-xs font-bold ${
+                      available ? 'text-emerald-700' : 'text-slate-400'
+                    }`}
+                  >
+                    {available ? '● Available for reservation' : '○ Currently Occupied'}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Reviews Modal */}
       {selectedRoom && selectedRoomReviews !== null && (
         <ReviewsModal
           room={selectedRoom}

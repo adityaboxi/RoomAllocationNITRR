@@ -1,6 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Building2,
   GraduationCap,
   ShieldCheck,
   Mail,
@@ -16,13 +15,16 @@ import {
   Zap,
   Sparkles,
   ArrowLeft,
+  RefreshCw,
+  Clock,
 } from 'lucide-react';
+import nitrrLogo from '../assets/nitrr_new_logo_new.png';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 export default function AuthPage({ onLoginSuccess }) {
   const [view, setView] = useState('login');
-  const [role, setRole] = useState('FACULTY'); // UI only
+  const [role, setRole] = useState('FACULTY');
 
   const [formData, setFormData] = useState({
     name: '',
@@ -31,13 +33,15 @@ export default function AuthPage({ onLoginSuccess }) {
     confirmPassword: '',
     newPassword: '',
     confirmNewPassword: '',
-    department: 'cs',
+    department: 'Computer Science & Engineering',
   });
 
   const [otp, setOtp] = useState('');
   const [resetToken, setResetToken] = useState('');
   const [emailForReset, setEmailForReset] = useState('');
-  const [otpPurpose, setOtpPurpose] = useState(null); // 'signup' | 'forgot'
+  const [otpPurpose, setOtpPurpose] = useState(null);
+  const [otpTimer, setOtpTimer] = useState(300);
+  const [resending, setResending] = useState(false);
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -49,21 +53,34 @@ export default function AuthPage({ onLoginSuccess }) {
   const [loading, setLoading] = useState(false);
 
   const departments = [
-    { code: 'cs', name: 'Computer Science & Engineering (CSE)' },
-    { code: 'it', name: 'Information Technology (IT)' },
-    { code: 'ec', name: 'Electronics & Communication (ECE)' },
-    { code: 'ee', name: 'Electrical Engineering (EE)' },
-    { code: 'me', name: 'Mechanical Engineering (ME)' },
-    { code: 'ce', name: 'Civil Engineering (CE)' },
-    { code: 'ch', name: 'Chemical Engineering (CHE)' },
-    { code: 'bt', name: 'Biotechnology (BT)' },
-    { code: 'mm', name: 'Metallurgical & Materials (MME)' },
-    { code: 'mi', name: 'Mining Engineering (MIN)' },
+    { code: 'Computer Science & Engineering', name: 'Computer Science & Engineering (CSE)' },
+    { code: 'Information Technology', name: 'Information Technology (IT)' },
+    { code: 'Electronics & Communication', name: 'Electronics & Communication (ECE)' },
+    { code: 'Electrical Engineering', name: 'Electrical Engineering (EE)' },
+    { code: 'Mechanical Engineering', name: 'Mechanical Engineering (ME)' },
+    { code: 'Civil Engineering', name: 'Civil Engineering (CE)' },
+    { code: 'Chemical Engineering', name: 'Chemical Engineering (CHE)' },
+    { code: 'Biotechnology', name: 'Biotechnology (BT)' },
+    { code: 'Metallurgical & Materials', name: 'Metallurgical & Materials (MME)' },
+    { code: 'Mining Engineering', name: 'Mining Engineering (MIN)' },
   ];
 
+  useEffect(() => {
+    let interval = null;
+    if (view === 'verify-otp' && otpTimer > 0) {
+      interval = setInterval(() => {
+        setOtpTimer((prev) => prev - 1);
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [view, otpTimer]);
+
   const handleInputChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
     setError('');
+    setSuccessMsg('');
   };
 
   const evaluatePasswordStrength = (pass) => {
@@ -73,57 +90,68 @@ export default function AuthPage({ onLoginSuccess }) {
     if (/[A-Z]/.test(pass)) score++;
     if (/[0-9]/.test(pass)) score++;
     if (/[^A-Za-z0-9]/.test(pass)) score++;
+
     if (score <= 1) return { score: 1, label: 'Weak', color: 'bg-rose-500' };
     if (score <= 3) return { score: 2, label: 'Medium', color: 'bg-amber-500' };
     return { score: 3, label: 'Strong', color: 'bg-emerald-500' };
   };
+
   const passwordStrength = evaluatePasswordStrength(formData.password);
 
-  // ---------- MAIN SUBMIT ----------
+  const isValidEmailFormat = (email) => {
+    const regex = /^[a-zA-Z0-9._%+-]+@(gmail\.com|([a-zA-Z0-9-]+\.)*nitrr\.ac\.in)$/i;
+    return regex.test(email.trim());
+  };
+
+  const formatTimer = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setSuccessMsg('');
 
-    // ---- EMAIL VALIDATION ----
-    const allowedDomains = ['gmail.com', 'cse.nitrr.ac.in'];
-    const domain = formData.email.split('@')[1];
-    if (!domain || !allowedDomains.includes(domain)) {
-      setError('Only @gmail.com or @cse.nitrr.ac.in email addresses are allowed.');
-      setLoading(false);
+    const cleanEmail = formData.email.trim().toLowerCase();
+
+    if (!isValidEmailFormat(cleanEmail)) {
+      setError('Please enter a valid @gmail.com or @nitrr.ac.in institutional email address.');
       return;
     }
 
     setLoading(true);
 
     try {
-      // ---------- LOGIN ----------
       if (view === 'login') {
         if (!formData.password) {
-          setError('Please enter your password.');
+          setError('Please enter your account password.');
           setLoading(false);
           return;
         }
+
         const res = await fetch(`${API_BASE}/api/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            email: formData.email,
+            email: cleanEmail,
             password: formData.password,
           }),
         });
+
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || 'Login failed');
+
         localStorage.setItem('token', data.token);
         localStorage.setItem('currentUser', JSON.stringify(data.user));
         if (onLoginSuccess) onLoginSuccess(data.user);
         return;
       }
 
-      // ---------- SIGNUP (STEP 1: SEND OTP) ----------
       if (view === 'signup') {
-        if (!formData.name) {
-          setError('Please enter your full name.');
+        if (!formData.name.trim()) {
+          setError('Please enter your full name & academic title.');
           setLoading(false);
           return;
         }
@@ -138,60 +166,65 @@ export default function AuthPage({ onLoginSuccess }) {
           return;
         }
 
-        // Save signup data for later use
-        // We'll store it in state so we can use it if needed (but backend stores it temporarily)
-        // Actually we don't need to store here; backend stores it in OTP.userData.
-
-        // Send OTP
         const res = await fetch(`${API_BASE}/api/auth/send-signup-otp`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            name: formData.name,
-            email: formData.email,
+            name: formData.name.trim(),
+            email: cleanEmail,
             password: formData.password,
             confirmPassword: formData.confirmPassword,
             department: formData.department,
           }),
         });
+
         const data = await res.json();
-        if (!res.ok) throw new Error(data.message || 'Failed to send OTP');
-        setEmailForReset(formData.email);
+        if (!res.ok) throw new Error(data.message || 'Failed to dispatch OTP');
+
+        setEmailForReset(cleanEmail);
         setOtpPurpose('signup');
-        setSuccessMsg(data.message || 'OTP sent to your email (check console).');
+        setOtpTimer(300);
+        setSuccessMsg(data.message || 'Verification OTP sent! Check your inbox or server console.');
         setView('verify-otp');
         setLoading(false);
         return;
       }
 
-      // ---------- FORGOT PASSWORD (STEP 1) ----------
       if (view === 'forgot') {
         const res = await fetch(`${API_BASE}/api/auth/forgot-password`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: formData.email }),
+          body: JSON.stringify({ email: cleanEmail }),
         });
+
         const data = await res.json();
-        if (!res.ok) throw new Error(data.message || 'Failed to send OTP');
-        setEmailForReset(formData.email);
+        if (!res.ok) throw new Error(data.message || 'Failed to dispatch reset OTP');
+
+        setEmailForReset(cleanEmail);
         setOtpPurpose('forgot');
-        setSuccessMsg(data.message || 'OTP sent to your email (check console).');
+        setOtpTimer(300);
+        setSuccessMsg(data.message || 'Password reset OTP sent! Check your inbox or server console.');
         setView('verify-otp');
         setLoading(false);
         return;
       }
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Authentication request failed');
     } finally {
       setLoading(false);
     }
   };
 
-  // ---------- VERIFY OTP (STEP 2) ----------
   const handleVerifyOtp = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
+
+    if (otp.length !== 6) {
+      setError('Please enter the full 6-digit OTP code.');
+      setLoading(false);
+      return;
+    }
 
     try {
       let url = '';
@@ -202,7 +235,7 @@ export default function AuthPage({ onLoginSuccess }) {
       } else if (otpPurpose === 'forgot') {
         url = `${API_BASE}/api/auth/verify-reset-otp`;
       } else {
-        throw new Error('Invalid OTP purpose');
+        throw new Error('Invalid OTP session. Please start over.');
       }
 
       const res = await fetch(url, {
@@ -210,32 +243,69 @@ export default function AuthPage({ onLoginSuccess }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Verification failed');
 
       if (otpPurpose === 'signup') {
-        // User created, log them in
         localStorage.setItem('token', data.token);
         localStorage.setItem('currentUser', JSON.stringify(data.user));
         if (onLoginSuccess) onLoginSuccess(data.user);
       } else {
-        // Reset password flow
         setResetToken(data.resetToken);
-        setSuccessMsg('OTP verified! Set your new password.');
+        setSuccessMsg('OTP verified successfully! Please enter your new password.');
         setView('reset-password');
       }
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'OTP verification failed');
     } finally {
       setLoading(false);
     }
   };
 
-  // ---------- RESET PASSWORD (STEP 3) ----------
+  const handleResendOtp = async () => {
+    setError('');
+    setResending(true);
+    try {
+      const url =
+        otpPurpose === 'signup'
+          ? `${API_BASE}/api/auth/send-signup-otp`
+          : `${API_BASE}/api/auth/forgot-password`;
+
+      const payload =
+        otpPurpose === 'signup'
+          ? {
+              name: formData.name,
+              email: emailForReset,
+              password: formData.password,
+              confirmPassword: formData.confirmPassword,
+              department: formData.department,
+            }
+          : { email: emailForReset };
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to resend OTP');
+
+      setOtpTimer(300);
+      setSuccessMsg('A new OTP has been sent to your email.');
+    } catch (err) {
+      setError(err.message || 'Failed to resend OTP');
+    } finally {
+      setResending(false);
+    }
+  };
+
   const handleResetPassword = async (e) => {
     e.preventDefault();
     setError('');
     setSuccessMsg('');
+
     const { newPassword, confirmNewPassword } = formData;
     if (!newPassword || !confirmNewPassword) {
       setError('Please fill in both password fields.');
@@ -246,9 +316,10 @@ export default function AuthPage({ onLoginSuccess }) {
       return;
     }
     if (newPassword.length < 8) {
-      setError('Password must be at least 8 characters.');
+      setError('Password must be at least 8 characters long.');
       return;
     }
+
     setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
@@ -261,19 +332,26 @@ export default function AuthPage({ onLoginSuccess }) {
           confirmPassword: confirmNewPassword,
         }),
       });
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Password reset failed');
-      setSuccessMsg('✅ Password reset successfully! Please login.');
-      setFormData({ ...formData, password: '', newPassword: '', confirmNewPassword: '' });
+
+      setSuccessMsg('✅ Password updated successfully! Please sign in with your new credentials.');
+      setFormData((prev) => ({
+        ...prev,
+        password: '',
+        confirmPassword: '',
+        newPassword: '',
+        confirmNewPassword: '',
+      }));
       setView('login');
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Password reset failed');
     } finally {
       setLoading(false);
     }
   };
 
-  // ---------- NAVIGATION HELPERS ----------
   const goBack = (targetView) => {
     setView(targetView);
     setError('');
@@ -281,21 +359,24 @@ export default function AuthPage({ onLoginSuccess }) {
     setOtpPurpose(null);
   };
 
-  // ---------- RENDER ----------
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 sm:p-6 lg:p-8 font-sans">
       <div className="w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden grid grid-cols-1 lg:grid-cols-12 min-h-[580px]">
-        {/* ---- LEFT SIDE: BRAND ---- */}
+        {/* ---- LEFT BRANDING PANEL WITH OFFICIAL LOGO ---- */}
         <div className="lg:col-span-5 bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 p-8 sm:p-10 flex flex-col justify-between border-b lg:border-b-0 lg:border-r border-slate-800 relative overflow-hidden">
           <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
           <div className="relative z-10">
             <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-semibold tracking-wide mb-6">
               <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Official Institutional Portal</span>
+              <span>National Institute of Technology Raipur</span>
             </div>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-600/30">
-                <Building2 className="w-6 h-6" />
+            <div className="flex items-center gap-3.5 mb-4">
+              <div className="w-14 h-14 rounded-2xl bg-white/10 p-1.5 border border-indigo-400/30 flex items-center justify-center shadow-lg shadow-indigo-600/30 flex-shrink-0">
+                <img
+                  src={nitrrLogo}
+                  alt="NIT Raipur Logo"
+                  className="w-full h-full object-contain drop-shadow"
+                />
               </div>
               <div>
                 <h2 className="text-xl font-bold text-white tracking-tight leading-none">NIT Raipur</h2>
@@ -303,12 +384,13 @@ export default function AuthPage({ onLoginSuccess }) {
               </div>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight mt-6 leading-snug">
-              Smart Room Booking System
+              Smart Room Booking Portal
             </h1>
             <p className="text-sm text-slate-400 mt-3 leading-relaxed">
               Real-time room occupancy, master timetable integration, and first-come first-served ad-hoc slot reservation.
             </p>
           </div>
+
           <div className="mt-8 pt-6 border-t border-slate-800/80 space-y-3 relative z-10">
             <div className="flex items-center gap-3 text-xs text-slate-300">
               <div className="w-7 h-7 rounded-lg bg-slate-800 flex items-center justify-center text-emerald-400 flex-shrink-0">
@@ -325,99 +407,138 @@ export default function AuthPage({ onLoginSuccess }) {
           </div>
         </div>
 
-        {/* ---- RIGHT SIDE: FORMS ---- */}
+        {/* ---- RIGHT AUTH FORMS PANEL ---- */}
         <div className="lg:col-span-7 bg-white p-6 sm:p-10 flex flex-col justify-center">
           {error && (
-            <div className="mb-4 p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start text-rose-800 text-xs sm:text-sm font-medium">
+            <div className="mb-4 p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start text-rose-800 text-xs sm:text-sm font-medium animate-fadeIn">
               <ShieldAlert className="w-5 h-5 mr-2 text-rose-600 flex-shrink-0 mt-0.5" />
-              <div>{error}</div>
-            </div>
-          )}
-          {successMsg && (
-            <div className="mb-4 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start text-emerald-800 text-xs sm:text-sm font-medium">
-              <CheckCircle2 className="w-5 h-5 mr-2 text-emerald-600 flex-shrink-0 mt-0.5" />
-              <div>{successMsg}</div>
+              <div className="flex-1">{error}</div>
             </div>
           )}
 
+          {successMsg && (
+            <div className="mb-4 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start text-emerald-800 text-xs sm:text-sm font-medium animate-fadeIn">
+              <CheckCircle2 className="w-5 h-5 mr-2 text-emerald-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">{successMsg}</div>
+            </div>
+          )}
+
+          {/* VIEW: LOGIN & SIGNUP */}
           {(view === 'login' || view === 'signup') && (
             <div>
-              {/* Role Selector (UI only) */}
+              {/* Role Indicator / Selector */}
               <div className="mb-5">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500">1. Select Authorization Role</span>
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                    1. Authorization Role
+                  </span>
                   <span className="text-[11px] font-semibold text-slate-500">
-                    Active: <strong className={role === 'HOD' ? 'text-emerald-700' : 'text-indigo-700'}>{role}</strong>
+                    Active:{' '}
+                    <strong className={role === 'HOD' ? 'text-emerald-700' : 'text-indigo-700'}>
+                      {role}
+                    </strong>
                   </span>
                 </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
-                    onClick={() => { setRole('FACULTY'); setError(''); }}
+                    onClick={() => {
+                      setRole('FACULTY');
+                      setError('');
+                    }}
                     className={`relative flex items-center p-3 rounded-xl border-2 text-left transition-all duration-200 ${
                       role === 'FACULTY'
                         ? 'border-indigo-600 bg-indigo-50/80 shadow-sm ring-2 ring-indigo-600/20'
                         : 'border-slate-200 hover:border-slate-300 bg-white opacity-60 hover:opacity-100'
                     }`}
                   >
-                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center mr-2.5 flex-shrink-0 ${
-                      role === 'FACULTY' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-500'
-                    }`}>
+                    <div
+                      className={`w-9 h-9 rounded-lg flex items-center justify-center mr-2.5 flex-shrink-0 ${
+                        role === 'FACULTY'
+                          ? 'bg-indigo-600 text-white shadow-md'
+                          : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
                       <GraduationCap className="w-5 h-5" />
                     </div>
                     <div>
-                      <div className={`text-sm font-bold leading-tight ${role === 'FACULTY' ? 'text-indigo-950' : 'text-slate-800'}`}>
+                      <div
+                        className={`text-sm font-bold leading-tight ${
+                          role === 'FACULTY' ? 'text-indigo-950' : 'text-slate-800'
+                        }`}
+                      >
                         Faculty
                       </div>
                       <div className="text-[11px] text-slate-500 mt-0.5">Book free slots</div>
                     </div>
-                    {role === 'FACULTY' && (
-                      <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-indigo-600 ring-2 ring-indigo-100" />
-                    )}
                   </button>
+
                   <button
                     type="button"
-                    onClick={() => { setRole('HOD'); setError(''); }}
+                    onClick={() => {
+                      setRole('HOD');
+                      setError('');
+                    }}
                     className={`relative flex items-center p-3 rounded-xl border-2 text-left transition-all duration-200 ${
                       role === 'HOD'
                         ? 'border-emerald-600 bg-emerald-50/80 shadow-sm ring-2 ring-emerald-600/20'
                         : 'border-slate-200 hover:border-slate-300 bg-white opacity-60 hover:opacity-100'
                     }`}
                   >
-                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center mr-2.5 flex-shrink-0 ${
-                      role === 'HOD' ? 'bg-emerald-600 text-white shadow-md' : 'bg-slate-100 text-slate-500'
-                    }`}>
+                    <div
+                      className={`w-9 h-9 rounded-lg flex items-center justify-center mr-2.5 flex-shrink-0 ${
+                        role === 'HOD'
+                          ? 'bg-emerald-600 text-white shadow-md'
+                          : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
                       <ShieldCheck className="w-5 h-5" />
                     </div>
                     <div>
-                      <div className={`text-sm font-bold leading-tight ${role === 'HOD' ? 'text-emerald-950' : 'text-slate-800'}`}>
+                      <div
+                        className={`text-sm font-bold leading-tight ${
+                          role === 'HOD' ? 'text-emerald-950' : 'text-slate-800'
+                        }`}
+                      >
                         HOD
                       </div>
                       <div className="text-[11px] text-slate-500 mt-0.5">Manage schedule</div>
                     </div>
-                    {role === 'HOD' && (
-                      <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-emerald-600 ring-2 ring-emerald-100" />
-                    )}
                   </button>
                 </div>
               </div>
 
-              {/* Tabs */}
+              {/* Form Mode Switcher */}
               <div className="flex bg-slate-100 p-1 rounded-xl mb-5">
                 <button
                   type="button"
-                  onClick={() => { setView('login'); setError(''); setSuccessMsg(''); setOtpPurpose(null); }}
+                  onClick={() => {
+                    setView('login');
+                    setError('');
+                    setSuccessMsg('');
+                    setOtpPurpose(null);
+                  }}
                   className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-lg transition-all ${
-                    view === 'login' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                    view === 'login'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
                   Sign In
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setView('signup'); setError(''); setSuccessMsg(''); setOtpPurpose(null); }}
+                  onClick={() => {
+                    setView('signup');
+                    setError('');
+                    setSuccessMsg('');
+                    setOtpPurpose(null);
+                  }}
                   className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-lg transition-all ${
-                    view === 'signup' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                    view === 'signup'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
                   Register Account
@@ -427,7 +548,9 @@ export default function AuthPage({ onLoginSuccess }) {
               <form onSubmit={handleSubmit} className="space-y-3.5">
                 {view === 'signup' && (
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Full Name & Title</label>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Full Name & Title *
+                    </label>
                     <div className="relative">
                       <User className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
                       <input
@@ -435,8 +558,9 @@ export default function AuthPage({ onLoginSuccess }) {
                         name="name"
                         value={formData.name}
                         onChange={handleInputChange}
-                        placeholder="Dr. D. S. Sisodia"
+                        placeholder="Dr. Rajesh Kumar"
                         className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                        required
                       />
                     </div>
                   </div>
@@ -445,11 +569,15 @@ export default function AuthPage({ onLoginSuccess }) {
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block text-xs font-semibold text-slate-700">
-                      {role === 'HOD' ? 'HOD Email' : 'Faculty Email'}
+                      Email Address *
                     </label>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      role === 'HOD' ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800'
-                    }`}>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        role === 'HOD'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-indigo-100 text-indigo-800'
+                      }`}
+                    >
                       {role === 'HOD' ? 'HOD' : 'FACULTY'}
                     </span>
                   </div>
@@ -460,36 +588,49 @@ export default function AuthPage({ onLoginSuccess }) {
                       name="email"
                       value={formData.email}
                       onChange={handleInputChange}
-                      placeholder={role === 'HOD' ? 'hod@cse.nitrr.ac.in' : 'test@gmail.com'}
+                      placeholder={role === 'HOD' ? 'hod.cse@nitrr.ac.in' : 'faculty@gmail.com'}
                       className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                      required
                     />
                   </div>
-                  <span className="text-[11px] text-slate-500 mt-1 block">
-                    <strong className="text-indigo-700">@gmail.com</strong> for Faculty, <strong className="text-emerald-700">@cse.nitrr.ac.in</strong> for HOD
+                  <span className="text-[11px] text-slate-400 mt-1 block">
+                    Supported: <strong className="text-slate-600">@gmail.com</strong> or{' '}
+                    <strong className="text-slate-600">@*.nitrr.ac.in</strong>
                   </span>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Department</label>
-                  <select
-                    name="department"
-                    value={formData.department}
-                    onChange={handleInputChange}
-                    className="w-full px-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
-                  >
-                    {departments.map((d) => (
-                      <option key={d.code} value={d.code}>{d.name}</option>
-                    ))}
-                  </select>
-                </div>
+                {view === 'signup' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Department *
+                    </label>
+                    <select
+                      name="department"
+                      value={formData.department}
+                      onChange={handleInputChange}
+                      className="w-full px-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                    >
+                      {departments.map((d) => (
+                        <option key={d.code} value={d.code}>
+                          {d.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <div>
                   <div className="flex justify-between items-center mb-1">
-                    <label className="block text-xs font-semibold text-slate-700">Password</label>
+                    <label className="block text-xs font-semibold text-slate-700">Password *</label>
                     {view === 'login' && (
                       <button
                         type="button"
-                        onClick={() => { setView('forgot'); setError(''); setSuccessMsg(''); setOtpPurpose('forgot'); }}
+                        onClick={() => {
+                          setView('forgot');
+                          setError('');
+                          setSuccessMsg('');
+                          setOtpPurpose('forgot');
+                        }}
                         className="text-xs font-medium text-indigo-600 hover:text-indigo-800"
                       >
                         Forgot Password?
@@ -505,6 +646,7 @@ export default function AuthPage({ onLoginSuccess }) {
                       onChange={handleInputChange}
                       placeholder="••••••••"
                       className="w-full pl-10 pr-10 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                      required
                     />
                     <button
                       type="button"
@@ -514,16 +656,31 @@ export default function AuthPage({ onLoginSuccess }) {
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
+
                   {view === 'signup' && formData.password && (
                     <div className="mt-2">
                       <div className="flex items-center justify-between text-[11px] mb-1">
                         <span className="text-slate-400">Strength:</span>
-                        <span className="font-semibold text-slate-600">{passwordStrength.label}</span>
+                        <span className="font-semibold text-slate-600">
+                          {passwordStrength.label}
+                        </span>
                       </div>
                       <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden flex gap-1">
-                        <div className={`h-full flex-1 rounded-full ${passwordStrength.score >= 1 ? passwordStrength.color : 'bg-slate-200'}`} />
-                        <div className={`h-full flex-1 rounded-full ${passwordStrength.score >= 2 ? passwordStrength.color : 'bg-slate-200'}`} />
-                        <div className={`h-full flex-1 rounded-full ${passwordStrength.score >= 3 ? passwordStrength.color : 'bg-slate-200'}`} />
+                        <div
+                          className={`h-full flex-1 rounded-full ${
+                            passwordStrength.score >= 1 ? passwordStrength.color : 'bg-slate-200'
+                          }`}
+                        />
+                        <div
+                          className={`h-full flex-1 rounded-full ${
+                            passwordStrength.score >= 2 ? passwordStrength.color : 'bg-slate-200'
+                          }`}
+                        />
+                        <div
+                          className={`h-full flex-1 rounded-full ${
+                            passwordStrength.score >= 3 ? passwordStrength.color : 'bg-slate-200'
+                          }`}
+                        />
                       </div>
                     </div>
                   )}
@@ -531,7 +688,9 @@ export default function AuthPage({ onLoginSuccess }) {
 
                 {view === 'signup' && (
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Confirm Password</label>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Confirm Password *
+                    </label>
                     <div className="relative">
                       <Lock className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
                       <input
@@ -541,13 +700,18 @@ export default function AuthPage({ onLoginSuccess }) {
                         onChange={handleInputChange}
                         placeholder="••••••••"
                         className="w-full pl-10 pr-10 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                        required
                       />
                       <button
                         type="button"
                         onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                         className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-600"
                       >
-                        {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        {showConfirmPassword ? (
+                          <EyeOff className="w-4 h-4" />
+                        ) : (
+                          <Eye className="w-4 h-4" />
+                        )}
                       </button>
                     </div>
                   </div>
@@ -560,12 +724,14 @@ export default function AuthPage({ onLoginSuccess }) {
                 >
                   {loading ? (
                     <span className="flex items-center gap-2">
-                      <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24">...</svg>
+                      <RefreshCw className="animate-spin h-4 w-4 text-white" />
                       Processing...
                     </span>
                   ) : (
                     <>
-                      <span>{view === 'login' ? `Sign In as ${role}` : `Register & Enter Portal`}</span>
+                      <span>
+                        {view === 'login' ? `Sign In as ${role}` : `Register & Enter Portal`}
+                      </span>
                       <ArrowRight className="w-4 h-4 ml-2" />
                     </>
                   )}
@@ -574,6 +740,7 @@ export default function AuthPage({ onLoginSuccess }) {
             </div>
           )}
 
+          {/* VIEW: FORGOT PASSWORD */}
           {view === 'forgot' && (
             <div>
               <button
@@ -587,14 +754,16 @@ export default function AuthPage({ onLoginSuccess }) {
                 <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 mb-3">
                   <KeyRound className="w-6 h-6" />
                 </div>
-                <h2 className="text-xl font-bold text-slate-900">Reset Password</h2>
+                <h2 className="text-xl font-bold text-slate-900">Reset Account Password</h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  Enter your email to receive reset instructions.
+                  Enter your registered institutional email to receive a 6-digit verification code.
                 </p>
               </div>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Registered Email Address
+                  </label>
                   <div className="relative">
                     <Mail className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
                     <input
@@ -602,22 +771,25 @@ export default function AuthPage({ onLoginSuccess }) {
                       name="email"
                       value={formData.email}
                       onChange={handleInputChange}
-                      placeholder="test@gmail.com"
+                      placeholder="faculty@gmail.com"
                       className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none"
+                      required
                     />
                   </div>
                 </div>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full py-3 px-4 rounded-xl text-white bg-slate-950 hover:bg-slate-800 font-bold text-sm shadow-md transition-all"
+                  className="w-full py-3 px-4 rounded-xl text-white bg-slate-950 hover:bg-slate-800 font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                 >
-                  {loading ? 'Sending...' : 'Send Reset Link'}
+                  {loading ? 'Sending Code...' : 'Send Reset Code'}
+                  <ArrowRight className="w-4 h-4" />
                 </button>
               </form>
             </div>
           )}
 
+          {/* VIEW: VERIFY OTP */}
           {view === 'verify-otp' && (
             <div>
               <button
@@ -637,14 +809,23 @@ export default function AuthPage({ onLoginSuccess }) {
                 <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 mb-3">
                   <KeyRound className="w-6 h-6" />
                 </div>
-                <h2 className="text-xl font-bold text-slate-900">Verify OTP</h2>
+                <h2 className="text-xl font-bold text-slate-900">Enter Verification Code</h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  Enter the 6‑digit code sent to <span className="font-medium text-slate-700">{emailForReset}</span>
+                  Enter the 6‑digit OTP code sent to{' '}
+                  <span className="font-semibold text-slate-800">{emailForReset}</span>
                 </p>
               </div>
+
               <form onSubmit={handleVerifyOtp} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">OTP Code</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700">6-Digit OTP</label>
+                    <span className="text-xs font-mono font-bold text-indigo-600 flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5" />
+                      {formatTimer(otpTimer)}
+                    </span>
+                  </div>
+
                   <div className="relative">
                     <KeyRound className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
                     <input
@@ -653,23 +834,36 @@ export default function AuthPage({ onLoginSuccess }) {
                       onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                       placeholder="123456"
                       maxLength="6"
-                      className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none"
+                      className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 font-mono text-center tracking-widest text-lg font-bold focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none"
                       required
                     />
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-1">Valid for 5 minutes</p>
                 </div>
+
+                <div className="flex items-center justify-between text-xs text-slate-500">
+                  <span>Didn't receive the OTP?</span>
+                  <button
+                    type="button"
+                    onClick={handleResendOtp}
+                    disabled={resending || otpTimer > 240}
+                    className="font-semibold text-indigo-600 hover:text-indigo-800 disabled:opacity-40"
+                  >
+                    {resending ? 'Resending...' : 'Resend Code'}
+                  </button>
+                </div>
+
                 <button
                   type="submit"
                   disabled={loading || otp.length !== 6}
                   className="w-full py-3 px-4 rounded-xl text-white bg-slate-950 hover:bg-slate-800 font-bold text-sm shadow-md transition-all disabled:opacity-50"
                 >
-                  {loading ? 'Verifying...' : 'Verify OTP'}
+                  {loading ? 'Verifying...' : 'Confirm & Proceed'}
                 </button>
               </form>
             </div>
           )}
 
+          {/* VIEW: RESET PASSWORD */}
           {view === 'reset-password' && (
             <div>
               <button
@@ -683,14 +877,17 @@ export default function AuthPage({ onLoginSuccess }) {
                 <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 mb-3">
                   <Lock className="w-6 h-6" />
                 </div>
-                <h2 className="text-xl font-bold text-slate-900">Set New Password</h2>
+                <h2 className="text-xl font-bold text-slate-900">Create New Password</h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  Choose a strong password for your account.
+                  Please choose a strong password with at least 8 characters.
                 </p>
               </div>
+
               <form onSubmit={handleResetPassword} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">New Password</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    New Password *
+                  </label>
                   <div className="relative">
                     <Lock className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
                     <input
@@ -699,7 +896,7 @@ export default function AuthPage({ onLoginSuccess }) {
                       value={formData.newPassword}
                       onChange={handleInputChange}
                       placeholder="••••••••"
-                      className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none"
+                      className="w-full pl-10 pr-10 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none"
                       required
                     />
                     <button
@@ -711,8 +908,11 @@ export default function AuthPage({ onLoginSuccess }) {
                     </button>
                   </div>
                 </div>
+
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Confirm New Password</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Confirm New Password *
+                  </label>
                   <div className="relative">
                     <Lock className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
                     <input
@@ -721,7 +921,7 @@ export default function AuthPage({ onLoginSuccess }) {
                       value={formData.confirmNewPassword}
                       onChange={handleInputChange}
                       placeholder="••••••••"
-                      className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none"
+                      className="w-full pl-10 pr-10 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none"
                       required
                     />
                     <button
@@ -729,16 +929,21 @@ export default function AuthPage({ onLoginSuccess }) {
                       onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
                       className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-600"
                     >
-                      {showConfirmNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      {showConfirmNewPassword ? (
+                        <EyeOff className="w-4 h-4" />
+                      ) : (
+                        <Eye className="w-4 h-4" />
+                      )}
                     </button>
                   </div>
                 </div>
+
                 <button
                   type="submit"
                   disabled={loading}
                   className="w-full py-3 px-4 rounded-xl text-white bg-slate-950 hover:bg-slate-800 font-bold text-sm shadow-md transition-all disabled:opacity-50"
                 >
-                  {loading ? 'Resetting...' : 'Reset Password'}
+                  {loading ? 'Updating Password...' : 'Save Password & Sign In'}
                 </button>
               </form>
             </div>

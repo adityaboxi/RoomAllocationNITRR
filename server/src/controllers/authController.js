@@ -1,16 +1,41 @@
 const User = require('../models/User');
 const OTP = require('../models/OTP');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const { generateOTP, generateToken } = require('../utils/helpers');
 const { sendOTPEmail } = require('../utils/email');
+
+// Helper to safely encrypt temporary password in OTP collection
+const encryptTemporaryPassword = (password) => {
+  const key = crypto.createHash('sha256').update(process.env.JWT_SECRET || 'fallback_secret_key').digest();
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
+  let encrypted = cipher.update(password, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  return `${iv.toString('hex')}:${encrypted}`;
+};
+
+// Helper to decrypt temporary password during signup verification
+const decryptTemporaryPassword = (encryptedData) => {
+  const key = crypto.createHash('sha256').update(process.env.JWT_SECRET || 'fallback_secret_key').digest();
+  const [ivHex, encryptedText] = encryptedData.split(':');
+  const iv = Buffer.from(ivHex, 'hex');
+  const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+  let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+};
 
 // ---------- LOGIN ----------
 exports.login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    let { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ success: false, message: 'Email and password required' });
     }
+
+    email = email.trim().toLowerCase();
 
     const user = await User.findOne({ email }).select('+password');
     if (!user) {
@@ -45,13 +70,17 @@ exports.login = async (req, res) => {
   }
 };
 
-// ---------- DIRECT SIGNUP (kept as fallback, but frontend uses OTP flow) ----------
+// ---------- DIRECT SIGNUP (Fallback Endpoint) ----------
 exports.signup = async (req, res) => {
   try {
-    const { name, email, password, confirmPassword, department } = req.body;
+    let { name, email, password, confirmPassword, department } = req.body;
     if (!name || !email || !password || !confirmPassword || !department) {
       return res.status(400).json({ success: false, message: 'All fields are required' });
     }
+
+    name = name.trim();
+    email = email.trim().toLowerCase();
+
     if (password !== confirmPassword) {
       return res.status(400).json({ success: false, message: 'Passwords do not match' });
     }
@@ -117,10 +146,15 @@ exports.changePassword = async (req, res) => {
     }
 
     const user = await User.findById(req.user.id).select('+password');
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
     const isMatch = await user.comparePassword(currentPassword);
     if (!isMatch) {
       return res.status(401).json({ success: false, message: 'Current password is incorrect' });
     }
+
     user.password = newPassword;
     await user.save();
 
@@ -131,21 +165,27 @@ exports.changePassword = async (req, res) => {
   }
 };
 
-// ---------- FORGOT PASSWORD (no OTP expiry/attempts check) ----------
+// ---------- FORGOT PASSWORD ----------
 exports.forgotPassword = async (req, res) => {
   try {
-    const { email } = req.body;
+    let { email } = req.body;
     if (!email) {
       return res.status(400).json({ success: false, message: 'Email is required' });
     }
+
+    email = email.trim().toLowerCase();
 
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(404).json({ success: false, message: 'No account found with this email' });
     }
 
+    // Invalidate any existing forgot-password OTPs for this email
+    await OTP.deleteMany({ email, purpose: 'forgot' });
+
     const otp = generateOTP();
     console.log(`📧 OTP for ${email}: ${otp}`);
+
     await OTP.create({
       email,
       otp,
@@ -153,28 +193,41 @@ exports.forgotPassword = async (req, res) => {
       expiresAt: new Date(Date.now() + 5 * 60 * 1000)
     });
 
-    // await sendOTPEmail(email, otp, 'forgot');
-    res.json({ success: true, message: 'OTP sent (check console)', expiresIn: '5 minutes' });
+    try {
+      await sendOTPEmail(email, otp, 'forgot');
+    } catch (emailError) {
+      console.error('Failed to send OTP email:', emailError.message);
+    }
+
+    res.json({ success: true, message: 'OTP sent to your email', expiresIn: '5 minutes' });
   } catch (error) {
     console.error('Forgot password error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
 
-// ---------- VERIFY RESET OTP ----------
+// ---------- VERIFY RESET OTP (Atomic to prevent race conditions) ----------
 exports.verifyResetOtp = async (req, res) => {
   try {
-    const { email, otp } = req.body;
+    let { email, otp } = req.body;
     if (!email || !otp) {
       return res.status(400).json({ success: false, message: 'Email and OTP required' });
     }
 
-    const otpDoc = await OTP.findOne({ email, purpose: 'forgot', otp });
-    if (!otpDoc) {
-      return res.status(400).json({ success: false, message: 'Invalid OTP' });
-    }
+    email = email.trim().toLowerCase();
+    otp = otp.trim();
 
-    await OTP.deleteOne({ _id: otpDoc._id });
+    // Atomic find and delete only if not expired
+    const otpDoc = await OTP.findOneAndDelete({
+      email,
+      purpose: 'forgot',
+      otp,
+      expiresAt: { $gt: new Date() }
+    });
+
+    if (!otpDoc) {
+      return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
+    }
 
     const resetToken = jwt.sign({ email }, process.env.JWT_SECRET + 'reset', { expiresIn: '10m' });
     res.json({ success: true, message: 'OTP verified successfully', resetToken });
@@ -184,13 +237,16 @@ exports.verifyResetOtp = async (req, res) => {
   }
 };
 
-// ---------- RESET PASSWORD ----------
+// ---------- RESET PASSWORD (Secured against token/email mismatch) ----------
 exports.resetPassword = async (req, res) => {
   try {
-    const { email, resetToken, newPassword, confirmPassword } = req.body;
+    let { email, resetToken, newPassword, confirmPassword } = req.body;
     if (!email || !resetToken || !newPassword || !confirmPassword) {
       return res.status(400).json({ success: false, message: 'All fields are required' });
     }
+
+    email = email.trim().toLowerCase();
+
     if (newPassword !== confirmPassword) {
       return res.status(400).json({ success: false, message: 'Passwords do not match' });
     }
@@ -202,18 +258,27 @@ exports.resetPassword = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Password must contain uppercase, lowercase, number, and special character' });
     }
 
+    let decoded;
     try {
-      jwt.verify(resetToken, process.env.JWT_SECRET + 'reset');
+      decoded = jwt.verify(resetToken, process.env.JWT_SECRET + 'reset');
     } catch {
       return res.status(401).json({ success: false, message: 'Invalid or expired reset token' });
+    }
+
+    // CRITICAL SECURITY FIX: Validate that token belongs to this exact email
+    if (!decoded || decoded.email !== email) {
+      return res.status(403).json({ success: false, message: 'Reset token does not match provided email' });
     }
 
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
+
     user.password = newPassword;
     await user.save();
+
+    // Invalidate any remaining OTPs
     await OTP.deleteMany({ email, purpose: 'forgot' });
 
     res.json({ success: true, message: 'Password reset successfully' });
@@ -227,6 +292,9 @@ exports.resetPassword = async (req, res) => {
 exports.getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
     res.json({
       success: true,
       user: {
@@ -238,17 +306,22 @@ exports.getMe = async (req, res) => {
       }
     });
   } catch (error) {
+    console.error('Get me error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
 
-// ---------- SEND SIGNUP OTP (step 1) ----------
+// ---------- SEND SIGNUP OTP (Step 1 - Encrypted Password Payload) ----------
 exports.sendSignupOtp = async (req, res) => {
   try {
-    const { name, email, password, confirmPassword, department } = req.body;
+    let { name, email, password, confirmPassword, department } = req.body;
     if (!name || !email || !password || !confirmPassword || !department) {
       return res.status(400).json({ success: false, message: 'All fields are required' });
     }
+
+    name = name.trim();
+    email = email.trim().toLowerCase();
+
     if (password !== confirmPassword) {
       return res.status(400).json({ success: false, message: 'Passwords do not match' });
     }
@@ -271,52 +344,68 @@ exports.sendSignupOtp = async (req, res) => {
       return res.status(400).json({ success: false, message: 'User already exists with this email' });
     }
 
+    // Invalidate existing signup OTPs for this email to prevent multiple valid OTPs
+    await OTP.deleteMany({ email, purpose: 'signup' });
+
     const otp = generateOTP();
     console.log(`📧 Signup OTP for ${email}: ${otp}`);
+
+    // Encrypt password before storing in temporary MongoDB OTP record
+    const encryptedPassword = encryptTemporaryPassword(password);
 
     await OTP.create({
       email,
       otp,
       purpose: 'signup',
       expiresAt: new Date(Date.now() + 5 * 60 * 1000),
-      userData: { name, email, password, department },
+      userData: { name, email, encryptedPassword, department },
     });
 
-    // await sendOTPEmail(email, otp, 'signup');
-    res.json({ success: true, message: 'OTP sent to your email (check console)', expiresIn: '5 minutes' });
+    try {
+      await sendOTPEmail(email, otp, 'signup');
+    } catch (emailError) {
+      console.error('Failed to send signup OTP email:', emailError.message);
+    }
+
+    res.json({ success: true, message: 'OTP sent to your email', expiresIn: '5 minutes' });
   } catch (error) {
     console.error('Send signup OTP error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
 
-// ---------- VERIFY SIGNUP OTP (step 2) ----------
+// ---------- VERIFY SIGNUP OTP (Step 2 - Atomic Creation & Cleanup) ----------
 exports.verifySignupOtp = async (req, res) => {
   try {
-    const { email, otp } = req.body;
+    let { email, otp } = req.body;
     if (!email || !otp) {
       return res.status(400).json({ success: false, message: 'Email and OTP required' });
     }
 
-    const otpDoc = await OTP.findOne({ email, purpose: 'signup', otp });
+    email = email.trim().toLowerCase();
+    otp = otp.trim();
+
+    // Atomic find and delete to prevent concurrent registration race conditions
+    const otpDoc = await OTP.findOneAndDelete({
+      email,
+      purpose: 'signup',
+      otp,
+      expiresAt: { $gt: new Date() }
+    });
+
     if (!otpDoc) {
-      return res.status(400).json({ success: false, message: 'Invalid OTP' });
-    }
-    if (otpDoc.expiresAt < new Date()) {
-      await OTP.deleteOne({ _id: otpDoc._id });
-      return res.status(400).json({ success: false, message: 'OTP expired' });
+      return res.status(400).json({ success: false, message: 'Invalid or expired OTP' });
     }
 
-    const { name, password, department } = otpDoc.userData;
-    if (!name || !password || !department) {
-      return res.status(400).json({ success: false, message: 'Incomplete user data' });
+    const { name, encryptedPassword, department } = otpDoc.userData || {};
+    if (!name || !encryptedPassword || !department) {
+      return res.status(400).json({ success: false, message: 'Incomplete signup data. Please request a new OTP.' });
     }
 
+    const password = decryptTemporaryPassword(encryptedPassword);
     const role = User.detectRole(email);
+
     const user = await User.create({ name, email, password, role, department, isActive: true });
-
-    await OTP.deleteOne({ _id: otpDoc._id });
-
     const token = generateToken(user._id);
     await user.updateLastLogin();
 

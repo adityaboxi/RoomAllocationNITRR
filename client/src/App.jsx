@@ -1,83 +1,125 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import AuthPage from './components/AuthPage';
 import Dashboard from './components/Dashboard';
 import NotificationCenter from './components/NotificationCenter';
 import ReviewPopup from './components/ReviewPopup';
-import { initSocket, disconnectSocket, onBookingCancelled } from './services/socket';
-import { getPendingReviews } from './services/api';
+import {
+  initSocket,
+  disconnectSocket,
+  onBookingCancelled,
+  offBookingCancelled,
+  onTimetableUpdated,
+  offTimetableUpdated,
+} from './services/socket';
+import { getPendingReviews, getNotifications } from './services/api';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(() => {
-    const saved = localStorage.getItem('currentUser');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('currentUser');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
   });
+
   const [notifications, setNotifications] = useState([]);
   const [pendingReviews, setPendingReviews] = useState([]);
   const [showReviewPopup, setShowReviewPopup] = useState(false);
   const [currentPending, setCurrentPending] = useState(null);
 
-  // Use a ref to track socket connection status
   const socketRef = useRef(null);
 
-  // Fetch pending reviews after login
+  // Initial fetch of unread notifications & pending reviews on user login/refresh
+  useEffect(() => {
+    if (currentUser) {
+      fetchUserNotifications();
+      fetchPendingReviews();
+    }
+  }, [currentUser]);
+
+  const fetchUserNotifications = async () => {
+    try {
+      const res = await getNotifications();
+      setNotifications(res.data || []);
+    } catch (err) {
+      console.warn('Initial notifications fetch notice:', err.message);
+    }
+  };
+
   const fetchPendingReviews = async () => {
     if (!currentUser) return;
     try {
-      const data = await getPendingReviews();
-      const pending = data.data || [];
+      const res = await getPendingReviews();
+      const pending = res.data || [];
       setPendingReviews(pending);
       if (pending.length > 0) {
         setCurrentPending(pending[0]);
         setShowReviewPopup(true);
       }
     } catch (err) {
-      console.error('Failed to fetch pending reviews:', err);
+      console.warn('Pending reviews lookup notice:', err.message);
     }
   };
 
-  // Request notification permission only after a user gesture
+  // Browser Desktop Notification Permission
   const requestNotificationPermission = () => {
     if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().then(perm => {
-        console.log('Notification permission:', perm);
-      });
+      Notification.requestPermission().catch(() => {});
     }
   };
 
-  // Socket listeners
+  // Socket Connection & Real-Time Events
   useEffect(() => {
     if (currentUser) {
       const token = localStorage.getItem('token');
       if (token) {
-        // Initialize socket if not already connected
         if (!socketRef.current) {
           socketRef.current = initSocket(token);
         }
 
-        // Set up event listeners
-        const unsubscribe = onBookingCancelled((data) => {
-          setNotifications(prev => [...prev, {
+        const handleCancelled = (data) => {
+          const newNotif = {
             id: Date.now(),
-            message: `Booking cancelled: ${data.roomName} on ${data.date} ${data.startTime}-${data.endTime}. Reason: ${data.reason}`,
-            read: false
-          }]);
-          // Show browser notification only if permission granted
-          if (Notification.permission === 'granted') {
-            new Notification('Booking Cancelled', {
-              body: `Room ${data.roomName} on ${data.date} ${data.startTime} - ${data.endTime}`
+            message: `Booking cancelled: ${data.roomName || 'Room'} on ${data.date} (${data.startTime} - ${data.endTime}). Reason: ${data.reason || 'Schedule clash'}`,
+            type: 'booking-cancelled',
+            read: false,
+            createdAt: new Date().toISOString(),
+          };
+
+          setNotifications((prev) => [newNotif, ...prev]);
+
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('❌ Booking Cancelled', {
+              body: `Room ${data.roomName || 'Room'} on ${data.date} (${data.startTime} - ${data.endTime})`,
             });
           }
-        });
+        };
+
+        const handleTimetableUpdate = (data) => {
+          if (data?.department === currentUser.department) {
+            const newNotif = {
+              id: Date.now(),
+              message: `Master timetable for ${data.department} Sem ${data.semester} Sec ${data.section} was updated.`,
+              type: 'timetable-updated',
+              read: false,
+              createdAt: new Date().toISOString(),
+            };
+            setNotifications((prev) => [newNotif, ...prev]);
+          }
+        };
+
+        onBookingCancelled(handleCancelled);
+        onTimetableUpdated(handleTimetableUpdate);
 
         return () => {
-          // Cleanup listener but do NOT disconnect the socket
-          if (unsubscribe) unsubscribe();
+          offBookingCancelled(handleCancelled);
+          offTimetableUpdated(handleTimetableUpdate);
         };
       }
     } else {
-      // On logout, disconnect socket
       if (socketRef.current) {
         disconnectSocket();
         socketRef.current = null;
@@ -88,29 +130,29 @@ export default function App() {
   const handleLoginSuccess = (user) => {
     localStorage.setItem('currentUser', JSON.stringify(user));
     setCurrentUser(user);
-    // Request notification permission after login (user gesture from login button)
     requestNotificationPermission();
   };
 
   const handleLogout = () => {
     localStorage.removeItem('currentUser');
     localStorage.removeItem('token');
+    disconnectSocket();
+    socketRef.current = null;
     setCurrentUser(null);
-    if (socketRef.current) {
-      disconnectSocket();
-      socketRef.current = null;
-    }
     setNotifications([]);
     setPendingReviews([]);
     setShowReviewPopup(false);
+    setCurrentPending(null);
   };
 
   // Review popup handlers
-  const handleReviewSubmit = (review) => {
-    const updated = pendingReviews.filter(p => p.id !== currentPending.id);
-    setPendingReviews(updated);
-    if (updated.length > 0) {
-      setCurrentPending(updated[0]);
+  const handleReviewSubmit = () => {
+    const nextList = pendingReviews.filter(
+      (p) => (p.id || p._id) !== (currentPending.id || currentPending._id)
+    );
+    setPendingReviews(nextList);
+    if (nextList.length > 0) {
+      setCurrentPending(nextList[0]);
       setShowReviewPopup(true);
     } else {
       setShowReviewPopup(false);
@@ -119,10 +161,10 @@ export default function App() {
   };
 
   const handleReviewSkip = () => {
-    const updated = pendingReviews.slice(1);
-    setPendingReviews(updated);
-    if (updated.length > 0) {
-      setCurrentPending(updated[0]);
+    const nextList = pendingReviews.slice(1);
+    setPendingReviews(nextList);
+    if (nextList.length > 0) {
+      setCurrentPending(nextList[0]);
       setShowReviewPopup(true);
     } else {
       setShowReviewPopup(false);
@@ -132,30 +174,36 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-slate-100 flex flex-col">
+      <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
         <Navbar
           currentUser={currentUser}
           onLogout={handleLogout}
           notifications={notifications}
           onClearNotifications={() => setNotifications([])}
-          onEnableNotifications={requestNotificationPermission} // pass this to Navbar if you want a button
         />
-        {!currentUser ? (
-          <AuthPage onLoginSuccess={handleLoginSuccess} />
-        ) : (
-          <>
+
+        <main className="flex-1">
+          {!currentUser ? (
+            <AuthPage onLoginSuccess={handleLoginSuccess} />
+          ) : (
             <Routes>
-              <Route path="/" element={<Dashboard user={currentUser} />} />
-              <Route path="/notifications" element={<NotificationCenter user={currentUser} />} />
-            </Routes>
-            {showReviewPopup && currentPending && (
-              <ReviewPopup
-                booking={currentPending}
-                onSubmit={handleReviewSubmit}
-                onSkip={handleReviewSkip}
+              <Route path="/" element={<Dashboard user={currentUser} onLogout={handleLogout} />} />
+              <Route
+                path="/notifications"
+                element={<NotificationCenter user={currentUser} />}
               />
-            )}
-          </>
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          )}
+        </main>
+
+        {/* Completed Class Review Popup */}
+        {showReviewPopup && currentPending && (
+          <ReviewPopup
+            booking={currentPending}
+            onSubmit={handleReviewSubmit}
+            onSkip={handleReviewSkip}
+          />
         )}
       </div>
     </BrowserRouter>

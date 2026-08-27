@@ -1,71 +1,183 @@
+const mongoose = require('mongoose');
 const Review = require('../models/Review');
 const Booking = require('../models/Booking');
 
-const isBookingEnded = (booking) => {
+// Helper to get normalized current date (YYYY-MM-DD)
+const getTodayDateString = () => {
   const now = new Date();
-  const bookingDate = new Date(booking.date);
-  const [h, m] = booking.endTime.split(':').map(Number);
-  bookingDate.setHours(h, m, 0, 0);
-  return bookingDate < now && booking.status === 'active';
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
 
+// Helper to get normalized current time (HH:mm)
+const getCurrentTimeHHMM = () => {
+  const now = new Date();
+  const h = String(now.getHours()).padStart(2, '0');
+  const m = String(now.getMinutes()).padStart(2, '0');
+  return `${h}:${m}`;
+};
+
+// Deterministic, timezone-safe check to determine if a class booking has completed
+const isBookingEnded = (booking) => {
+  const todayStr = getTodayDateString();
+  const currentHHMM = getCurrentTimeHHMM();
+
+  if (booking.date < todayStr) return true;
+  if (booking.date === todayStr && booking.endTime <= currentHHMM) return true;
+  return false;
+};
+
+// ---------- GET PENDING REVIEWS (Optimized: Replaced N+1 with Batch Query) ----------
 exports.getPendingReviews = async (req, res) => {
   try {
-    const bookings = await Booking.find({
-      facultyEmail: req.user.email,
-      status: 'active'
-    }).populate('roomId', 'name roomNumber');
+    const todayStr = getTodayDateString();
+    const currentHHMM = getCurrentTimeHHMM();
 
-    const pending = [];
-    for (const booking of bookings) {
-      if (isBookingEnded(booking)) {
-        const existing = await Review.findOne({ bookingId: booking._id });
-        if (!existing) pending.push(booking);
-      }
-    }
-    res.json({ success: true, data: pending });
+    // 1. Fetch all booking IDs already reviewed by this faculty member (1 indexed query)
+    const reviewedBookingIds = await Review.distinct('bookingId', {
+      facultyId: req.user._id || req.user.id,
+    });
+
+    // 2. Fetch active/completed bookings that have not been reviewed yet
+    const candidateBookings = await Booking.find({
+      facultyEmail: req.user.email,
+      status: { $in: ['active', 'completed'] },
+      _id: { $nin: reviewedBookingIds },
+      date: { $lte: todayStr },
+    })
+      .populate('roomId', 'name roomNumber floor building')
+      .sort({ date: -1, endTime: -1 });
+
+    // 3. Filter for bookings that have reached or passed their end time
+    const pendingReviews = candidateBookings.filter((booking) => {
+      if (booking.date < todayStr) return true;
+      if (booking.date === todayStr && booking.endTime <= currentHHMM) return true;
+      return false;
+    });
+
+    res.json({ success: true, data: pendingReviews, total: pendingReviews.length });
   } catch (error) {
+    console.error('Get pending reviews error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
+// ---------- SUBMIT REVIEW (With guards against reviewing future classes) ----------
 exports.submitReview = async (req, res) => {
   try {
     const { bookingId, rating, comment } = req.body;
-    if (!bookingId || !rating) {
+
+    if (!bookingId || rating === undefined || rating === null) {
       return res.status(400).json({ success: false, message: 'Booking ID and rating are required' });
     }
-    const booking = await Booking.findById(bookingId);
-    if (!booking) return res.status(404).json({ success: false, message: 'Booking not found' });
-    if (booking.facultyEmail !== req.user.email) {
-      return res.status(403).json({ success: false, message: 'Not authorized' });
+
+    if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+      return res.status(400).json({ success: false, message: 'Invalid booking ID format' });
     }
+
+    const numericRating = Number(rating);
+    if (!Number.isInteger(numericRating) || numericRating < 1 || numericRating > 5) {
+      return res.status(400).json({ success: false, message: 'Rating must be an integer between 1 and 5' });
+    }
+
+    const booking = await Booking.findById(bookingId);
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
+
+    // Authorization check
+    if (booking.facultyEmail !== req.user.email) {
+      return res.status(403).json({ success: false, message: 'You can only review your own bookings' });
+    }
+
+    // Ensure booking is not cancelled
+    if (booking.status === 'cancelled') {
+      return res.status(400).json({ success: false, message: 'Cannot review a cancelled booking' });
+    }
+
+    // Ensure booking has actually concluded
+    if (!isBookingEnded(booking)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot review a class before it has concluded',
+      });
+    }
+
+    // Check if review already exists
     const existing = await Review.findOne({ bookingId });
-    if (existing) return res.status(400).json({ success: false, message: 'Already reviewed' });
+    if (existing) {
+      return res.status(400).json({ success: false, message: 'You have already submitted a review for this booking' });
+    }
 
     const review = await Review.create({
       bookingId,
       roomId: booking.roomId,
-      facultyId: req.user._id,
+      facultyId: req.user._id || req.user.id,
       facultyName: req.user.name,
-      rating,
-      comment: comment || '',
+      rating: numericRating,
+      comment: (comment || '').trim() || 'No comment provided',
     });
-    res.status(201).json({ success: true, data: review });
+
+    // Mark booking status as completed
+    booking.status = 'completed';
+    await booking.save();
+
+    res.status(201).json({ success: true, message: 'Review submitted successfully', data: review });
   } catch (error) {
+    console.error('Submit review error:', error);
+    if (error.code === 11000) {
+      return res.status(400).json({ success: false, message: 'A review for this booking already exists' });
+    }
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
+// ---------- GET ROOM REVIEWS ----------
 exports.getRoomReviews = async (req, res) => {
   try {
     const { roomId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(roomId)) {
+      return res.status(400).json({ success: false, message: 'Invalid room ID format' });
+    }
+
     const reviews = await Review.find({ roomId })
-      .populate('facultyId', 'name email')
+      .populate('facultyId', 'name email department')
       .sort({ createdAt: -1 });
-    const avgRating = reviews.length ? reviews.reduce((a, r) => a + r.rating, 0) / reviews.length : 0;
-    res.json({ success: true, data: { reviews, avgRating, count: reviews.length } });
+
+    const totalRatings = reviews.reduce((sum, r) => sum + r.rating, 0);
+    const avgRating = reviews.length > 0 ? Number((totalRatings / reviews.length).toFixed(1)) : 0;
+
+    res.json({
+      success: true,
+      data: {
+        reviews,
+        avgRating,
+        count: reviews.length,
+      },
+    });
   } catch (error) {
+    console.error('Get room reviews error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ---------- GET MY REVIEWS (Resolves missing API endpoint for frontend) ----------
+exports.getMyReviews = async (req, res) => {
+  try {
+    const reviews = await Review.find({ facultyId: req.user._id || req.user.id })
+      .populate('roomId', 'name roomNumber building floor')
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      data: reviews,
+      total: reviews.length,
+    });
+  } catch (error) {
+    console.error('Get my reviews error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

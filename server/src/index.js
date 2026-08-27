@@ -1554,85 +1554,52 @@ server.listen(PORT, () => {
   console.log(`   ─────────────────────────────\n`);
 });*/
 
-
-
-const app = require('./app');
-const http = require('http');
-const connectDB = require('./config/db');
-const { initSocket } = require('./utils/socket');
 require('dotenv').config();
 
-const PORT = process.env.PORT || 3000;
+const http = require('http');
+const app = require('./app');
+const connectDB = require('./config/db');
+const { initSocket } = require('./utils/socket');
 
-// Connect to DB
-connectDB();
+const PORT = parseInt(process.env.PORT, 10) || 3000;
 
-// Create server
-const server = http.createServer(app);
-
-// Initialize Socket.IO
-initSocket(server);
-
-server.listen(PORT, () => {
-  console.log(`\n🚀 Server running on http://localhost:${PORT}`);
-  console.log(`📡 Socket.IO server attached`);
-  console.log(`📧 Email sending DISABLED – OTPs are printed to console.`);
-  console.log(`🔐 Password hashing ENABLED – passwords are hashed with bcrypt.`);
-  console.log(`📧 Allowed domains: @gmail.com (Faculty), @cse.nitrr.ac.in (HOD)`);
-  console.log(`\n📋 API Endpoints:`);
-  console.log(`   ─────────────────────────────`);
-  console.log(`   🔐 AUTH:`);
-  console.log(`   POST   /api/auth/login`);
-  console.log(`   POST   /api/auth/signup`);
-  console.log(`   POST   /api/auth/forgot-password`);
-  console.log(`   POST   /api/auth/verify-reset-otp`);
-  console.log(`   POST   /api/auth/reset-password`);
-  console.log(`   POST   /api/auth/change-password`);
-  console.log(`   GET    /api/auth/me`);
-  console.log(`   ─────────────────────────────`);
-  console.log(`   🏢 ROOMS (with filters):`);
-  console.log(`   GET    /api/rooms (dept, floor, building, search, etc.)`);
-  console.log(`   GET    /api/rooms/:id`);
-  console.log(`   GET    /api/rooms/available (with filters)`);
-  console.log(`   GET    /api/rooms/floors`);
-  console.log(`   GET    /api/rooms/buildings`);
-  console.log(`   GET    /api/rooms/department/:department`);
-  console.log(`   POST   /api/rooms (HOD only)`);
-  console.log(`   PUT    /api/rooms/:id (HOD only)`);
-  console.log(`   PUT    /api/rooms/:id/toggle (HOD only)`);
-  console.log(`   DELETE /api/rooms/:id (HOD only)`);
-  console.log(`   GET    /api/rooms/:roomId/availability`);
-  console.log(`   ─────────────────────────────`);
-  console.log(`   📅 TIMETABLE:`);
-  console.log(`   GET    /api/timetable (dept, semester, section, day, faculty)`);
-  console.log(`   GET    /api/timetable/department/:dept`);
-  console.log(`   GET    /api/timetable/faculty/:name`);
-  console.log(`   GET    /api/timetable/room/:roomId`);
-  console.log(`   POST   /api/timetable (HOD only) — REPLACES entire timetable`);
-  console.log(`   PUT    /api/timetable/:id (HOD only)`);
-  console.log(`   DELETE /api/timetable/:id (HOD only)`);
-  console.log(`   ─────────────────────────────`);
-  console.log(`   📋 BOOKINGS:`);
-  console.log(`   GET    /api/bookings (status, dept, date, facultyEmail)`);
-  console.log(`   GET    /api/bookings/my`);
-  console.log(`   GET    /api/bookings/:id`);
-  console.log(`   GET    /api/bookings/room/:roomId`);
-  console.log(`   GET    /api/bookings/faculty/:facultyEmail`);
-  console.log(`   POST   /api/bookings`);
-  console.log(`   PUT    /api/bookings/:id/cancel`);
-  console.log(`   POST   /api/bookings/lock`);
-  console.log(`   POST   /api/bookings/unlock`);
-  console.log(`   ─────────────────────────────`);
-  console.log(`   📋 NOTIFICATIONS:`);
-  console.log(`   GET    /api/notifications`);
-  console.log(`   PUT    /api/notifications/:id/read`);
-  console.log(`   PUT    /api/notifications/read-all`);
-  console.log(`   DELETE /api/notifications/:id`);
-  console.log(`   DELETE /api/notifications`);
-  console.log(`   ─────────────────────────────`);
-  console.log(`   📋 REVIEWS:`);
-  console.log(`   GET    /api/reviews/pending`);
-  console.log(`   POST   /api/reviews`);
-  console.log(`   GET    /api/reviews/room/:roomId`);
-  console.log(`   ─────────────────────────────\n`);
+// ---------- GLOBAL PROCESS ERROR HANDLERS ----------
+process.on('uncaughtException', (err) => {
+  console.error('💥 UNCAUGHT EXCEPTION! Shutting down server...', err);
+  process.exit(1);
 });
+
+process.on('unhandledRejection', (err) => {
+  console.error('💥 UNHANDLED PROMISE REJECTION! Shutting down server...', err);
+  process.exit(1);
+});
+
+// ---------- BOOTSTRAP APPLICATION ----------
+async function startServer() {
+  try {
+    // 1. Connect to MongoDB Database
+    await connectDB();
+
+    // 2. Create HTTP Server Instance
+    const server = http.createServer(app);
+
+    // 3. Attach Socket.IO to HTTP Server
+    initSocket(server);
+
+    // 4. Start Listening on Configured Port
+    server.listen(PORT, () => {
+      console.log(`\n======================================================`);
+      console.log(`🚀 NIT Raipur Room Allocation API Server Running`);
+      console.log(`📡 URL: http://localhost:${PORT}`);
+      console.log(`🔌 Socket.IO: Initialized and attached`);
+      console.log(`🔐 Authentication: JWT (7d expiry) with Bcrypt hashing`);
+      console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`======================================================\n`);
+    });
+  } catch (err) {
+    console.error('❌ Failed to initialize server:', err.message);
+    process.exit(1);
+  }
+}
+
+startServer();

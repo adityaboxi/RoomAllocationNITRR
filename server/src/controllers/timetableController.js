@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Timetable = require('../models/Timetable');
 const Room = require('../models/Room');
 const Booking = require('../models/Booking');
@@ -11,7 +12,12 @@ const ExcelJS = require('exceljs');
 const { parse } = require('csv-parse');
 const path = require('path');
 const { Readable } = require('stream');
-const mongoose = require('mongoose');
+
+// Helper to escape regex special characters (prevents ReDoS and syntax crashes)
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Helper to validate HH:mm format
+const isValidTimeFormat = (time) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(time);
 
 // ---------- MULTER CONFIG ----------
 const upload = multer({
@@ -27,27 +33,30 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 } // 5MB max
 });
 
-// ---------- HELPER: Resolve room identifier to ObjectId ----------
+// ---------- HELPER: Safe Room Identifier Resolver ----------
 const resolveRoomIdentifier = async (identifier, department) => {
   if (!identifier) return null;
+  const cleaned = String(identifier).trim();
 
-  // If it's a valid MongoDB ObjectId, try that first
-  if (mongoose.Types.ObjectId.isValid(identifier)) {
-    const room = await Room.findOne({ _id: identifier, department, isActive: true });
+  // 1. Try by ObjectId
+  if (mongoose.Types.ObjectId.isValid(cleaned)) {
+    const room = await Room.findOne({ _id: cleaned, department, isActive: true });
     if (room) return room;
   }
 
-  // Try by name (case-insensitive)
+  const escaped = escapeRegex(cleaned);
+
+  // 2. Try by Name (Case-insensitive)
   let room = await Room.findOne({
-    name: { $regex: new RegExp('^' + identifier.trim() + '$', 'i') },
+    name: { $regex: new RegExp('^' + escaped + '$', 'i') },
     department,
     isActive: true
   });
   if (room) return room;
 
-  // Try by room number (case-insensitive)
+  // 3. Try by Room Number (Case-insensitive)
   room = await Room.findOne({
-    roomNumber: { $regex: new RegExp('^' + identifier.trim() + '$', 'i') },
+    roomNumber: { $regex: new RegExp('^' + escaped + '$', 'i') },
     department,
     isActive: true
   });
@@ -56,40 +65,56 @@ const resolveRoomIdentifier = async (identifier, department) => {
   return null;
 };
 
-// ---------- HELPER: CANCEL CONFLICTING BOOKINGS ----------
-const cancelConflictingBookings = async (timetableEntries, department) => {
+// ---------- HELPER: Optimized Cancellation of Conflicting Bookings ----------
+const cancelConflictingBookings = async (timetableEntries, department, session = null) => {
+  if (!timetableEntries || timetableEntries.length === 0) return [];
+
+  // Build targeted $or conditions to let MongoDB filter conflicting bookings directly
+  const conflictConditions = timetableEntries.map((entry) => ({
+    roomId: entry.roomId,
+    day: entry.day,
+    startTime: { $lt: entry.endTime },
+    endTime: { $gt: entry.startTime }
+  }));
+
+  const query = Booking.find({
+    department,
+    status: 'active',
+    $or: conflictConditions
+  }).populate('roomId', 'name roomNumber building floor');
+
+  if (session) query.session(session);
+  const activeBookings = await query;
   const cancelledBookings = [];
-  const activeBookings = await Booking.find({ department, status: 'active' }).populate('roomId');
 
   for (const booking of activeBookings) {
     const bookingDay = getDayOfWeek(booking.date);
-    for (const timetable of timetableEntries) {
-      if (
-        timetable.day === bookingDay &&
-        isOverlapping(booking.startTime, booking.endTime, timetable.startTime, timetable.endTime) &&
-        booking.roomId._id.toString() === timetable.roomId.toString()
-      ) {
-        booking.status = 'cancelled';
-        booking.conflictMessage =
-          `Room ${booking.roomId.name} is now scheduled for ${timetable.subject} from ${timetable.startTime} to ${timetable.endTime}`;
-        await booking.save();
-        cancelledBookings.push(booking);
+    const matchedTimetable = timetableEntries.find((tt) =>
+      tt.day === bookingDay &&
+      tt.roomId.toString() === (booking.roomId?._id || booking.roomId).toString() &&
+      isOverlapping(booking.startTime, booking.endTime, tt.startTime, tt.endTime)
+    );
 
-        // Send email
+    if (matchedTimetable) {
+      booking.status = 'cancelled';
+      booking.conflictMessage = `Room ${booking.roomId?.name || 'Room'} is scheduled for class ${matchedTimetable.subject} (${matchedTimetable.startTime} - ${matchedTimetable.endTime})`;
+      await booking.save({ session });
+      cancelledBookings.push(booking);
+
+      // Async email & notification dispatch
+      (async () => {
         try {
           await sendBookingCancellationEmail(booking, booking.conflictMessage);
-          booking.notified = true;
-          await booking.save();
+          await Booking.findByIdAndUpdate(booking._id, { notified: true });
         } catch (emailError) {
           console.error('Failed to send cancellation email:', emailError.message);
         }
 
-        // Send socket notification
         const facultyUser = await User.findOne({ email: booking.facultyEmail });
         if (facultyUser) {
           emitToUser(facultyUser._id.toString(), 'booking-cancelled', {
             bookingId: booking.id,
-            roomName: booking.roomId.name,
+            roomName: booking.roomId?.name || 'Room',
             date: booking.date,
             startTime: booking.startTime,
             endTime: booking.endTime,
@@ -98,11 +123,11 @@ const cancelConflictingBookings = async (timetableEntries, department) => {
 
           await Notification.create({
             userId: facultyUser._id,
-            message: `Booking cancelled: ${booking.roomId.name} on ${booking.date} ${booking.startTime}-${booking.endTime}. Reason: ${booking.conflictMessage}`,
+            message: `Booking cancelled: ${booking.roomId?.name || 'Room'} on ${booking.date} ${booking.startTime}-${booking.endTime}. Reason: ${booking.conflictMessage}`,
             type: 'booking-cancelled',
             metadata: {
-              roomId: booking.roomId._id,
-              roomName: booking.roomId.name,
+              roomId: booking.roomId?._id || booking.roomId,
+              roomName: booking.roomId?.name || 'Room',
               date: booking.date,
               startTime: booking.startTime,
               endTime: booking.endTime,
@@ -110,28 +135,44 @@ const cancelConflictingBookings = async (timetableEntries, department) => {
             }
           });
         }
-      }
+      })().catch(err => console.error('Notification error:', err));
     }
   }
+
   return cancelledBookings;
 };
 
-// ---------- HELPER: CORE REPLACEMENT LOGIC ----------
+// ---------- HELPER: CORE REPLACEMENT LOGIC (Transactional & Multi-Section Conflict Aware) ----------
 const replaceTimetableEntries = async ({ department, semester, section, entries, userId }) => {
   const validatedEntries = [];
   const errors = [];
 
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
-    const { day, startTime, endTime, subject, roomId, classGroup, faculty } = entry;
+    let { day, startTime, endTime, subject, roomId, classGroup, faculty } = entry;
+
     if (!day || !startTime || !endTime || !subject || !roomId || !classGroup || !faculty) {
       errors.push(`Entry ${i + 1}: All fields are required`);
       continue;
     }
+
+    startTime = String(startTime).trim();
+    endTime = String(endTime).trim();
+    day = String(day).trim();
+    subject = String(subject).trim();
+    classGroup = String(classGroup).trim();
+    faculty = String(faculty).trim();
+
+    if (!isValidTimeFormat(startTime) || !isValidTimeFormat(endTime)) {
+      errors.push(`Entry ${i + 1}: Times must be in HH:mm format`);
+      continue;
+    }
+
     if (startTime >= endTime) {
       errors.push(`Entry ${i + 1}: Start time must be before end time`);
       continue;
     }
+
     const [sH, sM] = startTime.split(':').map(Number);
     const [eH, eM] = endTime.split(':').map(Number);
     const durationMinutes = (eH * 60 + eM) - (sH * 60 + sM);
@@ -140,18 +181,18 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
       continue;
     }
 
-    // roomId is now an ObjectId (resolved earlier)
     const room = await Room.findById(roomId);
-    if (!room) {
-      errors.push(`Entry ${i + 1}: Room not found`);
+    if (!room || !room.isActive) {
+      errors.push(`Entry ${i + 1}: Room not found or deactivated`);
       continue;
     }
     if (room.department !== department) {
       errors.push(`Entry ${i + 1}: Room ${room.name} does not belong to ${department} department`);
       continue;
     }
+
     validatedEntries.push({
-      roomId,
+      roomId: room._id,
       day,
       startTime,
       endTime,
@@ -169,70 +210,119 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
     throw new Error(`Validation errors: ${errors.join('; ')}`);
   }
   if (validatedEntries.length === 0) {
-    throw new Error('No valid entries to add');
+    throw new Error('No valid timetable entries to add');
   }
 
-  // Deactivate old timetable – FIXED
-  await Timetable.updateMany(
-    { department, semester, section, isActive: true },
-    { $set: { isActive: false }, $inc: { version: 1 } }
-  );
+  // 1. Intra-Batch Overlap Checks (Room collisions & Faculty collisions within uploaded list)
+  for (let i = 0; i < validatedEntries.length; i++) {
+    for (let j = i + 1; j < validatedEntries.length; j++) {
+      const a = validatedEntries[i];
+      const b = validatedEntries[j];
 
-  // Check duplicate room usage & faculty conflicts
-  const roomUsage = new Map();
-  for (const entry of validatedEntries) {
-    const key = `${entry.day}-${entry.roomId.toString()}-${entry.startTime}-${entry.endTime}`;
-    if (roomUsage.has(key)) {
-      const room = await Room.findById(entry.roomId);
-      throw new Error(`Room ${room?.name} is already used at ${entry.day} ${entry.startTime}-${entry.endTime}`);
+      if (a.day === b.day && isOverlapping(a.startTime, a.endTime, b.startTime, b.endTime)) {
+        if (a.roomId.toString() === b.roomId.toString()) {
+          throw new Error(`Room collision in uploaded entries: Room is scheduled twice on ${a.day} between ${a.startTime}-${a.endTime} and ${b.startTime}-${b.endTime}`);
+        }
+        if (a.faculty.toLowerCase() === b.faculty.toLowerCase()) {
+          throw new Error(`Faculty collision in uploaded entries: ${a.faculty} is assigned to two classes on ${a.day} between ${a.startTime}-${a.endTime} and ${b.startTime}-${b.endTime}`);
+        }
+      }
     }
-    roomUsage.set(key, true);
+  }
 
-    const existing = await Timetable.findOne({
-      department,
-      semester,
-      section,
-      isActive: true,
-      faculty: entry.faculty,
+  // 2. Inter-Batch Database Checks (Against other active semesters/sections)
+  for (const entry of validatedEntries) {
+    // Room conflict check against other active classes in other semesters
+    const roomConflict = await Timetable.findOne({
+      roomId: entry.roomId,
       day: entry.day,
+      isActive: true,
+      $or: [
+        { semester: { $ne: semester } },
+        { section: { $ne: section } }
+      ],
       startTime: { $lt: entry.endTime },
       endTime: { $gt: entry.startTime }
     });
-    if (existing) {
-      throw new Error(`Faculty ${entry.faculty} already has a class at ${entry.day} ${entry.startTime}-${entry.endTime}`);
+    if (roomConflict) {
+      throw new Error(`Room collision with ${roomConflict.semester} Sem Sec ${roomConflict.section}: ${roomConflict.subject} at ${entry.day} ${roomConflict.startTime}-${roomConflict.endTime}`);
+    }
+
+    // Faculty conflict check against other active classes in other semesters
+    const facultyConflict = await Timetable.findOne({
+      faculty: { $regex: new RegExp('^' + escapeRegex(entry.faculty) + '$', 'i') },
+      day: entry.day,
+      isActive: true,
+      $or: [
+        { semester: { $ne: semester } },
+        { section: { $ne: section } }
+      ],
+      startTime: { $lt: entry.endTime },
+      endTime: { $gt: entry.startTime }
+    });
+    if (facultyConflict) {
+      throw new Error(`Faculty clash: ${entry.faculty} is already teaching ${facultyConflict.subject} (${facultyConflict.semester} Sec ${facultyConflict.section}) on ${entry.day} ${facultyConflict.startTime}-${facultyConflict.endTime}`);
     }
   }
 
-  const createdEntries = await Timetable.insertMany(validatedEntries);
+  // 3. Atomic Database Replacement
+  const session = await mongoose.startSession();
+  try {
+    session.startTransaction();
 
-  // Cancel conflicting bookings
-  const cancelledBookings = await cancelConflictingBookings(createdEntries, department);
+    // Deactivate previous timetable for this semester/section
+    await Timetable.updateMany(
+      { department, semester, section, isActive: true },
+      { $set: { isActive: false }, $inc: { version: 1 } },
+      { session }
+    );
 
-  return {
-    entriesAdded: createdEntries.length,
-    bookingsCancelled: cancelledBookings.length,
-    entries: createdEntries,
-    cancelledBookings
-  };
+    // Insert new entries
+    const createdEntries = await Timetable.insertMany(validatedEntries, { session });
+
+    // Cancel conflicting faculty bookings
+    const cancelledBookings = await cancelConflictingBookings(createdEntries, department, session);
+
+    await session.commitTransaction();
+
+    return {
+      entriesAdded: createdEntries.length,
+      bookingsCancelled: cancelledBookings.length,
+      entries: createdEntries,
+      cancelledBookings
+    };
+  } catch (err) {
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+    throw err;
+  } finally {
+    session.endSession();
+  }
 };
 
-// ---------- GET ROUTES (unchanged) ----------
+// ---------- GET ROUTES ----------
 exports.getTimetable = async (req, res) => {
   try {
     const { department, semester, section, day, faculty } = req.query;
     const query = { isActive: true };
+
     if (req.user.role === 'HOD') query.department = req.user.department;
-    if (department) query.department = department;
-    if (semester) query.semester = semester;
-    if (section) query.section = section;
-    if (day) query.day = day;
-    if (faculty) query.faculty = { $regex: faculty, $options: 'i' };
+    if (department) query.department = department.trim();
+    if (semester) query.semester = semester.trim();
+    if (section) query.section = section.trim();
+    if (day) query.day = day.trim();
+    if (faculty) query.faculty = { $regex: escapeRegex(faculty.trim()), $options: 'i' };
 
     const entries = await Timetable.find(query)
-      .populate('roomId', 'name roomNumber floor building')
-      .sort({ day: 1, startTime: 1 });
-    res.json({ success: true, data: entries });
+      .populate('roomId', 'name roomNumber floor building department')
+      .sort({ day: 1, startTime: 1 })
+      .lean();
+
+    const formatted = entries.map((e) => ({ ...e, id: e._id.toString() }));
+    res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
+    console.error('Get timetable error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -241,17 +331,24 @@ exports.getTimetableByDepartment = async (req, res) => {
   try {
     const { department } = req.params;
     const { semester, section } = req.query;
+
     if (req.user.role === 'HOD' && req.user.department !== department) {
       return res.status(403).json({ success: false, message: 'You can only view your own department timetable' });
     }
-    const query = { department, isActive: true };
-    if (semester) query.semester = semester;
-    if (section) query.section = section;
+
+    const query = { department: department.trim(), isActive: true };
+    if (semester) query.semester = semester.trim();
+    if (section) query.section = section.trim();
+
     const entries = await Timetable.find(query)
-      .populate('roomId', 'name roomNumber floor building')
-      .sort({ day: 1, startTime: 1 });
-    res.json({ success: true, data: entries });
+      .populate('roomId', 'name roomNumber floor building department')
+      .sort({ day: 1, startTime: 1 })
+      .lean();
+
+    const formatted = entries.map((e) => ({ ...e, id: e._id.toString() }));
+    res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
+    console.error('Get timetable by department error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -260,16 +357,26 @@ exports.getTimetableByFaculty = async (req, res) => {
   try {
     const { facultyName } = req.params;
     const { department } = req.query;
-    const query = { faculty: { $regex: facultyName, $options: 'i' }, isActive: true };
-    if (department) query.department = department;
+
+    const query = {
+      faculty: { $regex: escapeRegex(facultyName.trim()), $options: 'i' },
+      isActive: true
+    };
+    if (department) query.department = department.trim();
+
     if (req.user.role === 'HOD' && department && req.user.department !== department) {
       return res.status(403).json({ success: false, message: 'You can only view your own department timetable' });
     }
+
     const entries = await Timetable.find(query)
-      .populate('roomId', 'name roomNumber floor building')
-      .sort({ day: 1, startTime: 1 });
-    res.json({ success: true, data: entries });
+      .populate('roomId', 'name roomNumber floor building department')
+      .sort({ day: 1, startTime: 1 })
+      .lean();
+
+    const formatted = entries.map((e) => ({ ...e, id: e._id.toString() }));
+    res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
+    console.error('Get timetable by faculty error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -277,15 +384,28 @@ exports.getTimetableByFaculty = async (req, res) => {
 exports.getTimetableByRoom = async (req, res) => {
   try {
     const { roomId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(roomId)) {
+      return res.status(400).json({ success: false, message: 'Invalid room ID format' });
+    }
+
     const room = await Room.findById(roomId);
-    if (!room) return res.status(404).json({ success: false, message: 'Room not found' });
+    if (!room || !room.isActive) {
+      return res.status(404).json({ success: false, message: 'Room not found' });
+    }
+
     if (req.user.role === 'HOD' && room.department !== req.user.department) {
       return res.status(403).json({ success: false, message: 'You can only view your own department timetable' });
     }
+
     const entries = await Timetable.find({ roomId, isActive: true })
-      .sort({ day: 1, startTime: 1 });
-    res.json({ success: true, data: entries });
+      .sort({ day: 1, startTime: 1 })
+      .lean();
+
+    const formatted = entries.map((e) => ({ ...e, id: e._id.toString() }));
+    res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
+    console.error('Get timetable by room error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -329,7 +449,7 @@ exports.replaceTimetable = async (req, res) => {
         entries: result.entries,
         cancelledBookings: result.cancelledBookings.map(b => ({
           id: b.id,
-          room: b.roomId.name,
+          room: b.roomId?.name || 'Room',
           date: b.date,
           time: `${b.startTime} - ${b.endTime}`,
           purpose: b.purpose,
@@ -340,12 +460,12 @@ exports.replaceTimetable = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Create timetable error:', error);
+    console.error('Replace timetable error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
 
-// ---------- FILE UPLOAD (UPDATED to accept room names/numbers) ----------
+// ---------- FILE UPLOAD ----------
 exports.uploadTimetableFile = upload.single('file');
 
 exports.replaceTimetableFromFile = async (req, res) => {
@@ -366,7 +486,7 @@ exports.replaceTimetableFromFile = async (req, res) => {
       const records = [];
       const bufferStream = Readable.from(req.file.buffer);
       const parserStream = bufferStream.pipe(parser);
-      
+
       await new Promise((resolve, reject) => {
         parserStream.on('data', (record) => records.push(record));
         parserStream.on('end', resolve);
@@ -383,7 +503,7 @@ exports.replaceTimetableFromFile = async (req, res) => {
       const headerRow = worksheet.getRow(1);
       const headers = [];
       headerRow.eachCell((cell, colNumber) => {
-        headers[colNumber] = cell.text;
+        headers[colNumber] = cell.text.trim();
       });
       worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
         if (rowNumber === 1) return;
@@ -391,7 +511,7 @@ exports.replaceTimetableFromFile = async (req, res) => {
         row.eachCell((cell, colNumber) => {
           const header = headers[colNumber];
           if (header) {
-            rowData[header] = cell.text;
+            rowData[header] = cell.text ? cell.text.trim() : '';
           }
         });
         jsonData.push(rowData);
@@ -402,24 +522,23 @@ exports.replaceTimetableFromFile = async (req, res) => {
       return res.status(400).json({ success: false, message: 'File is empty or could not be parsed' });
     }
 
-    // Map columns (case-insensitive)
+    // Map columns safely (case-insensitive)
     const entries = jsonData.map(row => {
       const get = (key) => {
         return row[key] || row[key.toLowerCase()] || row[key.toUpperCase()] ||
-               row[Object.keys(row).find(k => k.toLowerCase() === key.toLowerCase())];
+               row[Object.keys(row).find(k => k.toLowerCase() === key.toLowerCase())] || '';
       };
       return {
         day: get('Day'),
         startTime: get('Start Time') || get('StartTime'),
         endTime: get('End Time') || get('EndTime'),
         subject: get('Subject'),
-        roomId: get('RoomId') || get('Room ID'),
+        roomId: get('RoomId') || get('Room ID') || get('Room'),
         classGroup: get('Class Group') || get('ClassGroup'),
         faculty: get('Faculty'),
       };
     });
 
-    // Validate required fields
     const missing = entries.some(e => !e.day || !e.startTime || !e.endTime || !e.subject || !e.roomId || !e.classGroup || !e.faculty);
     if (missing) {
       return res.status(400).json({
@@ -428,13 +547,12 @@ exports.replaceTimetableFromFile = async (req, res) => {
       });
     }
 
-    // Get semester and section from body
     const { semester, section } = req.body;
     if (!semester || !section) {
       return res.status(400).json({ success: false, message: 'semester and section are required' });
     }
 
-    // ========== NEW: Resolve each room identifier to an ObjectId ==========
+    // Resolve room names or room numbers to ObjectIds
     const resolvedEntries = [];
     const resolveErrors = [];
 
@@ -447,7 +565,7 @@ exports.replaceTimetableFromFile = async (req, res) => {
       }
       resolvedEntries.push({
         ...entry,
-        roomId: room._id, // now an ObjectId
+        roomId: room._id,
       });
     }
 
@@ -458,7 +576,6 @@ exports.replaceTimetableFromFile = async (req, res) => {
       });
     }
 
-    // Replace timetable using the helper with resolved ObjectIds
     const result = await replaceTimetableEntries({
       department: req.user.department,
       semester,
@@ -480,14 +597,14 @@ exports.replaceTimetableFromFile = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: `Timetable replaced via file. ${result.bookingsCancelled} bookings cancelled.`,
+      message: `Timetable replaced via file. ${result.bookingsCancelled} conflicting bookings cancelled.`,
       data: {
         entriesAdded: result.entriesAdded,
         bookingsCancelled: result.bookingsCancelled,
         entries: result.entries,
         cancelledBookings: result.cancelledBookings.map(b => ({
           id: b.id,
-          room: b.roomId.name,
+          room: b.roomId?.name || 'Room',
           date: b.date,
           time: `${b.startTime} - ${b.endTime}`,
           purpose: b.purpose,
@@ -499,130 +616,121 @@ exports.replaceTimetableFromFile = async (req, res) => {
     });
   } catch (error) {
     console.error('File upload error:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(400).json({ success: false, message: error.message });
   }
 };
 
-// ---------- UPDATE & DELETE (unchanged) ----------
+// ---------- UPDATE ENTRY ----------
 exports.updateTimetableEntry = async (req, res) => {
   try {
     const { id } = req.params;
-    const { startTime, endTime, subject, roomId, classGroup, faculty } = req.body;
+    let { startTime, endTime, subject, roomId, classGroup, faculty } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid timetable entry ID' });
+    }
 
     const entry = await Timetable.findById(id);
-    if (!entry) return res.status(404).json({ success: false, message: 'Timetable entry not found' });
+    if (!entry || !entry.isActive) {
+      return res.status(404).json({ success: false, message: 'Timetable entry not found' });
+    }
+
     if (req.user.department !== entry.department) {
       return res.status(403).json({ success: false, message: 'You can only update timetable for your own department' });
     }
 
-    if (startTime && endTime && startTime >= endTime) {
+    // Extract string ID if roomId was passed as an object
+    const targetRoomId = roomId && typeof roomId === 'object' ? (roomId._id || roomId.id) : roomId;
+
+    if (startTime) startTime = String(startTime).trim();
+    if (endTime) endTime = String(endTime).trim();
+
+    const checkStartTime = startTime || entry.startTime;
+    const checkEndTime = endTime || entry.endTime;
+
+    if (checkStartTime >= checkEndTime) {
       return res.status(400).json({ success: false, message: 'Start time must be before end time' });
     }
 
-    if (roomId && roomId !== entry.roomId.toString()) {
-      const room = await Room.findById(roomId);
-      if (!room) return res.status(404).json({ success: false, message: 'Room not found' });
-      if (room.department !== entry.department) {
-        return res.status(400).json({ success: false, message: `Room ${room.name} does not belong to ${entry.department} department` });
-      }
-      const existingEntry = await Timetable.findOne({
-        roomId,
-        day: entry.day,
-        isActive: true,
-        startTime: { $lt: endTime || entry.endTime },
-        endTime: { $gt: startTime || entry.startTime },
-        _id: { $ne: id }
+    const checkRoomId = targetRoomId || entry.roomId;
+
+    // Check room collision with other active timetable slots
+    const roomCollision = await Timetable.findOne({
+      roomId: checkRoomId,
+      day: entry.day,
+      isActive: true,
+      _id: { $ne: id },
+      startTime: { $lt: checkEndTime },
+      endTime: { $gt: checkStartTime }
+    });
+
+    if (roomCollision) {
+      return res.status(400).json({
+        success: false,
+        message: `Room is already scheduled for ${roomCollision.subject} (${roomCollision.semester} Sec ${roomCollision.section}) at this time`
       });
-      if (existingEntry) {
-        return res.status(400).json({ success: false, message: 'Room is already booked for this time slot' });
-      }
-      entry.roomId = roomId;
     }
 
+    // Check faculty collision with other active timetable slots
+    const checkFaculty = faculty || entry.faculty;
+    const facultyCollision = await Timetable.findOne({
+      faculty: { $regex: new RegExp('^' + escapeRegex(checkFaculty.trim()) + '$', 'i') },
+      day: entry.day,
+      isActive: true,
+      _id: { $ne: id },
+      startTime: { $lt: checkEndTime },
+      endTime: { $gt: checkStartTime }
+    });
+
+    if (facultyCollision) {
+      return res.status(400).json({
+        success: false,
+        message: `Faculty ${checkFaculty} already has another class scheduled at this time`
+      });
+    }
+
+    if (targetRoomId) entry.roomId = targetRoomId;
     if (startTime) entry.startTime = startTime;
     if (endTime) entry.endTime = endTime;
-    if (subject) entry.subject = subject;
-    if (classGroup) entry.classGroup = classGroup;
-    if (faculty) entry.faculty = faculty;
+    if (subject) entry.subject = subject.trim();
+    if (classGroup) entry.classGroup = classGroup.trim();
+    if (faculty) entry.faculty = faculty.trim();
 
     entry.version += 1;
     await entry.save();
 
-    const updatedEntry = await Timetable.findById(id).populate('roomId');
-    if (updatedEntry && updatedEntry.isActive) {
-      const activeBookings = await Booking.find({
-        department: updatedEntry.department,
-        status: 'active'
-      }).populate('roomId');
-      const bookingsToCancel = [];
-      for (const booking of activeBookings) {
-        const bookingDay = getDayOfWeek(booking.date);
-        if (
-          bookingDay === updatedEntry.day &&
-          booking.roomId._id.toString() === updatedEntry.roomId._id.toString() &&
-          isOverlapping(booking.startTime, booking.endTime, updatedEntry.startTime, updatedEntry.endTime)
-        ) {
-          bookingsToCancel.push(booking);
-        }
-      }
-      for (const booking of bookingsToCancel) {
-        booking.status = 'cancelled';
-        booking.conflictMessage =
-          `Room ${booking.roomId.name} is now scheduled for ${updatedEntry.subject} from ${updatedEntry.startTime} to ${updatedEntry.endTime}`;
-        await booking.save();
+    // Cancel any newly conflicting faculty bookings
+    await cancelConflictingBookings([entry], entry.department);
 
-        try {
-          await sendBookingCancellationEmail(booking, booking.conflictMessage);
-          booking.notified = true;
-          await booking.save();
-        } catch (emailError) {
-          console.error('Failed to send cancellation email:', emailError.message);
-        }
-
-        const facultyUser = await User.findOne({ email: booking.facultyEmail });
-        if (facultyUser) {
-          emitToUser(facultyUser._id.toString(), 'booking-cancelled', {
-            bookingId: booking.id,
-            roomName: booking.roomId.name,
-            date: booking.date,
-            startTime: booking.startTime,
-            endTime: booking.endTime,
-            reason: booking.conflictMessage,
-          });
-
-          await Notification.create({
-            userId: facultyUser._id,
-            message: `Booking cancelled: ${booking.roomId.name} on ${booking.date} ${booking.startTime}-${booking.endTime}. Reason: ${booking.conflictMessage}`,
-            type: 'booking-cancelled',
-            metadata: {
-              roomId: booking.roomId._id,
-              roomName: booking.roomId.name,
-              date: booking.date,
-              startTime: booking.startTime,
-              endTime: booking.endTime,
-              bookingId: booking.id,
-            }
-          });
-        }
-      }
-    }
-
-    res.json({ success: true, message: 'Timetable entry updated successfully', data: entry });
+    const updated = await Timetable.findById(id).populate('roomId', 'name roomNumber floor building department');
+    res.json({ success: true, message: 'Timetable entry updated successfully', data: updated });
   } catch (error) {
     console.error('Update timetable entry error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
 
+// ---------- DELETE ENTRY ----------
 exports.deleteTimetableEntry = async (req, res) => {
   try {
-    const entry = await Timetable.findById(req.params.id);
-    if (!entry) return res.status(404).json({ success: false, message: 'Timetable entry not found' });
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid timetable entry ID' });
+    }
+
+    const entry = await Timetable.findById(id);
+    if (!entry) {
+      return res.status(404).json({ success: false, message: 'Timetable entry not found' });
+    }
+
     if (req.user.department !== entry.department) {
       return res.status(403).json({ success: false, message: 'You can only delete timetable for your own department' });
     }
+
     entry.isActive = false;
     await entry.save();
+
     res.json({ success: true, message: 'Timetable entry deleted successfully' });
   } catch (error) {
     console.error('Delete timetable entry error:', error);

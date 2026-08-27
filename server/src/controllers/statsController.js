@@ -2,29 +2,64 @@ const Room = require('../models/Room');
 const Booking = require('../models/Booking');
 const Timetable = require('../models/Timetable');
 
+// Helper to get today's date string YYYY-MM-DD
+const getTodayDateString = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+// ---------- GET DEPARTMENT STATS ----------
 exports.getDepartmentStats = async (req, res) => {
   try {
-    const { department } = req.params;
+    let { department } = req.params;
 
-    // Ensure user has access: HOD of that department or admin
-    if (req.user.role === 'HOD' && req.user.department !== department) {
-      return res.status(403).json({ success: false, message: 'Not authorized for this department' });
+    if (!department) {
+      return res.status(400).json({ success: false, message: 'Department parameter is required' });
     }
 
-    const totalRooms = await Room.countDocuments({ department, isActive: true });
-    const activeBookings = await Booking.countDocuments({ department, status: 'active' });
-    const totalTimetable = await Timetable.countDocuments({ department, isActive: true });
+    department = department.trim();
+
+    // Ensure HOD can only access their own department's statistics
+    if (req.user.role === 'HOD' && req.user.department !== department) {
+      return res.status(403).json({
+        success: false,
+        message: `Not authorized to view stats for ${department}. Your assigned department is ${req.user.department}.`,
+      });
+    }
+
+    const todayStr = getTodayDateString();
+
+    // Execute all count aggregation queries in parallel for minimal latency
+    const [
+      totalRooms,
+      availableRooms,
+      activeBookings,
+      todayBookings,
+      totalTimetableEntries
+    ] = await Promise.all([
+      Room.countDocuments({ department, isActive: true }),
+      Room.countDocuments({ department, isActive: true, isAvailable: true }),
+      Booking.countDocuments({ department, status: 'active' }),
+      Booking.countDocuments({ department, date: todayStr, status: 'active' }),
+      Timetable.countDocuments({ department, isActive: true })
+    ]);
 
     res.json({
       success: true,
       data: {
         department,
         totalRooms,
+        availableRooms,
         activeBookings,
-        totalTimetable,
-      }
+        todayBookings,
+        totalTimetable: totalTimetableEntries,
+      },
     });
   } catch (error) {
+    console.error('Get department stats error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

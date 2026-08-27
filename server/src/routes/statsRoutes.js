@@ -3,6 +3,10 @@ const router = express.Router();
 const { protect } = require('../middleware/auth');
 const { getDepartmentStats } = require('../controllers/statsController');
 
-router.get('/department/:department', protect, getDepartmentStats);
+// All stats routes require authentication
+router.use(protect);
+
+// Department Metrics Endpoint
+router.get('/department/:department', getDepartmentStats);
 
 module.exports = router;
