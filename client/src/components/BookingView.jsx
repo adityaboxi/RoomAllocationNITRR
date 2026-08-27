@@ -1,5 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getRooms, getAvailableRooms, createBooking, getMyBookings, cancelBooking, getRoomReviews } from '../services/api';
+import {
+  getRooms,
+  getAvailableRooms,
+  createBooking,
+  getMyBookings,
+  cancelBooking,
+  getRoomReviews,
+} from '../services/api';
+import {
+  onBookingCreated,
+  offBookingCreated,
+  onBookingCancelled,
+  offBookingCancelled,
+} from '../services/socket';
 import ReviewsModal from './ReviewsModal';
 
 export default function BookingView({ user }) {
@@ -24,6 +37,7 @@ export default function BookingView({ user }) {
 
   const abortControllerRef = useRef(null);
 
+  // Clear messages after 5 seconds
   useEffect(() => {
     if (error || success) {
       const timer = setTimeout(() => {
@@ -34,6 +48,7 @@ export default function BookingView({ user }) {
     }
   }, [error, success]);
 
+  // Fetch rooms and my bookings on mount
   useEffect(() => {
     if (user) {
       fetchRooms();
@@ -41,6 +56,7 @@ export default function BookingView({ user }) {
     }
   }, [user]);
 
+  // Fetch available rooms whenever date/time changes
   useEffect(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -54,6 +70,30 @@ export default function BookingView({ user }) {
     };
   }, [bookingData.date, bookingData.startTime, bookingData.endTime]);
 
+  // ---------- SOCKET LISTENERS ----------
+  useEffect(() => {
+    const handleBookingCancelled = (data) => {
+      console.log('🔔 Booking cancelled by another user:', data);
+      fetchAvailableRooms(abortControllerRef.current?.signal);
+      fetchMyBookings();
+      setSuccess(`Room "${data.roomName}" is now available.`);
+    };
+
+    const handleBookingCreated = (data) => {
+      console.log('📌 Booking created by another user:', data);
+      fetchAvailableRooms(abortControllerRef.current?.signal);
+    };
+
+    onBookingCancelled(handleBookingCancelled);
+    onBookingCreated(handleBookingCreated);
+
+    return () => {
+      offBookingCancelled(handleBookingCancelled);
+      offBookingCreated(handleBookingCreated);
+    };
+  }, []);
+
+  // ---------- API functions ----------
   const fetchRooms = async () => {
     try {
       const data = await getRooms({ department: user.department });
@@ -94,29 +134,37 @@ export default function BookingView({ user }) {
     }
   };
 
+  // ✅ FIXED: extract reviews array correctly
   const fetchReviewsForRoom = async (roomId) => {
     if (loadingReviews[roomId]) return;
     setLoadingReviews(prev => ({ ...prev, [roomId]: true }));
     try {
       const data = await getRoomReviews(roomId);
-      setReviews(prev => ({ ...prev, [roomId]: data.data || [] }));
+      // data.data = { reviews: [], avgRating, count }
+      const reviewsArray = data.data?.reviews || data.data || [];
+      setReviews(prev => ({ ...prev, [roomId]: reviewsArray }));
     } catch (err) {
-      console.error(err);
+      console.error('Failed to fetch reviews:', err);
+      setReviews(prev => ({ ...prev, [roomId]: [] }));
     } finally {
       setLoadingReviews(prev => ({ ...prev, [roomId]: false }));
     }
   };
 
+  // ✅ FIXED: open modal immediately with empty array, fetch in background
   const handleViewReviews = (room) => {
-    if (reviews[room.id]) {
+    if (reviews[room.id] && reviews[room.id].length > 0) {
       setSelectedReviewRoom(room);
       setSelectedRoomReviews(reviews[room.id]);
-    } else {
-      fetchReviewsForRoom(room.id);
-      setSelectedReviewRoom(room);
+      return;
     }
+    // Open modal with empty array
+    setSelectedReviewRoom(room);
+    setSelectedRoomReviews([]);
+    fetchReviewsForRoom(room.id);
   };
 
+  // Sync when reviews for selected room update
   useEffect(() => {
     if (selectedReviewRoom && reviews[selectedReviewRoom.id]) {
       setSelectedRoomReviews(reviews[selectedReviewRoom.id]);
@@ -132,7 +180,7 @@ export default function BookingView({ user }) {
 
     let { date, startTime, endTime, purpose, comment } = bookingData;
 
-    // 🔧 Auto-fill endTime if missing (default: +1 hour)
+    // Auto-fill endTime if missing (default: +1 hour)
     if (!endTime && startTime) {
       const [h, m] = startTime.split(':').map(Number);
       const endH = (h + 1) % 24;
@@ -241,7 +289,7 @@ export default function BookingView({ user }) {
         {rooms.length === 0 && <p className="text-slate-500">No rooms found.</p>}
         {rooms.map((room) => {
           const available = isRoomAvailable(room.id);
-          const roomReviews = reviews[room.id] || [];
+          const roomReviews = reviews[room.id] || []; // ✅ now it's always an array
           const avgRating = roomReviews.length > 0
             ? (roomReviews.reduce((acc, r) => acc + r.rating, 0) / roomReviews.length).toFixed(1)
             : null;
@@ -396,7 +444,8 @@ export default function BookingView({ user }) {
         )}
       </div>
 
-      {selectedReviewRoom && selectedRoomReviews && (
+      {/* ✅ Correct modal rendering – shows even when reviews are empty */}
+      {selectedReviewRoom && selectedRoomReviews !== null && (
         <ReviewsModal
           room={selectedReviewRoom}
           reviews={selectedRoomReviews}

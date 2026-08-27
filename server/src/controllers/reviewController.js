@@ -1,7 +1,6 @@
 const Review = require('../models/Review');
 const Booking = require('../models/Booking');
 
-// Helper to check if booking is ended (endTime < current time and date is today or past)
 const isBookingEnded = (booking) => {
   const now = new Date();
   const bookingDate = new Date(booking.date);
@@ -10,24 +9,18 @@ const isBookingEnded = (booking) => {
   return bookingDate < now && booking.status === 'active';
 };
 
-// Get pending reviews for the logged-in user
 exports.getPendingReviews = async (req, res) => {
   try {
-    const user = req.user;
-    // Find all active bookings for this user that have ended and are not reviewed
     const bookings = await Booking.find({
-      facultyEmail: user.email,
+      facultyEmail: req.user.email,
       status: 'active'
     }).populate('roomId', 'name roomNumber');
 
     const pending = [];
     for (const booking of bookings) {
       if (isBookingEnded(booking)) {
-        // Check if review already exists
-        const existingReview = await Review.findOne({ bookingId: booking._id });
-        if (!existingReview) {
-          pending.push(booking);
-        }
+        const existing = await Review.findOne({ bookingId: booking._id });
+        if (!existing) pending.push(booking);
       }
     }
     res.json({ success: true, data: pending });
@@ -36,7 +29,6 @@ exports.getPendingReviews = async (req, res) => {
   }
 };
 
-// Submit a review
 exports.submitReview = async (req, res) => {
   try {
     const { bookingId, rating, comment } = req.body;
@@ -46,17 +38,16 @@ exports.submitReview = async (req, res) => {
     const booking = await Booking.findById(bookingId);
     if (!booking) return res.status(404).json({ success: false, message: 'Booking not found' });
     if (booking.facultyEmail !== req.user.email) {
-      return res.status(403).json({ success: false, message: 'Not authorized to review this booking' });
+      return res.status(403).json({ success: false, message: 'Not authorized' });
     }
-    // Check if already reviewed
-    const existingReview = await Review.findOne({ bookingId });
-    if (existingReview) {
-      return res.status(400).json({ success: false, message: 'This booking has already been reviewed' });
-    }
+    const existing = await Review.findOne({ bookingId });
+    if (existing) return res.status(400).json({ success: false, message: 'Already reviewed' });
+
     const review = await Review.create({
       bookingId,
       roomId: booking.roomId,
-      facultyEmail: req.user.email,
+      facultyId: req.user._id,
+      facultyName: req.user.name,
       rating,
       comment: comment || '',
     });
@@ -66,17 +57,13 @@ exports.submitReview = async (req, res) => {
   }
 };
 
-// Get reviews for a room (public)
 exports.getRoomReviews = async (req, res) => {
   try {
     const { roomId } = req.params;
-    const reviews = await Review.find({ roomId }).sort({ createdAt: -1 });
-    // Calculate average rating
-    let avgRating = 0;
-    if (reviews.length > 0) {
-      const sum = reviews.reduce((acc, r) => acc + r.rating, 0);
-      avgRating = sum / reviews.length;
-    }
+    const reviews = await Review.find({ roomId })
+      .populate('facultyId', 'name email')
+      .sort({ createdAt: -1 });
+    const avgRating = reviews.length ? reviews.reduce((a, r) => a + r.rating, 0) / reviews.length : 0;
     res.json({ success: true, data: { reviews, avgRating, count: reviews.length } });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
