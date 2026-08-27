@@ -111,7 +111,7 @@ npm run dev
 cd ../client
 npm install
 
-# Start frontend
+# Start 
 npm run dev
 
 
