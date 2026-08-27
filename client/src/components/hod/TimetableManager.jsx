@@ -1,0 +1,225 @@
+import React, { useState, useEffect } from 'react';
+import { getRooms, getTimetable, replaceTimetable, updateTimetableEntry, deleteTimetableEntry } from '../../services/api';
+
+export default function TimetableManager({ user }) {
+  const [rooms, setRooms] = useState([]);
+  const [timetable, setTimetable] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [semester, setSemester] = useState('1st');
+  const [section, setSection] = useState('A');
+  const [entries, setEntries] = useState([]);
+  const [editingEntry, setEditingEntry] = useState(null);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+  useEffect(() => {
+    fetchRooms();
+    fetchTimetable();
+  }, []);
+
+  const fetchRooms = async () => {
+    try {
+      const data = await getRooms({ department: user.department });
+      setRooms(data.data || []);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const fetchTimetable = async () => {
+    try {
+      const data = await getTimetable({ department: user.department, semester, section });
+      setTimetable(data.data || []);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  useEffect(() => {
+    fetchTimetable();
+  }, [semester, section]);
+
+  const handleAddEntry = () => {
+    setEntries([...entries, { day: 'Monday', startTime: '09:00', endTime: '10:00', subject: '', roomId: '', classGroup: '', faculty: '' }]);
+  };
+
+  const handleEntryChange = (index, field, value) => {
+    const updated = [...entries];
+    updated[index][field] = value;
+    setEntries(updated);
+  };
+
+  const handleRemoveEntry = (index) => {
+    setEntries(entries.filter((_, i) => i !== index));
+  };
+
+  const handleReplaceTimetable = async (e) => {
+    e.preventDefault();
+    if (!semester || !section || entries.length === 0) {
+      setError('Please fill semester, section and at least one entry.');
+      return;
+    }
+    for (let e of entries) {
+      if (!e.day || !e.startTime || !e.endTime || !e.subject || !e.roomId || !e.classGroup || !e.faculty) {
+        setError('All fields in each entry are required.');
+        return;
+      }
+      if (e.startTime >= e.endTime) {
+        setError('Start time must be before end time.');
+        return;
+      }
+    }
+    setLoading(true);
+    try {
+      const data = await replaceTimetable({
+        department: user.department,
+        semester,
+        section,
+        entries,
+      });
+      setSuccess(`Timetable replaced. ${data.data.bookingsCancelled} bookings cancelled.`);
+      setEntries([]);
+      fetchTimetable();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateEntry = async (entryId, updatedData) => {
+    setLoading(true);
+    try {
+      await updateTimetableEntry(entryId, updatedData);
+      setSuccess('Entry updated.');
+      fetchTimetable();
+      setEditingEntry(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteEntry = async (entryId) => {
+    if (!window.confirm('Delete this timetable entry?')) return;
+    try {
+      await deleteTimetableEntry(entryId);
+      setSuccess('Entry deleted.');
+      fetchTimetable();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  return (
+    <div>
+      {error && <div className="bg-rose-50 text-rose-800 p-3 rounded mb-4">{error}</div>}
+      {success && <div className="bg-emerald-50 text-emerald-800 p-3 rounded mb-4">{success}</div>}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-1 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+          <h3 className="text-lg font-semibold mb-4">Replace Timetable</h3>
+          <form onSubmit={handleReplaceTimetable} className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-700">Semester</label>
+              <select value={semester} onChange={(e) => setSemester(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                {['1st','2nd','3rd','4th','5th','6th','7th','8th'].map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700">Section</label>
+              <select value={section} onChange={(e) => setSection(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                {['A','B','C','D'].map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div className="max-h-60 overflow-y-auto space-y-2">
+              {entries.map((entry, idx) => (
+                <div key={idx} className="border p-2 rounded-lg bg-slate-50 space-y-1">
+                  <select value={entry.day} onChange={(e) => handleEntryChange(idx, 'day', e.target.value)} className="w-full border border-slate-300 rounded px-2 py-1 text-sm">
+                    {days.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                  <div className="flex gap-1">
+                    <input type="time" value={entry.startTime} onChange={(e) => handleEntryChange(idx, 'startTime', e.target.value)} className="w-1/2 border border-slate-300 rounded px-2 py-1 text-sm" />
+                    <input type="time" value={entry.endTime} onChange={(e) => handleEntryChange(idx, 'endTime', e.target.value)} className="w-1/2 border border-slate-300 rounded px-2 py-1 text-sm" />
+                  </div>
+                  <input type="text" placeholder="Subject" value={entry.subject} onChange={(e) => handleEntryChange(idx, 'subject', e.target.value)} className="w-full border border-slate-300 rounded px-2 py-1 text-sm" />
+                  <select value={entry.roomId} onChange={(e) => handleEntryChange(idx, 'roomId', e.target.value)} className="w-full border border-slate-300 rounded px-2 py-1 text-sm">
+                    <option value="">Select Room</option>
+                    {rooms.map(r => <option key={r.id} value={r.id}>{r.name} ({r.roomNumber})</option>)}
+                  </select>
+                  <input type="text" placeholder="Class Group (e.g. CS-3A)" value={entry.classGroup} onChange={(e) => handleEntryChange(idx, 'classGroup', e.target.value)} className="w-full border border-slate-300 rounded px-2 py-1 text-sm" />
+                  <input type="text" placeholder="Faculty Name" value={entry.faculty} onChange={(e) => handleEntryChange(idx, 'faculty', e.target.value)} className="w-full border border-slate-300 rounded px-2 py-1 text-sm" />
+                  <button type="button" onClick={() => handleRemoveEntry(idx)} className="text-rose-600 text-sm">Remove</button>
+                </div>
+              ))}
+            </div>
+            <button type="button" onClick={handleAddEntry} className="w-full bg-slate-200 text-slate-700 py-2 rounded-lg text-sm font-semibold hover:bg-slate-300">
+              + Add Entry
+            </button>
+            <button type="submit" disabled={loading || entries.length === 0} className="w-full bg-indigo-600 text-white py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50">
+              {loading ? 'Replacing...' : 'Replace Timetable'}
+            </button>
+          </form>
+        </div>
+
+        <div className="lg:col-span-2">
+          <h4 className="text-lg font-semibold mb-2">Current Timetable - {semester} {section}</h4>
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-x-auto">
+            <table className="min-w-full">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="text-left p-2 text-sm font-semibold">Day</th>
+                  <th className="text-left p-2 text-sm font-semibold">Time</th>
+                  <th className="text-left p-2 text-sm font-semibold">Subject</th>
+                  <th className="text-left p-2 text-sm font-semibold">Room</th>
+                  <th className="text-left p-2 text-sm font-semibold">Class Group</th>
+                  <th className="text-left p-2 text-sm font-semibold">Faculty</th>
+                  <th className="text-left p-2 text-sm font-semibold">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {timetable.map((entry) => (
+                  <tr key={entry.id} className="border-t">
+                    <td className="p-2 text-sm">{entry.day}</td>
+                    <td className="p-2 text-sm">{entry.startTime} - {entry.endTime}</td>
+                    <td className="p-2 text-sm">{entry.subject}</td>
+                    <td className="p-2 text-sm">{entry.roomId?.name}</td>
+                    <td className="p-2 text-sm">{entry.classGroup}</td>
+                    <td className="p-2 text-sm">{entry.faculty}</td>
+                    <td className="p-2 text-sm space-x-1">
+                      <button onClick={() => setEditingEntry(entry)} className="text-indigo-600 hover:text-indigo-800 text-sm">Edit</button>
+                      <button onClick={() => handleDeleteEntry(entry.id)} className="text-rose-600 hover:text-rose-800 text-sm">Delete</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {editingEntry && (
+            <div className="mt-4 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+              <h4 className="text-lg font-semibold mb-2">Edit Entry</h4>
+              <div className="grid grid-cols-2 gap-2">
+                <input type="time" value={editingEntry.startTime} onChange={(e) => setEditingEntry({...editingEntry, startTime: e.target.value})} className="border border-slate-300 rounded px-2 py-1 text-sm" />
+                <input type="time" value={editingEntry.endTime} onChange={(e) => setEditingEntry({...editingEntry, endTime: e.target.value})} className="border border-slate-300 rounded px-2 py-1 text-sm" />
+                <input type="text" value={editingEntry.subject} onChange={(e) => setEditingEntry({...editingEntry, subject: e.target.value})} placeholder="Subject" className="border border-slate-300 rounded px-2 py-1 text-sm" />
+                <select value={editingEntry.roomId?._id || editingEntry.roomId} onChange={(e) => setEditingEntry({...editingEntry, roomId: e.target.value})} className="border border-slate-300 rounded px-2 py-1 text-sm">
+                  {rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+                <input type="text" value={editingEntry.classGroup} onChange={(e) => setEditingEntry({...editingEntry, classGroup: e.target.value})} placeholder="Class Group" className="border border-slate-300 rounded px-2 py-1 text-sm" />
+                <input type="text" value={editingEntry.faculty} onChange={(e) => setEditingEntry({...editingEntry, faculty: e.target.value})} placeholder="Faculty" className="border border-slate-300 rounded px-2 py-1 text-sm" />
+              </div>
+              <div className="mt-3 flex gap-2">
+                <button onClick={() => handleUpdateEntry(editingEntry.id, editingEntry)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700">Save</button>
+                <button onClick={() => setEditingEntry(null)} className="bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-slate-300">Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

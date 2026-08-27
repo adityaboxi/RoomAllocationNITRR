@@ -1,0 +1,57 @@
+import React, { useState, useEffect } from 'react';
+import RoomManager from './hod/RoomManager';
+import TimetableManager from './hod/TimetableManager';
+import { getDepartmentStats } from '../services/api';
+
+export default function HODDashboard({ user }) {
+  const [stats, setStats] = useState(null);
+  const [activeTab, setActiveTab] = useState('rooms');
+
+  useEffect(() => {
+    fetchStats();
+  }, []);
+
+  const fetchStats = async () => {
+    try {
+      const data = await getDepartmentStats(user.department);
+      setStats(data.data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold text-slate-900">HOD Dashboard – {user.department.toUpperCase()}</h1>
+        {stats && (
+          <div className="flex gap-4 text-sm">
+            <span>Rooms: {stats.totalRooms}</span>
+            <span>Active Bookings: {stats.activeBookings}</span>
+            <span>Timetable Entries: {stats.totalTimetable}</span>
+          </div>
+        )}
+      </div>
+
+      <div className="border-b border-slate-200 mb-6">
+        <nav className="flex gap-4">
+          <button
+            onClick={() => setActiveTab('rooms')}
+            className={`py-2 px-4 text-sm font-semibold ${activeTab === 'rooms' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-500 hover:text-slate-900'}`}
+          >
+            Manage Rooms
+          </button>
+          <button
+            onClick={() => setActiveTab('timetable')}
+            className={`py-2 px-4 text-sm font-semibold ${activeTab === 'timetable' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-500 hover:text-slate-900'}`}
+          >
+            Manage Timetable
+          </button>
+        </nav>
+      </div>
+
+      {activeTab === 'rooms' && <RoomManager user={user} />}
+      {activeTab === 'timetable' && <TimetableManager user={user} />}
+    </div>
+  );
+}

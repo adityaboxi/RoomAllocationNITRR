@@ -1,4 +1,4 @@
-const express = require('express');
+/*const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
@@ -1547,6 +1547,75 @@ server.listen(PORT, () => {
   console.log(`   GET    /api/bookings (status, dept, date, facultyEmail)`);
   console.log(`   GET    /api/bookings/my`);
   console.log(`   GET    /api/bookings/:id`);
+  console.log(`   POST   /api/bookings`);
+  console.log(`   PUT    /api/bookings/:id/cancel`);
+  console.log(`   POST   /api/bookings/lock`);
+  console.log(`   POST   /api/bookings/unlock`);
+  console.log(`   ─────────────────────────────\n`);
+});*/
+
+const app = require('./app');
+const http = require('http');
+const connectDB = require('./config/db');
+const { initSocket } = require('./utils/socket');
+require('dotenv').config();
+
+const PORT = process.env.PORT || 3000;
+
+// Connect to DB
+connectDB();
+
+// Create server
+const server = http.createServer(app);
+
+// Initialize Socket.IO
+initSocket(server);
+
+server.listen(PORT, () => {
+  console.log(`\n🚀 Server running on http://localhost:${PORT} (TESTING MODE – only @gmail.com)`);
+  console.log(`📡 Socket.IO server attached`);
+  console.log(`📧 Email sending DISABLED – OTPs are printed to console.`);
+  console.log(`🔐 Password hashing DISABLED – passwords stored in plain text.`);
+  console.log(`📧 Allowed domains: @gmail.com only`);
+  console.log(`\n📋 API Endpoints:`);
+  console.log(`   ─────────────────────────────`);
+  console.log(`   🔐 AUTH:`);
+  console.log(`   POST   /api/auth/login`);
+  console.log(`   POST   /api/auth/signup`);
+  console.log(`   POST   /api/auth/forgot-password`);
+  console.log(`   POST   /api/auth/verify-reset-otp`);
+  console.log(`   POST   /api/auth/reset-password`);
+  console.log(`   POST   /api/auth/change-password`);
+  console.log(`   GET    /api/auth/me`);
+  console.log(`   ─────────────────────────────`);
+  console.log(`   🏢 ROOMS (with filters):`);
+  console.log(`   GET    /api/rooms (dept, floor, building, search, etc.)`);
+  console.log(`   GET    /api/rooms/:id`);
+  console.log(`   GET    /api/rooms/available (with filters)`);
+  console.log(`   GET    /api/rooms/floors`);
+  console.log(`   GET    /api/rooms/buildings`);
+  console.log(`   GET    /api/rooms/department/:department`);
+  console.log(`   POST   /api/rooms (HOD only)`);
+  console.log(`   PUT    /api/rooms/:id (HOD only)`);
+  console.log(`   PUT    /api/rooms/:id/toggle (HOD only)`);
+  console.log(`   DELETE /api/rooms/:id (HOD only)`);
+  console.log(`   GET    /api/rooms/:roomId/availability`);
+  console.log(`   ─────────────────────────────`);
+  console.log(`   📅 TIMETABLE:`);
+  console.log(`   GET    /api/timetable (dept, semester, section, day, faculty)`);
+  console.log(`   GET    /api/timetable/department/:dept`);
+  console.log(`   GET    /api/timetable/faculty/:name`);
+  console.log(`   GET    /api/timetable/room/:roomId`);
+  console.log(`   POST   /api/timetable (HOD only) — REPLACES entire timetable`);
+  console.log(`   PUT    /api/timetable/:id (HOD only)`);
+  console.log(`   DELETE /api/timetable/:id (HOD only)`);
+  console.log(`   ─────────────────────────────`);
+  console.log(`   📋 BOOKINGS:`);
+  console.log(`   GET    /api/bookings (status, dept, date, facultyEmail)`);
+  console.log(`   GET    /api/bookings/my`);
+  console.log(`   GET    /api/bookings/:id`);
+  console.log(`   GET    /api/bookings/room/:roomId`);
+  console.log(`   GET    /api/bookings/faculty/:facultyEmail`);
   console.log(`   POST   /api/bookings`);
   console.log(`   PUT    /api/bookings/:id/cancel`);
   console.log(`   POST   /api/bookings/lock`);
