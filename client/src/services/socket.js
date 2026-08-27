@@ -9,7 +9,6 @@ let currentToken = null;
 export const initSocket = (token) => {
   if (!token) return null;
 
-  // If token changed, recreate connection
   if (socket && currentToken !== token) {
     disconnectSocket();
   }
@@ -63,48 +62,32 @@ export const disconnectSocket = () => {
 };
 
 // ---------- EVENT LISTENER HELPERS ----------
-
-// Booking Created
 export const onBookingCreated = (callback) => {
   const s = getSocket();
-  if (s && callback) {
-    s.on('booking-created', callback);
-  }
+  if (s && callback) s.on('booking-created', callback);
 };
 
 export const offBookingCreated = (callback) => {
   const s = getSocket();
-  if (s && callback) {
-    s.off('booking-created', callback);
-  }
+  if (s && callback) s.off('booking-created', callback);
 };
 
-// Booking Cancelled
 export const onBookingCancelled = (callback) => {
   const s = getSocket();
-  if (s && callback) {
-    s.on('booking-cancelled', callback);
-  }
+  if (s && callback) s.on('booking-cancelled', callback);
 };
 
 export const offBookingCancelled = (callback) => {
   const s = getSocket();
-  if (s && callback) {
-    s.off('booking-cancelled', callback);
-  }
+  if (s && callback) s.off('booking-cancelled', callback);
 };
 
-// Master Timetable Updated
 export const onTimetableUpdated = (callback) => {
   const s = getSocket();
-  if (s && callback) {
-    s.on('timetable-updated', callback);
-  }
+  if (s && callback) s.on('timetable-updated', callback);
 };
 
 export const offTimetableUpdated = (callback) => {
   const s = getSocket();
-  if (s && callback) {
-    s.off('timetable-updated', callback);
-  }
+  if (s && callback) s.off('timetable-updated', callback);
 };
