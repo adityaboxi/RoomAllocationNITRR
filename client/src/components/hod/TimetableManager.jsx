@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getRooms, getTimetable, replaceTimetable, updateTimetableEntry, deleteTimetableEntry } from '../../services/api';
+import { Download, Copy } from 'lucide-react'; // make sure lucide-react is installed
 
 // Use environment variable for API base, fallback to relative (proxied by Vite)
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -16,6 +17,10 @@ export default function TimetableManager({ user }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
+  // ---------- NEW: Room selection state ----------
+  const [selectedRoomIds, setSelectedRoomIds] = useState([]);
+  const [loadingRooms, setLoadingRooms] = useState(false);
+
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
   useEffect(() => {
@@ -24,11 +29,16 @@ export default function TimetableManager({ user }) {
   }, []);
 
   const fetchRooms = async () => {
+    setLoadingRooms(true);
     try {
       const data = await getRooms({ department: user.department });
       setRooms(data.data || []);
+      // Select all rooms by default
+      setSelectedRoomIds(data.data.map(r => r.id));
     } catch (err) {
       setError(err.message);
+    } finally {
+      setLoadingRooms(false);
     }
   };
 
@@ -106,7 +116,6 @@ export default function TimetableManager({ user }) {
     setUploading(true);
     try {
       const token = localStorage.getItem('token');
-      // Use relative path – Vite proxies /api to backend
       const res = await fetch(`${API_BASE}/api/timetable/upload`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
@@ -150,6 +159,39 @@ export default function TimetableManager({ user }) {
     }
   };
 
+  // ---------- NEW: Download template with selected rooms ----------
+  const downloadTemplate = () => {
+    if (selectedRoomIds.length === 0) {
+      alert('Please select at least one room.');
+      return;
+    }
+    const selectedRooms = rooms.filter(r => selectedRoomIds.includes(r.id));
+    const roomNames = selectedRooms.map(r => r.name);
+
+    let csv = 'Day,Start Time,End Time,Subject,RoomId,Class Group,Faculty\n';
+    roomNames.forEach(name => {
+      csv += `,,,,${name},,\n`;
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `timetable_template_${user.department}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // ---------- NEW: Copy room names to clipboard ----------
+  const copyRoomNames = () => {
+    const names = rooms
+      .filter(r => selectedRoomIds.includes(r.id))
+      .map(r => r.name)
+      .join(', ');
+    navigator.clipboard.writeText(names);
+    alert('Room names copied to clipboard!');
+  };
+
   return (
     <div>
       {error && <div className="bg-rose-50 text-rose-800 p-3 rounded mb-4">{error}</div>}
@@ -159,6 +201,7 @@ export default function TimetableManager({ user }) {
         <div className="lg:col-span-1 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
           <h3 className="text-lg font-semibold mb-4">Replace Timetable</h3>
           <form onSubmit={handleReplaceTimetable} className="space-y-3">
+            {/* Semester & Section (unchanged) */}
             <div>
               <label className="block text-sm font-medium text-slate-700">Semester</label>
               <select value={semester} onChange={(e) => setSemester(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
@@ -171,6 +214,8 @@ export default function TimetableManager({ user }) {
                 {['A','B','C','D'].map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
+
+            {/* Manual entries (unchanged) */}
             <div className="max-h-60 overflow-y-auto space-y-2">
               {entries.map((entry, idx) => (
                 <div key={idx} className="border p-2 rounded-lg bg-slate-50 space-y-1">
@@ -200,7 +245,68 @@ export default function TimetableManager({ user }) {
             </button>
           </form>
 
-          {/* File upload section */}
+          {/* ---------- NEW: Room Selection & Template Download ---------- */}
+          <div className="mt-6 border-t pt-4">
+            <h4 className="text-sm font-semibold text-slate-700 mb-2">Generate CSV Template</h4>
+            {loadingRooms ? (
+              <p className="text-sm text-slate-500">Loading rooms...</p>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-2 mb-3 max-h-32 overflow-y-auto">
+                  {rooms.map(room => (
+                    <label key={room.id} className="inline-flex items-center gap-1.5 text-sm bg-slate-50 px-2 py-1 rounded-lg border border-slate-200 hover:border-indigo-400 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedRoomIds.includes(room.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedRoomIds([...selectedRoomIds, room.id]);
+                          } else {
+                            setSelectedRoomIds(selectedRoomIds.filter(id => id !== room.id));
+                          }
+                        }}
+                        className="w-4 h-4 text-indigo-600 rounded"
+                      />
+                      {room.name}
+                    </label>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={downloadTemplate}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download Template
+                  </button>
+                  <button
+                    onClick={copyRoomNames}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-200 text-slate-700 text-sm font-semibold rounded-lg hover:bg-slate-300"
+                  >
+                    <Copy className="w-4 h-4" />
+                    Copy Names
+                  </button>
+                  <button
+                    onClick={() => setSelectedRoomIds(rooms.map(r => r.id))}
+                    className="text-xs text-indigo-600 hover:text-indigo-800"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    onClick={() => setSelectedRoomIds([])}
+                    className="text-xs text-slate-500 hover:text-slate-700"
+                  >
+                    Clear
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 mt-2">
+                  <strong>Tip:</strong> The template uses room <strong>names</strong> in the <code>RoomId</code> column – these are accepted by the server.
+                </p>
+              </>
+            )}
+          </div>
+
+          {/* File upload section (unchanged) */}
           <div className="mt-6 border-t pt-4">
             <h4 className="text-sm font-semibold text-slate-700 mb-2">Or upload Excel/CSV</h4>
             <input
@@ -214,6 +320,7 @@ export default function TimetableManager({ user }) {
           </div>
         </div>
 
+        {/* Timetable display (unchanged) */}
         <div className="lg:col-span-2">
           <h4 className="text-lg font-semibold mb-2">Current Timetable - {semester} {section}</h4>
           <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-x-auto">

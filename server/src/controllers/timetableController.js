@@ -5,12 +5,13 @@ const User = require('../models/User');
 const Notification = require('../models/Notification');
 const { getDayOfWeek, isOverlapping } = require('../utils/helpers');
 const { sendBookingCancellationEmail } = require('../utils/email');
-const { emitToUser, getIO } = require('../utils/socket'); // added getIO
+const { emitToUser, getIO } = require('../utils/socket');
 const multer = require('multer');
 const ExcelJS = require('exceljs');
 const { parse } = require('csv-parse');
 const path = require('path');
 const { Readable } = require('stream');
+const mongoose = require('mongoose');
 
 // ---------- MULTER CONFIG ----------
 const upload = multer({
@@ -26,7 +27,36 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 } // 5MB max
 });
 
-// ---------- HELPER: CANCEL CONFLICTING BOOKINGS (with email, socket, DB notification) ----------
+// ---------- HELPER: Resolve room identifier to ObjectId ----------
+const resolveRoomIdentifier = async (identifier, department) => {
+  if (!identifier) return null;
+
+  // If it's a valid MongoDB ObjectId, try that first
+  if (mongoose.Types.ObjectId.isValid(identifier)) {
+    const room = await Room.findOne({ _id: identifier, department, isActive: true });
+    if (room) return room;
+  }
+
+  // Try by name (case-insensitive)
+  let room = await Room.findOne({
+    name: { $regex: new RegExp('^' + identifier.trim() + '$', 'i') },
+    department,
+    isActive: true
+  });
+  if (room) return room;
+
+  // Try by room number (case-insensitive)
+  room = await Room.findOne({
+    roomNumber: { $regex: new RegExp('^' + identifier.trim() + '$', 'i') },
+    department,
+    isActive: true
+  });
+  if (room) return room;
+
+  return null;
+};
+
+// ---------- HELPER: CANCEL CONFLICTING BOOKINGS ----------
 const cancelConflictingBookings = async (timetableEntries, department) => {
   const cancelledBookings = [];
   const activeBookings = await Booking.find({ department, status: 'active' }).populate('roomId');
@@ -54,7 +84,7 @@ const cancelConflictingBookings = async (timetableEntries, department) => {
           console.error('Failed to send cancellation email:', emailError.message);
         }
 
-        // Send socket notification to the affected user
+        // Send socket notification
         const facultyUser = await User.findOne({ email: booking.facultyEmail });
         if (facultyUser) {
           emitToUser(facultyUser._id.toString(), 'booking-cancelled', {
@@ -66,7 +96,6 @@ const cancelConflictingBookings = async (timetableEntries, department) => {
             reason: booking.conflictMessage,
           });
 
-          // Save notification in DB
           await Notification.create({
             userId: facultyUser._id,
             message: `Booking cancelled: ${booking.roomId.name} on ${booking.date} ${booking.startTime}-${booking.endTime}. Reason: ${booking.conflictMessage}`,
@@ -87,7 +116,7 @@ const cancelConflictingBookings = async (timetableEntries, department) => {
   return cancelledBookings;
 };
 
-// ---------- HELPER: CORE REPLACEMENT LOGIC (shared by JSON and file upload) ----------
+// ---------- HELPER: CORE REPLACEMENT LOGIC ----------
 const replaceTimetableEntries = async ({ department, semester, section, entries, userId }) => {
   const validatedEntries = [];
   const errors = [];
@@ -110,6 +139,8 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
       errors.push(`Entry ${i + 1}: Time slot must be at least 30 minutes`);
       continue;
     }
+
+    // roomId is now an ObjectId (resolved earlier)
     const room = await Room.findById(roomId);
     if (!room) {
       errors.push(`Entry ${i + 1}: Room not found`);
@@ -185,7 +216,7 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
   };
 };
 
-// ---------- GET ROUTES ----------
+// ---------- GET ROUTES (unchanged) ----------
 exports.getTimetable = async (req, res) => {
   try {
     const { department, semester, section, day, faculty } = req.query;
@@ -278,7 +309,6 @@ exports.replaceTimetable = async (req, res) => {
       userId: req.user._id
     });
 
-    // ---------- EMIT GLOBAL TIMETABLE-UPDATED EVENT ----------
     const io = getIO();
     if (io) {
       io.emit('timetable-updated', {
@@ -315,11 +345,9 @@ exports.replaceTimetable = async (req, res) => {
   }
 };
 
-// ---------- FILE UPLOAD (using exceljs for Excel, csv-parse for CSV) ----------
-// Middleware for multer
+// ---------- FILE UPLOAD (UPDATED to accept room names/numbers) ----------
 exports.uploadTimetableFile = upload.single('file');
 
-// Handler for file upload
 exports.replaceTimetableFromFile = async (req, res) => {
   try {
     if (!req.file) {
@@ -330,7 +358,6 @@ exports.replaceTimetableFromFile = async (req, res) => {
     let jsonData = [];
 
     if (ext === '.csv') {
-      // Parse CSV using csv-parse
       const parser = parse({
         columns: true,
         skip_empty_lines: true,
@@ -341,30 +368,25 @@ exports.replaceTimetableFromFile = async (req, res) => {
       const parserStream = bufferStream.pipe(parser);
       
       await new Promise((resolve, reject) => {
-        parserStream.on('data', (record) => {
-          records.push(record);
-        });
+        parserStream.on('data', (record) => records.push(record));
         parserStream.on('end', resolve);
         parserStream.on('error', reject);
       });
       jsonData = records;
     } else {
-      // Parse Excel using exceljs
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(req.file.buffer);
       const worksheet = workbook.worksheets[0];
       if (!worksheet) {
         return res.status(400).json({ success: false, message: 'No worksheet found in the file' });
       }
-      // Get header row (first row)
       const headerRow = worksheet.getRow(1);
       const headers = [];
       headerRow.eachCell((cell, colNumber) => {
         headers[colNumber] = cell.text;
       });
-      // Get data rows
       worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-        if (rowNumber === 1) return; // skip header
+        if (rowNumber === 1) return;
         const rowData = {};
         row.eachCell((cell, colNumber) => {
           const header = headers[colNumber];
@@ -412,16 +434,39 @@ exports.replaceTimetableFromFile = async (req, res) => {
       return res.status(400).json({ success: false, message: 'semester and section are required' });
     }
 
-    // Replace timetable using the helper
+    // ========== NEW: Resolve each room identifier to an ObjectId ==========
+    const resolvedEntries = [];
+    const resolveErrors = [];
+
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      const room = await resolveRoomIdentifier(entry.roomId, req.user.department);
+      if (!room) {
+        resolveErrors.push(`Entry ${i + 1}: Room "${entry.roomId}" not found in department ${req.user.department}`);
+        continue;
+      }
+      resolvedEntries.push({
+        ...entry,
+        roomId: room._id, // now an ObjectId
+      });
+    }
+
+    if (resolveErrors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Room resolution errors: ${resolveErrors.join('; ')}`
+      });
+    }
+
+    // Replace timetable using the helper with resolved ObjectIds
     const result = await replaceTimetableEntries({
       department: req.user.department,
       semester,
       section,
-      entries,
+      entries: resolvedEntries,
       userId: req.user._id
     });
 
-    // ---------- EMIT GLOBAL TIMETABLE-UPDATED EVENT ----------
     const io = getIO();
     if (io) {
       io.emit('timetable-updated', {
@@ -458,7 +503,7 @@ exports.replaceTimetableFromFile = async (req, res) => {
   }
 };
 
-// ---------- UPDATE & DELETE ----------
+// ---------- UPDATE & DELETE (unchanged) ----------
 exports.updateTimetableEntry = async (req, res) => {
   try {
     const { id } = req.params;
@@ -503,7 +548,6 @@ exports.updateTimetableEntry = async (req, res) => {
     entry.version += 1;
     await entry.save();
 
-    // Check conflicts with active bookings
     const updatedEntry = await Timetable.findById(id).populate('roomId');
     if (updatedEntry && updatedEntry.isActive) {
       const activeBookings = await Booking.find({
