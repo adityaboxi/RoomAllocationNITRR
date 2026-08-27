@@ -18,17 +18,16 @@ const UserSchema = new mongoose.Schema({
   lastLogin: Date,
 }, { timestamps: true });
 
-// 🔧 TEMPORARY: disable bcrypt hashing for testing
+// 🔧 ENABLED: bcrypt hashing for password
 UserSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
-  // this.password = await bcrypt.hash(this.password, 10);
+  this.password = await bcrypt.hash(this.password, 10);
   next();
 });
 
-// 🔧 TEMPORARY: replace bcrypt.compare with plain text comparison
+// 🔧 ENABLED: bcrypt comparison for login
 UserSchema.methods.comparePassword = async function(password) {
-  // return await bcrypt.compare(password, this.password);
-  return this.password === password;
+  return await bcrypt.compare(password, this.password);
 };
 
 UserSchema.methods.updateLastLogin = async function() {
@@ -36,7 +35,7 @@ UserSchema.methods.updateLastLogin = async function() {
   await this.save();
 };
 
-// ---------- UPDATED: detectRole based on domain ----------
+// ---------- detectRole based on domain ----------
 UserSchema.statics.isValidEmail = function(email) {
   return /^[a-zA-Z0-9._%+-]+@(gmail\.com|cse\.nitrr\.ac\.in)$/.test(email);
 };
@@ -45,7 +44,7 @@ UserSchema.statics.detectRole = function(email) {
   const domain = email.split('@')[1];
   if (domain === 'cse.nitrr.ac.in') return 'HOD';
   if (domain === 'gmail.com') return 'FACULTY';
-  return 'FACULTY'; // fallback (should never happen if email is valid)
+  return 'FACULTY'; // fallback
 };
 
 UserSchema.set('toJSON', {
