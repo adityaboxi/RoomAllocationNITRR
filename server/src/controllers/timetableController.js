@@ -124,7 +124,7 @@ const cancelConflictingBookings = async (timetableEntries, department) => {
   return cancelledBookings;
 };
 
-// ---------- CORE REPLACEMENT LOGIC (Standalone & Replica Set Safe) ----------
+// ---------- CORE REPLACEMENT LOGIC ----------
 const replaceTimetableEntries = async ({ department, semester, section, entries, userId }) => {
   const validatedEntries = [];
   const errors = [];
@@ -182,7 +182,7 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
     throw new Error(`Data validation failed:\n• ${errors.slice(0, 5).join('\n• ')}`);
   }
   if (validatedEntries.length === 0) {
-    throw new Error('No valid timetable entries found in file');
+    throw new Error('No valid timetable entries found');
   }
 
   // 1. Intra-Batch Overlap Checks
@@ -193,10 +193,10 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
 
       if (a.day === b.day && isOverlapping(a.startTime, a.endTime, b.startTime, b.endTime)) {
         if (a.roomId.toString() === b.roomId.toString()) {
-          throw new Error(`Room collision in uploaded file: Same room scheduled twice on ${a.day} (${a.startTime}-${a.endTime} & ${b.startTime}-${b.endTime})`);
+          throw new Error(`Room collision: Same room scheduled twice on ${a.day} (${a.startTime}-${a.endTime} & ${b.startTime}-${b.endTime})`);
         }
         if (a.faculty.toLowerCase() === b.faculty.toLowerCase()) {
-          throw new Error(`Faculty collision in uploaded file: Prof. ${a.faculty} is assigned to two overlapping classes on ${a.day} (${a.startTime}-${a.endTime} & ${b.startTime}-${b.endTime})`);
+          throw new Error(`Faculty collision: Prof. ${a.faculty} is assigned to two overlapping classes on ${a.day} (${a.startTime}-${a.endTime} & ${b.startTime}-${b.endTime})`);
         }
       }
     }
@@ -214,7 +214,7 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
     });
 
     if (roomConflict) {
-      throw new Error(`Room clash with ${roomConflict.semester} Sem Sec ${roomConflict.section}: ${roomConflict.subject} at ${entry.day} ${roomConflict.startTime}-${roomConflict.endTime}`);
+      throw new Error(`Room clash with ${roomConflict.semester} Sem Sec ${roomConflict.section}: ${roomConflict.subject} on ${entry.day} (${roomConflict.startTime}-${roomConflict.endTime})`);
     }
 
     const facultyConflict = await Timetable.findOne({
@@ -227,13 +227,21 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
     });
 
     if (facultyConflict) {
-      throw new Error(`Faculty clash: Prof. ${entry.faculty} is already teaching ${facultyConflict.subject} (${facultyConflict.semester} Sec ${facultyConflict.section}) on ${entry.day} ${facultyConflict.startTime}-${facultyConflict.endTime}`);
+      throw new Error(`Faculty clash: Prof. ${entry.faculty} is already teaching ${facultyConflict.subject} on ${entry.day} (${facultyConflict.startTime}-${facultyConflict.endTime})`);
     }
   }
 
-  // 3. Deactivate old semester/section slots & Insert new
+  // 3. Deactivate old slots for the specific rooms being uploaded & insert new
+  const targetRoomIds = [...new Set(validatedEntries.map((e) => e.roomId.toString()))];
+
   await Timetable.updateMany(
-    { department, semester, section, isActive: true },
+    {
+      department,
+      roomId: { $in: targetRoomIds },
+      semester,
+      section,
+      isActive: true,
+    },
     { $set: { isActive: false }, $inc: { version: 1 } }
   );
 
@@ -256,10 +264,10 @@ exports.getTimetable = async (req, res) => {
 
     if (req.user.role === 'HOD') query.department = req.user.department;
     if (department) query.department = department.trim();
-    if (semester) query.semester = semester.trim();
-    if (section) query.section = section.trim();
-    if (day) query.day = day.trim();
-    if (roomId && mongoose.Types.ObjectId.isValid(roomId)) query.roomId = roomId;
+    if (semester && semester !== 'ALL') query.semester = semester.trim();
+    if (section && section !== 'ALL') query.section = section.trim();
+    if (day && day !== 'ALL') query.day = day.trim();
+    if (roomId && roomId !== 'ALL' && mongoose.Types.ObjectId.isValid(roomId)) query.roomId = roomId;
     if (faculty) query.faculty = { $regex: escapeRegex(faculty.trim()), $options: 'i' };
 
     const entries = await Timetable.find(query)
@@ -464,7 +472,7 @@ exports.updateRoomDayTimetable = async (req, res) => {
   }
 };
 
-// ---------- FILE UPLOAD & STRICT HEADER PRE-VALIDATION ----------
+// ---------- FILE UPLOAD & FLEXIBLE ROOM SELECTION ----------
 exports.uploadTimetableFile = upload.single('file');
 
 exports.replaceTimetableFromFile = async (req, res) => {
@@ -528,6 +536,19 @@ exports.replaceTimetableFromFile = async (req, res) => {
       return res.status(400).json({ success: false, message: 'The uploaded spreadsheet contains no data rows.' });
     }
 
+    const { semester, section, roomId: explicitRoomId } = req.body;
+    if (!semester || !section) {
+      return res.status(400).json({ success: false, message: 'Target Semester and Section must be specified.' });
+    }
+
+    let targetRoom = null;
+    if (explicitRoomId && mongoose.Types.ObjectId.isValid(explicitRoomId)) {
+      targetRoom = await Room.findById(explicitRoomId);
+      if (!targetRoom || !targetRoom.isActive) {
+        return res.status(404).json({ success: false, message: 'Selected room not found or deactivated.' });
+      }
+    }
+
     // Header Format Validation
     const normalizedHeaders = detectedHeaders.map((h) => String(h || '').trim().toLowerCase().replace(/[\s_-]/g, ''));
     const requiredHeaderPatterns = [
@@ -535,10 +556,13 @@ exports.replaceTimetableFromFile = async (req, res) => {
       { key: 'startTime', match: ['starttime', 'start'] },
       { key: 'endTime', match: ['endtime', 'end'] },
       { key: 'subject', match: ['subject', 'course', 'title'] },
-      { key: 'roomId', match: ['roomid', 'room', 'roomnumber'] },
       { key: 'classGroup', match: ['classgroup', 'group', 'batch'] },
       { key: 'faculty', match: ['faculty', 'professor', 'teacher', 'instructor'] },
     ];
+
+    if (!targetRoom) {
+      requiredHeaderPatterns.push({ key: 'roomId', match: ['roomid', 'room', 'roomnumber'] });
+    }
 
     const missingHeaders = [];
     requiredHeaderPatterns.forEach((pattern) => {
@@ -551,14 +575,11 @@ exports.replaceTimetableFromFile = async (req, res) => {
     if (missingHeaders.length > 0) {
       return res.status(400).json({
         success: false,
-        message: `Invalid file format. Missing required columns: [${missingHeaders.join(', ')}]. Please download and use the official CSV template.`,
-        requiredFormat: 'Day, Start Time, End Time, Subject, RoomId, Class Group, Faculty',
+        message: `Invalid file format. Missing required columns: [${missingHeaders.join(', ')}].`,
+        requiredFormat: targetRoom
+          ? 'Day, Start Time, End Time, Subject, Class Group, Faculty'
+          : 'Day, Start Time, End Time, Subject, RoomId, Class Group, Faculty',
       });
-    }
-
-    const { semester, section } = req.body;
-    if (!semester || !section) {
-      return res.status(400).json({ success: false, message: 'Semester and Section must be specified for this timetable batch.' });
     }
 
     const entries = jsonData.map((row) => {
@@ -579,7 +600,7 @@ exports.replaceTimetableFromFile = async (req, res) => {
         startTime: get('Start Time', 'StartTime', 'Start'),
         endTime: get('End Time', 'EndTime', 'End'),
         subject: get('Subject', 'Course'),
-        roomId: get('RoomId', 'Room ID', 'Room', 'RoomNumber'),
+        roomId: targetRoom ? targetRoom._id.toString() : get('RoomId', 'Room ID', 'Room', 'RoomNumber'),
         classGroup: get('Class Group', 'ClassGroup', 'Group') || `${semester} Sec ${section}`,
         faculty: get('Faculty', 'Professor', 'Teacher'),
       };
@@ -592,6 +613,11 @@ exports.replaceTimetableFromFile = async (req, res) => {
 
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
+      if (targetRoom) {
+        resolvedEntries.push({ ...entry, roomId: targetRoom._id });
+        continue;
+      }
+
       const searchKey = String(entry.roomId).trim().toLowerCase();
       const room = roomMap.get(searchKey);
 
@@ -634,7 +660,7 @@ exports.replaceTimetableFromFile = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: `Spreadsheet processed successfully! ${result.entriesAdded} timetable slots published, ${result.bookingsCancelled} conflicting ad-hoc bookings cancelled.`,
+      message: `Timetable uploaded successfully for ${targetRoom ? targetRoom.name : `${semester} Sec ${section}`}! (${result.entriesAdded} slots published, ${result.bookingsCancelled} bookings cancelled).`,
       data: result,
     });
   } catch (error) {

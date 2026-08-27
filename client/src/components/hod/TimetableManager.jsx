@@ -2,17 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   getRooms,
   getTimetable,
-  replaceTimetable,
-  updateRoomDayTimetable,
   updateTimetableEntry,
   deleteTimetableEntry,
-  getTimetableByRoom,
 } from '../../services/api';
 import {
   Calendar,
   Download,
   Upload,
-  Plus,
   Trash2,
   Edit2,
   CheckCircle2,
@@ -20,39 +16,27 @@ import {
   Clock,
   BookOpen,
   Building2,
-  Sparkles,
   FileSpreadsheet,
-  Layers,
-  Filter,
+  RefreshCw,
   X,
 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 export default function TimetableManager({ user }) {
-  const [managerMode, setManagerMode] = useState('semester'); // 'semester' | 'roomDay'
   const [rooms, setRooms] = useState([]);
   const [timetable, setTimetable] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [tableLoading, setTableLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  // Manual Semester Form State
-  const [semester, setSemester] = useState('5th');
-  const [section, setSection] = useState('A');
-  const [entries, setEntries] = useState([]);
-
-  // File Upload Specific Target State
+  // File Upload State
   const [uploadSemester, setUploadSemester] = useState('5th');
   const [uploadSection, setUploadSection] = useState('A');
+  const [uploadRoomId, setUploadRoomId] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
 
-  // Room-Day Mode State (Strict Single Room Selection)
-  const [selectedRoomId, setSelectedRoomId] = useState('');
-  const [selectedDay, setSelectedDay] = useState('Monday');
-  const [roomDayEntries, setRoomDayEntries] = useState([]);
-
-  // Right-side Table View Filter
+  // Schedule Multi-Criteria View Filters
   const [filterSemester, setFilterSemester] = useState('ALL');
   const [filterRoomId, setFilterRoomId] = useState('ALL');
   const [filterDay, setFilterDay] = useState('ALL');
@@ -72,19 +56,13 @@ export default function TimetableManager({ user }) {
     fetchScheduleTable();
   }, [filterSemester, filterRoomId, filterDay, user?.department]);
 
-  useEffect(() => {
-    if (managerMode === 'roomDay' && selectedRoomId) {
-      fetchRoomDayTimetable();
-    }
-  }, [managerMode, selectedRoomId, selectedDay]);
-
   const fetchRooms = async () => {
     try {
       const data = await getRooms({ department: user?.department });
       const roomList = data.data || [];
       setRooms(roomList);
-      if (roomList.length > 0 && !selectedRoomId) {
-        setSelectedRoomId(roomList[0].id || roomList[0]._id);
+      if (roomList.length > 0 && !uploadRoomId) {
+        setUploadRoomId(roomList[0].id || roomList[0]._id);
       }
     } catch (err) {
       console.error('Fetch rooms error:', err);
@@ -105,150 +83,6 @@ export default function TimetableManager({ user }) {
       setError(err.message || 'Failed to load timetable');
     } finally {
       setTableLoading(false);
-    }
-  };
-
-  const fetchRoomDayTimetable = async () => {
-    if (!selectedRoomId) return;
-    try {
-      const data = await getTimetableByRoom(selectedRoomId, { day: selectedDay });
-      const list = data.data || [];
-      setRoomDayEntries(
-        list.map((e) => ({
-          startTime: e.startTime,
-          endTime: e.endTime,
-          subject: e.subject,
-          faculty: e.faculty,
-          semester: e.semester,
-          section: e.section,
-          classGroup: e.classGroup,
-        }))
-      );
-    } catch (err) {
-      console.error('Failed to load room schedule:', err);
-    }
-  };
-
-  // ----- Semester Mode Handlers -----
-  const handleAddSemesterEntry = () => {
-    const defaultRoomId = rooms.length > 0 ? (rooms[0].id || rooms[0]._id) : '';
-    setEntries((prev) => [
-      ...prev,
-      {
-        day: 'Monday',
-        startTime: '09:00',
-        endTime: '09:50',
-        subject: '',
-        roomId: defaultRoomId,
-        classGroup: `${semester} Sec ${section}`,
-        faculty: '',
-      },
-    ]);
-  };
-
-  const handleSemesterEntryChange = (index, field, value) => {
-    setEntries((prev) => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
-      return updated;
-    });
-    setError('');
-  };
-
-  const handleRemoveSemesterEntry = (index) => {
-    setEntries((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const handleSaveSemesterTimetable = async (e) => {
-    e.preventDefault();
-    setError('');
-    setSuccess('');
-
-    if (!semester || !section || entries.length === 0) {
-      setError('Please add at least one timetable entry before publishing.');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      await replaceTimetable({
-        department: user?.department,
-        semester,
-        section,
-        entries,
-      });
-
-      setSuccess(`Master Timetable for ${semester} Sec ${section} published successfully!`);
-      setEntries([]);
-      setFilterSemester(semester);
-      await fetchScheduleTable();
-    } catch (err) {
-      setError(err.message || 'Failed to save timetable');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ----- Room-Day Mode Handlers -----
-  const handleAddRoomDaySlot = () => {
-    setRoomDayEntries((prev) => [
-      ...prev,
-      {
-        startTime: '09:00',
-        endTime: '09:50',
-        subject: '',
-        faculty: '',
-        semester: '5th',
-        section: 'A',
-        classGroup: '5th Sec A',
-      },
-    ]);
-  };
-
-  const handleRoomDaySlotChange = (index, field, value) => {
-    setRoomDayEntries((prev) => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
-      if (field === 'semester' || field === 'section') {
-        const sem = field === 'semester' ? value : updated[index].semester;
-        const sec = field === 'section' ? value : updated[index].section;
-        updated[index].classGroup = `${sem} Sec ${sec}`;
-      }
-      return updated;
-    });
-    setError('');
-  };
-
-  const handleRemoveRoomDaySlot = (index) => {
-    setRoomDayEntries((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const handleSaveRoomDayTimetable = async (e) => {
-    e.preventDefault();
-    if (!selectedRoomId || !selectedDay) {
-      setError('Please select a specific room and day.');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-    setSuccess('');
-
-    try {
-      await updateRoomDayTimetable({
-        roomId: selectedRoomId,
-        day: selectedDay,
-        entries: roomDayEntries,
-      });
-
-      const selectedRoomObj = rooms.find((r) => (r.id || r._id) === selectedRoomId);
-      setSuccess(`Schedule for ${selectedRoomObj?.name || 'Room'} on ${selectedDay} updated!`);
-      setFilterRoomId(selectedRoomId);
-      await fetchScheduleTable();
-    } catch (err) {
-      setError(err.message || 'Failed to save room day schedule');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -281,6 +115,10 @@ export default function TimetableManager({ user }) {
       setError('Please choose a valid spreadsheet file first.');
       return;
     }
+    if (!uploadRoomId) {
+      setError('Please select a Target Room from the dropdown.');
+      return;
+    }
 
     setError('');
     setSuccess('');
@@ -290,6 +128,7 @@ export default function TimetableManager({ user }) {
     formData.append('file', selectedFile);
     formData.append('semester', uploadSemester);
     formData.append('section', uploadSection);
+    formData.append('roomId', uploadRoomId);
 
     try {
       const token = localStorage.getItem('token');
@@ -301,16 +140,16 @@ export default function TimetableManager({ user }) {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.message || 'File validation failed.');
+        throw new Error(data.message || 'File upload failed.');
       }
 
-      setSuccess(data.message || 'Timetable spreadsheet processed and published!');
+      setSuccess(data.message || 'Timetable published successfully!');
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
-      
-      // Auto-set view filter to show all schedule
+
+      // Reset filters so user sees the newly updated room schedule immediately
       setFilterSemester('ALL');
-      setFilterRoomId('ALL');
+      setFilterRoomId(uploadRoomId);
       await fetchScheduleTable();
     } catch (err) {
       setError(err.message);
@@ -329,7 +168,7 @@ export default function TimetableManager({ user }) {
           : updatedData.roomId;
 
       await updateTimetableEntry(entryId, { ...updatedData, roomId: cleanRoomId });
-      setSuccess('Timetable entry modified.');
+      setSuccess('Timetable entry updated.');
       setEditingEntry(null);
       await fetchScheduleTable();
     } catch (err) {
@@ -351,12 +190,9 @@ export default function TimetableManager({ user }) {
   };
 
   const downloadTemplate = () => {
-    const selectedRoomObj = rooms.find((r) => (r.id || r._id) === selectedRoomId) || rooms[0];
-    const roomIdentifier = selectedRoomObj ? selectedRoomObj.name : 'F-42';
-
-    let csv = 'Day,Start Time,End Time,Subject,RoomId,Class Group,Faculty\n';
+    let csv = 'Day,Start Time,End Time,Subject,Class Group,Faculty\n';
     days.forEach((day, idx) => {
-      csv += `${day},09:00,09:50,Core Subject ${idx + 1},${roomIdentifier},${uploadSemester} Sec ${uploadSection},Prof. Faculty Name\n`;
+      csv += `${day},09:00,09:50,Core Subject ${idx + 1},${uploadSemester} Sec ${uploadSection},Prof. Faculty Name\n`;
     });
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -391,414 +227,126 @@ export default function TimetableManager({ user }) {
         </div>
       )}
 
-      {/* Mode Switcher Tabs */}
-      <div className="flex bg-slate-100 p-1 rounded-2xl max-w-md">
-        <button
-          type="button"
-          onClick={() => setManagerMode('semester')}
-          className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
-            managerMode === 'semester'
-              ? 'bg-white text-slate-900 shadow-sm'
-              : 'text-slate-500 hover:text-slate-900'
-          }`}
-        >
-          <Calendar className="w-4 h-4 text-indigo-600" />
-          <span>Semester Timetable</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setManagerMode('roomDay')}
-          className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
-            managerMode === 'roomDay'
-              ? 'bg-white text-slate-900 shadow-sm'
-              : 'text-slate-500 hover:text-slate-900'
-          }`}
-        >
-          <Building2 className="w-4 h-4 text-emerald-600" />
-          <span>Single Room & Day View</span>
-        </button>
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Editor & Upload Form */}
+        {/* Left Column: Dedicated CSV / Excel Upload Card */}
         <div className="lg:col-span-5 space-y-6">
           <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm">
-            {managerMode === 'semester' ? (
-              // ----- SEMESTER MODE -----
-              <>
-                <div className="flex items-center gap-2.5 mb-4 pb-3 border-b border-slate-100">
-                  <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                    <Calendar className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-bold text-slate-900">Manage Semester Timetable</h3>
-                    <p className="text-xs text-slate-400">Department of {user?.department}</p>
-                  </div>
+            <div className="flex items-center gap-2.5 mb-5 pb-3 border-b border-slate-100">
+              <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                <FileSpreadsheet className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Upload Room Timetable</h3>
+                <p className="text-xs text-slate-400">Department of {user?.department}</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {/* 1. Target Room */}
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                  1. Select Classroom / Lab *
+                </label>
+                <select
+                  value={uploadRoomId}
+                  onChange={(e) => setUploadRoomId(e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm bg-slate-50/50 font-bold text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all"
+                >
+                  {rooms.map((r) => (
+                    <option key={r.id || r._id} value={r.id || r._id}>
+                      {r.name} — {r.roomNumber} ({r.floor}, {r.building})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 2. Target Semester & Section */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                    2. Semester *
+                  </label>
+                  <select
+                    value={uploadSemester}
+                    onChange={(e) => setUploadSemester(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm bg-slate-50/50 font-semibold text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600"
+                  >
+                    {['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'].map((s) => (
+                      <option key={s} value={s}>{s} Semester</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                    3. Section *
+                  </label>
+                  <select
+                    value={uploadSection}
+                    onChange={(e) => setUploadSection(e.target.value)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm bg-slate-50/50 font-semibold text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600"
+                  >
+                    {['A', 'B', 'C', 'D'].map((sec) => (
+                      <option key={sec} value={sec}>Section {sec}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* 3. File Input & Template */}
+              <div className="pt-2">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-800">
+                    4. Choose CSV / Excel File *
+                  </label>
+                  <button
+                    type="button"
+                    onClick={downloadTemplate}
+                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 inline-flex items-center gap-1"
+                  >
+                    <Download className="w-3.5 h-3.5" /> Template
+                  </button>
                 </div>
 
-                {/* Spreadsheet Upload Box with Target Semester & Section */}
-                <div className="mb-6 p-4 rounded-2xl bg-indigo-50/50 border border-indigo-100 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
-                      <FileSpreadsheet className="w-4 h-4 text-indigo-600" />
-                      <span>Upload Timetable File (CSV / Excel)</span>
-                    </h4>
-                    <button
-                      type="button"
-                      onClick={downloadTemplate}
-                      className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 inline-flex items-center gap-1"
-                    >
-                      <Download className="w-3.5 h-3.5" /> Template
-                    </button>
-                  </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={handleFileSelect}
+                  className="block w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer border border-slate-200 rounded-xl p-1 bg-slate-50/50"
+                />
+              </div>
 
-                  {/* Target Class Selection for Upload */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-600 mb-1">Target Semester</label>
-                      <select
-                        value={uploadSemester}
-                        onChange={(e) => setUploadSemester(e.target.value)}
-                        className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-white font-medium"
-                      >
-                        {['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'].map((s) => (
-                          <option key={s} value={s}>{s} Semester</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-600 mb-1">Target Section</label>
-                      <select
-                        value={uploadSection}
-                        onChange={(e) => setUploadSection(e.target.value)}
-                        className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-white font-medium"
-                      >
-                        {['A', 'B', 'C', 'D'].map((sec) => (
-                          <option key={sec} value={sec}>Section {sec}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".xlsx,.xls,.csv"
-                    onChange={handleFileSelect}
-                    className="block w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700 cursor-pointer"
-                  />
-
-                  {selectedFile && (
-                    <div className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-indigo-200 animate-fadeIn">
-                      <div className="text-xs text-slate-700 truncate pr-2">
-                        <strong>Ready:</strong> {selectedFile.name}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleSubmitFile}
-                        disabled={uploading}
-                        className="bg-indigo-600 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-all flex items-center gap-1 flex-shrink-0 shadow-sm"
-                      >
-                        <Upload className="w-3 h-3" />
-                        <span>{uploading ? 'Processing...' : 'Submit File'}</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Manual Add Slots */}
-                <div className="pt-2 border-t border-slate-100">
-                  <div className="grid grid-cols-2 gap-3 mb-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">Semester</label>
-                      <select
-                        value={semester}
-                        onChange={(e) => setSemester(e.target.value)}
-                        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs bg-slate-50/50 outline-none"
-                      >
-                        {['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'].map((s) => (
-                          <option key={s} value={s}>{s} Semester</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">Section</label>
-                      <select
-                        value={section}
-                        onChange={(e) => setSection(e.target.value)}
-                        className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs bg-slate-50/50 outline-none"
-                      >
-                        {['A', 'B', 'C', 'D'].map((sec) => (
-                          <option key={sec} value={sec}>Section {sec}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <form onSubmit={handleSaveSemesterTimetable} className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                        Manual Slots ({entries.length})
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleAddSemesterEntry}
-                        className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> Add Class Slot
-                      </button>
-                    </div>
-
-                    {entries.length === 0 ? (
-                      <div className="p-3 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-400 bg-slate-50/50">
-                        Upload CSV above or click <strong>+ Add Class Slot</strong>.
-                      </div>
-                    ) : (
-                      <div className="max-h-64 overflow-y-auto space-y-2.5 pr-1">
-                        {entries.map((entry, idx) => (
-                          <div key={idx} className="p-3 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2 relative">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-bold text-slate-500">Slot #{idx + 1}</span>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveSemesterEntry(idx)}
-                                className="text-rose-500 hover:text-rose-700"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-
-                            <div className="grid grid-cols-3 gap-2">
-                              <select
-                                value={entry.day}
-                                onChange={(e) => handleSemesterEntryChange(idx, 'day', e.target.value)}
-                                className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white"
-                              >
-                                {days.map((d) => <option key={d} value={d}>{d}</option>)}
-                              </select>
-                              <input
-                                type="time"
-                                value={entry.startTime}
-                                onChange={(e) => handleSemesterEntryChange(idx, 'startTime', e.target.value)}
-                                className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white"
-                                required
-                              />
-                              <input
-                                type="time"
-                                value={entry.endTime}
-                                onChange={(e) => handleSemesterEntryChange(idx, 'endTime', e.target.value)}
-                                className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white"
-                                required
-                              />
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-2">
-                              <input
-                                type="text"
-                                placeholder="Subject"
-                                value={entry.subject}
-                                onChange={(e) => handleSemesterEntryChange(idx, 'subject', e.target.value)}
-                                className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-white"
-                                required
-                              />
-                              <select
-                                value={entry.roomId}
-                                onChange={(e) => handleSemesterEntryChange(idx, 'roomId', e.target.value)}
-                                className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white"
-                                required
-                              >
-                                <option value="">Select Room</option>
-                                {rooms.map((r) => (
-                                  <option key={r.id || r._id} value={r.id || r._id}>
-                                    {r.name} ({r.roomNumber})
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-2">
-                              <input
-                                type="text"
-                                placeholder="Class Group"
-                                value={entry.classGroup}
-                                onChange={(e) => handleSemesterEntryChange(idx, 'classGroup', e.target.value)}
-                                className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-white"
-                                required
-                              />
-                              <input
-                                type="text"
-                                placeholder="Faculty Name"
-                                value={entry.faculty}
-                                onChange={(e) => handleSemesterEntryChange(idx, 'faculty', e.target.value)}
-                                className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-white"
-                                required
-                              />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    <button
-                      type="submit"
-                      disabled={loading || entries.length === 0}
-                      className="w-full bg-slate-900 text-white py-2.5 rounded-xl text-xs sm:text-sm font-bold hover:bg-slate-800 transition-all disabled:opacity-50 shadow-sm"
-                    >
-                      {loading ? 'Publishing...' : `Publish Master Timetable (${semester} Sec ${section})`}
-                    </button>
-                  </form>
-                </div>
-              </>
-            ) : (
-              // ----- SINGLE ROOM & DAY VIEW -----
-              <>
-                <div className="flex items-center gap-2.5 mb-4 pb-3 border-b border-slate-100">
-                  <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                    <Building2 className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-bold text-slate-900">Single Room Schedule</h3>
-                    <p className="text-xs text-slate-400">Configure schedule for one room</p>
-                  </div>
-                </div>
-
-                <div className="space-y-3 mb-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Choose Room *
-                    </label>
-                    <select
-                      value={selectedRoomId}
-                      onChange={(e) => setSelectedRoomId(e.target.value)}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-xs sm:text-sm bg-slate-50/50 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600 font-semibold text-slate-900"
-                    >
-                      {rooms.map((r) => (
-                        <option key={r.id || r._id} value={r.id || r._id}>
-                          {r.name} — {r.roomNumber} ({r.floor}, {r.building})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Choose Day of Week *
-                    </label>
-                    <select
-                      value={selectedDay}
-                      onChange={(e) => setSelectedDay(e.target.value)}
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm bg-slate-50/50 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-600 font-semibold text-slate-900"
-                    >
-                      {days.map((d) => <option key={d} value={d}>{d}</option>)}
-                    </select>
-                  </div>
-                </div>
-
-                <form onSubmit={handleSaveRoomDayTimetable} className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                      Day Slots ({roomDayEntries.length})
+              {/* Staged File Card with Submit Button */}
+              {selectedFile && (
+                <div className="bg-indigo-50/60 border border-indigo-200 rounded-2xl p-4 space-y-3 animate-fadeIn">
+                  <div className="flex items-center justify-between text-xs text-indigo-950 font-medium">
+                    <span className="truncate pr-2 font-semibold">
+                      📄 {selectedFile.name} ({(selectedFile.size / 1024).toFixed(1)} KB)
                     </span>
                     <button
                       type="button"
-                      onClick={handleAddRoomDaySlot}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:text-emerald-800"
+                      onClick={() => {
+                        setSelectedFile(null);
+                        if (fileInputRef.current) fileInputRef.current.value = '';
+                      }}
+                      className="text-rose-500 hover:text-rose-700 text-xs font-bold"
                     >
-                      <Plus className="w-3.5 h-3.5" /> Add Slot
+                      Remove
                     </button>
                   </div>
 
-                  {roomDayEntries.length === 0 ? (
-                    <div className="p-4 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-400 bg-slate-50/50">
-                      No classes scheduled for this room on {selectedDay}.
-                    </div>
-                  ) : (
-                    <div className="max-h-72 overflow-y-auto space-y-2.5 pr-1">
-                      {roomDayEntries.map((slot, idx) => (
-                        <div key={idx} className="p-3 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2 relative">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-bold text-slate-500">Slot #{idx + 1}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveRoomDaySlot(idx)}
-                              className="text-rose-500 hover:text-rose-700"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2">
-                            <input
-                              type="time"
-                              value={slot.startTime}
-                              onChange={(e) => handleRoomDaySlotChange(idx, 'startTime', e.target.value)}
-                              className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white"
-                              required
-                            />
-                            <input
-                              type="time"
-                              value={slot.endTime}
-                              onChange={(e) => handleRoomDaySlotChange(idx, 'endTime', e.target.value)}
-                              className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white"
-                              required
-                            />
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2">
-                            <input
-                              type="text"
-                              placeholder="Subject"
-                              value={slot.subject}
-                              onChange={(e) => handleRoomDaySlotChange(idx, 'subject', e.target.value)}
-                              className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-white"
-                              required
-                            />
-                            <input
-                              type="text"
-                              placeholder="Faculty"
-                              value={slot.faculty}
-                              onChange={(e) => handleRoomDaySlotChange(idx, 'faculty', e.target.value)}
-                              className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-white"
-                              required
-                            />
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2">
-                            <select
-                              value={slot.semester}
-                              onChange={(e) => handleRoomDaySlotChange(idx, 'semester', e.target.value)}
-                              className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white"
-                            >
-                              {['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'].map((s) => (
-                                <option key={s} value={s}>{s} Sem</option>
-                              ))}
-                            </select>
-                            <select
-                              value={slot.section}
-                              onChange={(e) => handleRoomDaySlotChange(idx, 'section', e.target.value)}
-                              className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white"
-                            >
-                              {['A', 'B', 'C', 'D'].map((sec) => (
-                                <option key={sec} value={sec}>Sec {sec}</option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
                   <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full bg-emerald-600 text-white py-2.5 rounded-xl text-xs sm:text-sm font-bold hover:bg-emerald-700 transition-all disabled:opacity-50 shadow-sm"
+                    type="button"
+                    onClick={handleSubmitFile}
+                    disabled={uploading}
+                    className="w-full bg-indigo-600 text-white py-2.5 rounded-xl text-xs sm:text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2 shadow-sm"
                   >
-                    {loading ? 'Saving...' : `Save ${selectedDay} Schedule`}
+                    <Upload className="w-4 h-4" />
+                    <span>{uploading ? 'Processing Timetable...' : 'Upload & Publish Timetable'}</span>
                   </button>
-                </form>
-              </>
-            )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -811,29 +359,21 @@ export default function TimetableManager({ user }) {
                 <div className="flex items-center gap-2">
                   <BookOpen className="w-5 h-5 text-indigo-600" />
                   <h3 className="text-base font-bold text-slate-900">
-                    Published Timetable ({timetable.length} Active Slots)
+                    Published Schedule ({timetable.length} Active Slots)
                   </h3>
                 </div>
+                <button
+                  type="button"
+                  onClick={fetchScheduleTable}
+                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition-colors"
+                  title="Refresh Schedule"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
               </div>
 
-              {/* Multi-Criteria View Filters */}
+              {/* View Filters */}
               <div className="grid grid-cols-3 gap-2 pt-1">
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                    Semester
-                  </label>
-                  <select
-                    value={filterSemester}
-                    onChange={(e) => setFilterSemester(e.target.value)}
-                    className="w-full border border-slate-200 rounded-lg px-2 py-1 text-xs bg-white font-medium outline-none"
-                  >
-                    <option value="ALL">All Semesters</option>
-                    {['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'].map((s) => (
-                      <option key={s} value={s}>{s} Sem</option>
-                    ))}
-                  </select>
-                </div>
-
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
                     Room
@@ -848,6 +388,22 @@ export default function TimetableManager({ user }) {
                       <option key={r.id || r._id} value={r.id || r._id}>
                         {r.name} ({r.roomNumber})
                       </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                    Semester
+                  </label>
+                  <select
+                    value={filterSemester}
+                    onChange={(e) => setFilterSemester(e.target.value)}
+                    className="w-full border border-slate-200 rounded-lg px-2 py-1 text-xs bg-white font-medium outline-none"
+                  >
+                    <option value="ALL">All Semesters</option>
+                    {['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'].map((s) => (
+                      <option key={s} value={s}>{s} Sem</option>
                     ))}
                   </select>
                 </div>
@@ -876,7 +432,7 @@ export default function TimetableManager({ user }) {
               <div className="p-12 text-center text-slate-500">
                 <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                 <p className="text-sm font-medium">No published slots match your filter selection.</p>
-                <p className="text-xs text-slate-400 mt-1">Select "All Semesters" or "All Rooms" to see full schedule.</p>
+                <p className="text-xs text-slate-400 mt-1">Select "All Rooms" or "All Semesters" to see all classes.</p>
               </div>
             ) : (
               <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
@@ -1000,7 +556,7 @@ export default function TimetableManager({ user }) {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Room (Single Room)</label>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Room</label>
                   <select
                     value={
                       editingEntry.roomId && typeof editingEntry.roomId === 'object'
