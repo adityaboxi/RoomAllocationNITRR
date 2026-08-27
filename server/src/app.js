@@ -7,6 +7,7 @@ const bookingRoutes = require('./routes/bookingRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const notificationRoutes = require('./routes/notificationRoutes'); // <-- added
 const { errorHandler } = require('./middleware/errorHandler');
+const statsRoutes = require('./routes/statsRoutes');
 
 const app = express();
 
@@ -24,6 +25,7 @@ app.use('/api/timetable', timetableRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/notifications', notificationRoutes); // <-- added
+app.use('/api/stats', statsRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
