@@ -1,13 +1,12 @@
-
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const http = require('http');
+const socketIo = require('socket.io');
 require('dotenv').config();
-
-
 
 // ============================================
 // EMAIL SERVICE
@@ -24,6 +23,7 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+// This function is kept but NOT called during testing – OTPs are logged instead.
 const sendOTPEmail = async (email, otp, purpose = 'forgot') => {
   const subject = purpose === 'forgot' ? 'Password Reset OTP' : 'Email Verification';
   const html = `
@@ -38,12 +38,9 @@ const sendOTPEmail = async (email, otp, purpose = 'forgot') => {
     <hr style="border:1px solid #e5e7eb;margin:20px 0">
     <p style="text-align:center;color:#9ca3af;font-size:12px">NIT Raipur - Room Allocation System</p>
   </div>`;
-  await transporter.sendMail({
-    from: process.env.EMAIL_FROM || process.env.FROM_EMAIL || 'noreply@nitrr.ac.in',
-    to: email,
-    subject,
-    html,
-  });
+  // Email sending is disabled during testing – we only log OTP.
+  // await transporter.sendMail({ ... });
+  console.log(`📧 (Email skipped) OTP for ${email}: ${otp}`);
 };
 
 const sendBookingConfirmationEmail = async (booking) => {
@@ -93,17 +90,65 @@ const sendBookingCancellationEmail = async (booking, reason) => {
   });
 };
 
+// ============================================
+// APP & SERVER SETUP
+// ============================================
 const app = express();
+const server = http.createServer(app);
+const io = socketIo(server, {
+  cors: {
+    origin: 'http://localhost:5173',
+    credentials: true,
+  },
+});
+
 const PORT = process.env.PORT || 3000;
 
 // ============================================
-// MIDDLEWARE
+// MIDDLEWARE (express)
 // ============================================
 app.use(cors({
   origin: 'http://localhost:5173',
   credentials: true
 }));
 app.use(express.json());
+
+// ============================================
+// SOCKET.IO AUTHENTICATION & STATE
+// ============================================
+const onlineUsers = new Map(); // userId -> socketId
+
+io.use((socket, next) => {
+  const token = socket.handshake.query.token;
+  if (!token) {
+    return next(new Error('Authentication error'));
+  }
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    socket.userId = decoded.userId;
+    next();
+  } catch (err) {
+    next(new Error('Invalid token'));
+  }
+});
+
+io.on('connection', (socket) => {
+  console.log(`🔌 User ${socket.userId} connected`);
+  onlineUsers.set(socket.userId, socket.id);
+
+  socket.on('disconnect', () => {
+    console.log(`🔌 User ${socket.userId} disconnected`);
+    onlineUsers.delete(socket.userId);
+  });
+});
+
+// Helper to emit event to a specific user
+const emitToUser = (userId, event, data) => {
+  const socketId = onlineUsers.get(userId);
+  if (socketId) {
+    io.to(socketId).emit(event, data);
+  }
+};
 
 // ============================================
 // DATABASE CONNECTION
@@ -132,12 +177,12 @@ const loginAttempts = new Map();
 // SCHEMAS / MODELS
 // ============================================
 
-// 1. USER SCHEMA
+// 1. USER SCHEMA – email regex changed to only @gmail.com
 const UserSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true, maxlength: 100 },
-  email: { 
+  email: {
     type: String, required: true, unique: true, lowercase: true, trim: true,
-    match: [/^[a-zA-Z0-9._%+-]+@(cse\.nitrr\.ac\.in|gmail\.com)$/, 'Please use a valid @cse.nitrr.ac.in or @gmail.com email']
+    match: [/^[a-zA-Z0-9._%+-]+@gmail\.com$/, 'Only @gmail.com email addresses are allowed for testing']
   },
   password: { type: String, required: true, minlength: 8, select: false },
   role: { type: String, enum: ['FACULTY', 'HOD'], required: true },
@@ -146,14 +191,18 @@ const UserSchema = new mongoose.Schema({
   lastLogin: Date,
 }, { timestamps: true });
 
+// 🔧 TEMPORARY: disable bcrypt hashing
 UserSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
-  this.password = await bcrypt.hash(this.password, 10);
+  // this.password = await bcrypt.hash(this.password, 10);
+  // Store plain text for testing
   next();
 });
 
+// 🔧 TEMPORARY: replace bcrypt.compare with plain text comparison
 UserSchema.methods.comparePassword = async function(password) {
-  return await bcrypt.compare(password, this.password);
+  // return await bcrypt.compare(password, this.password);
+  return this.password === password;
 };
 
 UserSchema.methods.updateLastLogin = async function() {
@@ -162,7 +211,7 @@ UserSchema.methods.updateLastLogin = async function() {
 };
 
 UserSchema.statics.isValidEmail = function(email) {
-  return /^[a-zA-Z0-9._%+-]+@(cse\.nitrr\.ac\.in|gmail\.com)$/.test(email);
+  return /^[a-zA-Z0-9._%+-]+@gmail\.com$/.test(email);
 };
 
 UserSchema.statics.detectRole = function(email) {
@@ -183,7 +232,7 @@ UserSchema.set('toJSON', {
 
 const User = mongoose.model('User', UserSchema);
 
-// 2. ROOM SCHEMA - Enhanced with full details
+// 2. ROOM SCHEMA - Enhanced with full details (unchanged)
 const RoomSchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true, trim: true },
   roomNumber: { type: String, required: true, unique: true, uppercase: true, trim: true },
@@ -211,7 +260,7 @@ RoomSchema.set('toJSON', {
 
 const Room = mongoose.model('Room', RoomSchema);
 
-// 3. TIMETABLE SCHEMA - Department-specific
+// 3. TIMETABLE SCHEMA - Department-specific (unchanged)
 const TimetableSchema = new mongoose.Schema({
   roomId: { type: mongoose.Schema.Types.ObjectId, ref: 'Room', required: true },
   day: { type: String, enum: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'], required: true },
@@ -239,7 +288,7 @@ TimetableSchema.set('toJSON', {
 
 const Timetable = mongoose.model('Timetable', TimetableSchema);
 
-// 4. BOOKING SCHEMA
+// 4. BOOKING SCHEMA (unchanged)
 const BookingSchema = new mongoose.Schema({
   roomId: { type: mongoose.Schema.Types.ObjectId, ref: 'Room', required: true },
   date: { type: String, required: true },
@@ -272,7 +321,7 @@ BookingSchema.set('toJSON', {
 
 const Booking = mongoose.model('Booking', BookingSchema);
 
-// 5. OTP SCHEMA
+// 5. OTP SCHEMA (unchanged)
 const OTPSchema = new mongoose.Schema({
   email: { type: String, required: true, index: true },
   otp: { type: String, required: true },
@@ -321,7 +370,7 @@ const authorize = (...roles) => (req, res, next) => {
 // AUTH ROUTES
 // ============================================
 
-// LOGIN with rate limiting
+// LOGIN with rate limiting – uses modified comparePassword (plain text)
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -351,6 +400,7 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ success: false, message: 'Account deactivated. Please contact admin.' });
     }
 
+    // 🔧 uses plain text comparison (modified method)
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
       attempts.count += 1;
@@ -373,7 +423,7 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// SIGNUP
+// SIGNUP – unchanged, but pre‑save does not hash, so password stored as plain text
 app.post('/api/auth/signup', async (req, res) => {
   try {
     const { name, email, password, confirmPassword, department } = req.body;
@@ -393,7 +443,7 @@ app.post('/api/auth/signup', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Password must contain at least one uppercase, one lowercase, one number, and one special character' });
     }
     if (!User.isValidEmail(email)) {
-      return res.status(400).json({ success: false, message: 'Only @cse.nitrr.ac.in or @gmail.com email addresses are allowed' });
+      return res.status(400).json({ success: false, message: 'Only @gmail.com email addresses are allowed' });
     }
     if (name.length > 100) {
       return res.status(400).json({ success: false, message: 'Name cannot exceed 100 characters' });
@@ -422,7 +472,7 @@ app.post('/api/auth/signup', async (req, res) => {
   }
 });
 
-// CHANGE PASSWORD
+// CHANGE PASSWORD – uses modified comparePassword (plain text)
 app.post('/api/auth/change-password', protect, async (req, res) => {
   try {
     const { currentPassword, newPassword, confirmPassword } = req.body;
@@ -441,11 +491,12 @@ app.post('/api/auth/change-password', protect, async (req, res) => {
     }
 
     const user = await User.findById(req.user.id).select('+password');
+    // 🔧 plain text comparison
     const isMatch = await user.comparePassword(currentPassword);
     if (!isMatch) {
       return res.status(401).json({ success: false, message: 'Current password is incorrect' });
     }
-    user.password = newPassword;
+    user.password = newPassword; // stored as plain text
     await user.save();
 
     res.json({ success: true, message: 'Password changed successfully' });
@@ -455,7 +506,7 @@ app.post('/api/auth/change-password', protect, async (req, res) => {
   }
 });
 
-// FORGOT PASSWORD
+// FORGOT PASSWORD – 🔧 logs OTP to console instead of sending email
 app.post('/api/auth/forgot-password', async (req, res) => {
   try {
     const { email } = req.body;
@@ -476,25 +527,26 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     }
 
     const otp = generateOTP();
-    console.log(`📧 OTP for ${email}: ${otp}`);
+    console.log(`📧 OTP for ${email}: ${otp}`); // <-- OTP printed to console
 
     await OTP.create({ email, otp, purpose: 'forgot', expiresAt: new Date(Date.now() + 5 * 60 * 1000) });
 
-    try {
-      await sendOTPEmail(email, otp, 'forgot');
-      console.log(`✅ OTP email sent to ${email}`);
-    } catch (emailError) {
-      console.error(`❌ Failed to send OTP email: ${emailError.message}`);
-    }
+    // 🔧 Email sending disabled – just log OTP
+    // try {
+    //   await sendOTPEmail(email, otp, 'forgot');
+    //   console.log(`✅ OTP email sent to ${email}`);
+    // } catch (emailError) {
+    //   console.error(`❌ Failed to send OTP email: ${emailError.message}`);
+    // }
 
-    res.json({ success: true, message: 'OTP sent for password reset', expiresIn: '5 minutes' });
+    res.json({ success: true, message: 'OTP sent for password reset (check console)', expiresIn: '5 minutes' });
   } catch (error) {
     console.error('Forgot password error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
-// VERIFY RESET OTP
+// VERIFY RESET OTP – unchanged
 app.post('/api/auth/verify-reset-otp', async (req, res) => {
   try {
     const { email, otp } = req.body;
@@ -532,7 +584,7 @@ app.post('/api/auth/verify-reset-otp', async (req, res) => {
   }
 });
 
-// RESET PASSWORD
+// RESET PASSWORD – unchanged, password stored as plain text (pre-save not hashing)
 app.post('/api/auth/reset-password', async (req, res) => {
   try {
     const { email, resetToken, newPassword, confirmPassword } = req.body;
@@ -579,7 +631,7 @@ app.get('/api/auth/me', protect, async (req, res) => {
 });
 
 // ============================================
-// ROOM ROUTES - Enhanced with filters
+// ROOM ROUTES - Enhanced with filters (unchanged)
 // ============================================
 
 // Get all rooms with comprehensive filters
@@ -807,8 +859,56 @@ app.get('/api/rooms/:roomId/availability', protect, async (req, res) => {
 });
 
 // ============================================
-// TIMETABLE ROUTES - Department-specific
+// TIMETABLE ROUTES - UPDATED WITH SOCKET NOTIFICATIONS
 // ============================================
+
+// Helper: cancel conflicting bookings for a set of timetable entries
+// Returns array of cancelled bookings
+const cancelConflictingBookings = async (timetableEntries, department) => {
+  const cancelledBookings = [];
+  const activeBookings = await Booking.find({
+    department,
+    status: 'active'
+  }).populate('roomId');
+
+  for (const booking of activeBookings) {
+    const bookingDay = getDayOfWeek(booking.date);
+    for (const timetable of timetableEntries) {
+      if (timetable.day === bookingDay &&
+          isOverlapping(booking.startTime, booking.endTime, timetable.startTime, timetable.endTime) &&
+          booking.roomId._id.toString() === timetable.roomId.toString()) {
+        
+        booking.status = 'cancelled';
+        booking.conflictMessage = `Room ${booking.roomId.name} is now scheduled for ${timetable.subject} from ${timetable.startTime} to ${timetable.endTime}`;
+        await booking.save();
+        cancelledBookings.push(booking);
+
+        // Send email
+        try {
+          await sendBookingCancellationEmail(booking, booking.conflictMessage);
+          booking.notified = true;
+          await booking.save();
+        } catch (emailError) {
+          console.error('Failed to send cancellation email:', emailError.message);
+        }
+
+        // Send socket notification to the faculty
+        const facultyUser = await User.findOne({ email: booking.facultyEmail });
+        if (facultyUser) {
+          emitToUser(facultyUser._id.toString(), 'booking-cancelled', {
+            bookingId: booking.id,
+            roomName: booking.roomId.name,
+            date: booking.date,
+            startTime: booking.startTime,
+            endTime: booking.endTime,
+            reason: booking.conflictMessage,
+          });
+        }
+      }
+    }
+  }
+  return cancelledBookings;
+};
 
 // Get all timetable entries
 app.get('/api/timetable', protect, async (req, res) => {
@@ -893,7 +993,7 @@ app.get('/api/timetable/room/:roomId', protect, async (req, res) => {
   }
 });
 
-// Create timetable entries (HOD only)
+// Create timetable entries (HOD only) – replaces entire timetable
 app.post('/api/timetable', protect, authorize('HOD'), async (req, res) => {
   try {
     const { department, semester, section, entries } = req.body;
@@ -991,35 +1091,8 @@ app.post('/api/timetable', protect, authorize('HOD'), async (req, res) => {
 
     const createdEntries = await Timetable.insertMany(validatedEntries);
 
-    // Check conflicts with existing bookings and auto-cancel
-    const activeBookings = await Booking.find({
-      department, status: 'active'
-    }).populate('roomId');
-
-    const cancelledBookings = [];
-
-    for (const booking of activeBookings) {
-      const bookingDay = getDayOfWeek(booking.date);
-      for (const timetable of createdEntries) {
-        if (timetable.day === bookingDay &&
-            isOverlapping(booking.startTime, booking.endTime, timetable.startTime, timetable.endTime) &&
-            booking.roomId._id.toString() === timetable.roomId.toString()) {
-          
-          booking.status = 'cancelled';
-          booking.conflictMessage = `Room ${booking.roomId.name} is now scheduled for ${timetable.subject} from ${timetable.startTime} to ${timetable.endTime}`;
-          await booking.save();
-          cancelledBookings.push(booking);
-          
-          try {
-            await sendBookingCancellationEmail(booking, booking.conflictMessage);
-            booking.notified = true;
-            await booking.save();
-          } catch (emailError) {
-            console.error('Failed to send cancellation email:', emailError.message);
-          }
-        }
-      }
-    }
+    // Cancel conflicting bookings with socket notifications
+    const cancelledBookings = await cancelConflictingBookings(createdEntries, department);
 
     res.status(201).json({
       success: true,
@@ -1042,7 +1115,7 @@ app.post('/api/timetable', protect, authorize('HOD'), async (req, res) => {
   }
 });
 
-// Update timetable entry (HOD only)
+// Update timetable entry (HOD only) – with conflict handling
 app.put('/api/timetable/:id', protect, authorize('HOD'), async (req, res) => {
   try {
     const { id } = req.params;
@@ -1087,6 +1160,52 @@ app.put('/api/timetable/:id', protect, authorize('HOD'), async (req, res) => {
     entry.version += 1;
     await entry.save();
 
+    // After saving, check if this updated entry conflicts with any active booking
+    const updatedEntry = await Timetable.findById(id).populate('roomId');
+    if (updatedEntry && updatedEntry.isActive) {
+      // Find all active bookings for the same department
+      const activeBookings = await Booking.find({
+        department: updatedEntry.department,
+        status: 'active'
+      }).populate('roomId');
+
+      const bookingsToCancel = [];
+      for (const booking of activeBookings) {
+        const bookingDay = getDayOfWeek(booking.date);
+        if (bookingDay === updatedEntry.day &&
+            booking.roomId._id.toString() === updatedEntry.roomId._id.toString() &&
+            isOverlapping(booking.startTime, booking.endTime, updatedEntry.startTime, updatedEntry.endTime)) {
+          bookingsToCancel.push(booking);
+        }
+      }
+
+      for (const booking of bookingsToCancel) {
+        booking.status = 'cancelled';
+        booking.conflictMessage = `Room ${booking.roomId.name} is now scheduled for ${updatedEntry.subject} from ${updatedEntry.startTime} to ${updatedEntry.endTime}`;
+        await booking.save();
+
+        try {
+          await sendBookingCancellationEmail(booking, booking.conflictMessage);
+          booking.notified = true;
+          await booking.save();
+        } catch (emailError) {
+          console.error('Failed to send cancellation email:', emailError.message);
+        }
+
+        const facultyUser = await User.findOne({ email: booking.facultyEmail });
+        if (facultyUser) {
+          emitToUser(facultyUser._id.toString(), 'booking-cancelled', {
+            bookingId: booking.id,
+            roomName: booking.roomId.name,
+            date: booking.date,
+            startTime: booking.startTime,
+            endTime: booking.endTime,
+            reason: booking.conflictMessage,
+          });
+        }
+      }
+    }
+
     res.json({ success: true, message: 'Timetable entry updated successfully', data: entry });
   } catch (error) {
     console.error('Update timetable entry error:', error);
@@ -1094,7 +1213,7 @@ app.put('/api/timetable/:id', protect, authorize('HOD'), async (req, res) => {
   }
 });
 
-// Delete timetable entry (HOD only)
+// Delete timetable entry (HOD only) – soft delete (no conflicts arise)
 app.delete('/api/timetable/:id', protect, authorize('HOD'), async (req, res) => {
   try {
     const entry = await Timetable.findById(req.params.id);
@@ -1115,7 +1234,7 @@ app.delete('/api/timetable/:id', protect, authorize('HOD'), async (req, res) => 
 });
 
 // ============================================
-// BOOKING ROUTES - Enhanced
+// BOOKING ROUTES - Enhanced (unchanged)
 // ============================================
 
 // Get all bookings
@@ -1360,80 +1479,6 @@ app.post('/api/bookings/unlock', protect, async (req, res) => {
 });
 
 // ============================================
-// SEED DATA - Enhanced with department rooms
-// ============================================
-app.post('/api/seed', async (req, res) => {
-  try {
-    await Room.deleteMany({});
-    await Timetable.deleteMany({});
-    await Booking.deleteMany({});
-
-    const rooms = await Room.insertMany([
-      // CSE Department Rooms
-      { name: 'CS-101 (Lecture Hall)', roomNumber: 'CS101', capacity: 70, type: 'Lecture Hall', floor: '1st Floor', building: 'CSE Block', department: 'cs', hasProjector: true, hasAC: true, hasSmartBoard: true, hasWiFi: true },
-      { name: 'CS-102 (Smart Classroom)', roomNumber: 'CS102', capacity: 60, type: 'Classroom', floor: '1st Floor', building: 'CSE Block', department: 'cs', hasProjector: true, hasAC: true, hasSmartBoard: true, hasWiFi: true },
-      { name: 'CS-103 (Seminar Hall)', roomNumber: 'CS103', capacity: 40, type: 'Seminar Hall', floor: '1st Floor', building: 'CSE Block', department: 'cs', hasProjector: true, hasAC: true, hasWiFi: true },
-      { name: 'CS-Lab A (Network Lab)', roomNumber: 'CSL101', capacity: 35, type: 'Lab', floor: 'Ground Floor', building: 'CSE Block', department: 'cs', hasAC: true, hasWiFi: true },
-      { name: 'CS-Lab B (AI Lab)', roomNumber: 'CSL102', capacity: 30, type: 'Lab', floor: 'Ground Floor', building: 'CSE Block', department: 'cs', hasAC: true, hasWiFi: true, hasProjector: true },
-      { name: 'CS-201 (Advanced Classroom)', roomNumber: 'CS201', capacity: 55, type: 'Classroom', floor: '2nd Floor', building: 'CSE Block', department: 'cs', hasProjector: true, hasAC: true, hasSmartBoard: true, hasWiFi: true },
-      { name: 'CS-202 (Project Lab)', roomNumber: 'CS202', capacity: 25, type: 'Lab', floor: '2nd Floor', building: 'CSE Block', department: 'cs', hasAC: true, hasWiFi: true, hasProjector: true },
-      
-      // ECE Department Rooms
-      { name: 'ECE-101 (Lecture Hall)', roomNumber: 'ECE101', capacity: 65, type: 'Lecture Hall', floor: '1st Floor', building: 'ECE Block', department: 'ec', hasProjector: true, hasAC: true, hasSmartBoard: true, hasWiFi: true },
-      { name: 'ECE-102 (Classroom)', roomNumber: 'ECE102', capacity: 50, type: 'Classroom', floor: '1st Floor', building: 'ECE Block', department: 'ec', hasProjector: true, hasAC: true, hasWiFi: true },
-      { name: 'ECE-Lab (Electronics Lab)', roomNumber: 'ECEL101', capacity: 30, type: 'Lab', floor: 'Ground Floor', building: 'ECE Block', department: 'ec', hasAC: true, hasWiFi: true },
-      
-      // ME Department Rooms
-      { name: 'ME-101 (Lecture Hall)', roomNumber: 'ME101', capacity: 60, type: 'Lecture Hall', floor: '1st Floor', building: 'ME Block', department: 'me', hasProjector: true, hasAC: true, hasWiFi: true },
-      { name: 'ME-102 (Classroom)', roomNumber: 'ME102', capacity: 45, type: 'Classroom', floor: '1st Floor', building: 'ME Block', department: 'me', hasProjector: true, hasAC: true, hasWiFi: true },
-      
-      // General Rooms
-      { name: 'Seminar Hall (Main)', roomNumber: 'SH01', capacity: 120, type: 'Auditorium', floor: '2nd Floor', building: 'Main Building', department: 'General', hasProjector: true, hasAC: true, hasSmartBoard: true, hasWiFi: true },
-      { name: 'Conference Room', roomNumber: 'CR01', capacity: 20, type: 'Conference Room', floor: '3rd Floor', building: 'Main Building', department: 'General', hasProjector: true, hasAC: true, hasWiFi: true },
-    ]);
-
-    // Timetable for CSE Department
-    const cseRooms = rooms.filter(r => r.department === 'cs');
-    await Timetable.insertMany([
-      { roomId: cseRooms[0]._id, day: 'Monday', startTime: '09:00', endTime: '10:00', subject: 'Data Structures', classGroup: 'CS-3A', faculty: 'Dr. D. S. Sisodia', semester: '3rd', section: 'A', department: 'cs' },
-      { roomId: cseRooms[0]._id, day: 'Monday', startTime: '10:00', endTime: '11:00', subject: 'Operating Systems', classGroup: 'CS-5B', faculty: 'Prof. R. Verma', semester: '5th', section: 'B', department: 'cs' },
-      { roomId: cseRooms[1]._id, day: 'Tuesday', startTime: '11:15', endTime: '12:15', subject: 'Database Systems', classGroup: 'CS-4A', faculty: 'Dr. P. Sharma', semester: '4th', section: 'A', department: 'cs' },
-      { roomId: cseRooms[2]._id, day: 'Wednesday', startTime: '14:00', endTime: '15:00', subject: 'AI & ML', classGroup: 'CS-6A', faculty: 'Dr. M. Patel', semester: '6th', section: 'A', department: 'cs' },
-    ]);
-
-    // Timetable for ECE Department
-    const eceRooms = rooms.filter(r => r.department === 'ec');
-    await Timetable.insertMany([
-      { roomId: eceRooms[0]._id, day: 'Monday', startTime: '09:00', endTime: '10:00', subject: 'Signal Processing', classGroup: 'EC-3A', faculty: 'Dr. S. Kumar', semester: '3rd', section: 'A', department: 'ec' },
-      { roomId: eceRooms[0]._id, day: 'Monday', startTime: '11:00', endTime: '12:00', subject: 'Digital Electronics', classGroup: 'EC-4A', faculty: 'Prof. A. Singh', semester: '4th', section: 'A', department: 'ec' },
-    ]);
-
-    // Create a booking
-    await Booking.create({
-      roomId: cseRooms[2]._id,
-      date: new Date().toISOString().split('T')[0],
-      day: getDayOfWeek(new Date()),
-      startTime: '14:00',
-      endTime: '15:00',
-      facultyName: 'Prof. Rajesh Verma',
-      facultyEmail: 'rverma.cs@nitrr.ac.in',
-      purpose: 'Remedial Doubt Session',
-      comment: 'For CS-3A students',
-      department: 'cs',
-      status: 'active'
-    });
-
-    res.json({ 
-      success: true, 
-      message: '✅ Seed data created successfully',
-      data: { rooms: rooms.length, timetable: 6, bookings: 1 }
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-// ============================================
 // HEALTH CHECK
 // ============================================
 app.get('/health', (req, res) => {
@@ -1441,16 +1486,15 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.json({ 
-    success: true, 
-    message: '🏫 Room Allocation System API', 
-    version: '2.0.0',
+  res.json({
+    success: true,
+    message: '🏫 Room Allocation System API (TESTING MODE – bcrypt & email disabled, only @gmail.com)',
+    version: '2.0.0-test-gmail',
     endpoints: {
       auth: ['POST /api/auth/login', 'POST /api/auth/signup', 'POST /api/auth/forgot-password', 'POST /api/auth/verify-reset-otp', 'POST /api/auth/reset-password', 'POST /api/auth/change-password', 'GET /api/auth/me'],
       rooms: ['GET /api/rooms (with filters)', 'GET /api/rooms/:id', 'GET /api/rooms/available (with filters)', 'GET /api/rooms/floors', 'GET /api/rooms/buildings', 'POST /api/rooms (HOD only)', 'PUT /api/rooms/:id (HOD only)', 'PUT /api/rooms/:id/toggle (HOD only)', 'DELETE /api/rooms/:id (HOD only)', 'GET /api/rooms/:roomId/availability'],
       timetable: ['GET /api/timetable', 'GET /api/timetable/department/:dept', 'GET /api/timetable/faculty/:name', 'GET /api/timetable/room/:roomId', 'POST /api/timetable (HOD only)', 'PUT /api/timetable/:id (HOD only)', 'DELETE /api/timetable/:id (HOD only)'],
-      bookings: ['GET /api/bookings', 'GET /api/bookings/my', 'GET /api/bookings/:id', 'POST /api/bookings', 'PUT /api/bookings/:id/cancel', 'POST /api/bookings/lock', 'POST /api/bookings/unlock'],
-      seed: ['POST /api/seed']
+      bookings: ['GET /api/bookings', 'GET /api/bookings/my', 'GET /api/bookings/:id', 'POST /api/bookings', 'PUT /api/bookings/:id/cancel', 'POST /api/bookings/lock', 'POST /api/bookings/unlock']
     }
   });
 });
@@ -1460,9 +1504,13 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, message: err.message });
 });
 
-app.listen(PORT, () => {
-  console.log(`\n🚀 Server running on http://localhost:${PORT}`);
-  console.log(`📧 Allowed: @cse.nitrr.ac.in or @gmail.com only`);
+// Use server.listen instead of app.listen to support Socket.IO
+server.listen(PORT, () => {
+  console.log(`\n🚀 Server running on http://localhost:${PORT} (TESTING MODE – only @gmail.com)`);
+  console.log(`📡 Socket.IO server attached`);
+  console.log(`📧 Email sending DISABLED – OTPs are printed to console.`);
+  console.log(`🔐 Password hashing DISABLED – passwords stored in plain text.`);
+  console.log(`📧 Allowed domains: @gmail.com only`);
   console.log(`\n📋 API Endpoints:`);
   console.log(`   ─────────────────────────────`);
   console.log(`   🔐 AUTH:`);
@@ -1491,7 +1539,7 @@ app.listen(PORT, () => {
   console.log(`   GET    /api/timetable/department/:dept`);
   console.log(`   GET    /api/timetable/faculty/:name`);
   console.log(`   GET    /api/timetable/room/:roomId`);
-  console.log(`   POST   /api/timetable (HOD only)`);
+  console.log(`   POST   /api/timetable (HOD only) — REPLACES entire timetable`);
   console.log(`   PUT    /api/timetable/:id (HOD only)`);
   console.log(`   DELETE /api/timetable/:id (HOD only)`);
   console.log(`   ─────────────────────────────`);
@@ -1503,8 +1551,5 @@ app.listen(PORT, () => {
   console.log(`   PUT    /api/bookings/:id/cancel`);
   console.log(`   POST   /api/bookings/lock`);
   console.log(`   POST   /api/bookings/unlock`);
-  console.log(`   ─────────────────────────────`);
-  console.log(`   🌱 SEED:`);
-  console.log(`   POST   /api/seed`);
   console.log(`   ─────────────────────────────\n`);
 });
