@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { getRooms, getAvailableRooms, createBooking, getMyBookings, cancelBooking, getRoomReviews } from '../services/api';
 import ReviewsModal from './ReviewsModal';
 
@@ -22,17 +22,36 @@ export default function BookingView({ user }) {
   const [selectedRoomReviews, setSelectedRoomReviews] = useState(null);
   const [selectedReviewRoom, setSelectedReviewRoom] = useState(null);
 
-  useEffect(() => {
-    fetchRooms();
-    fetchMyBookings();
-  }, []);
+  const abortControllerRef = useRef(null);
 
   useEffect(() => {
-    if (bookingData.date && bookingData.startTime && bookingData.endTime) {
-      fetchAvailableRooms();
-    } else {
-      fetchAvailableRooms();
+    if (error || success) {
+      const timer = setTimeout(() => {
+        setError('');
+        setSuccess('');
+      }, 5000);
+      return () => clearTimeout(timer);
     }
+  }, [error, success]);
+
+  useEffect(() => {
+    if (user) {
+      fetchRooms();
+      fetchMyBookings();
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+    fetchAvailableRooms(abortControllerRef.current.signal);
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, [bookingData.date, bookingData.startTime, bookingData.endTime]);
 
   const fetchRooms = async () => {
@@ -40,11 +59,11 @@ export default function BookingView({ user }) {
       const data = await getRooms({ department: user.department });
       setRooms(data.data || []);
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Failed to load rooms');
     }
   };
 
-  const fetchAvailableRooms = async () => {
+  const fetchAvailableRooms = async (signal) => {
     try {
       const { date, startTime, endTime } = bookingData;
       let end = endTime;
@@ -57,11 +76,12 @@ export default function BookingView({ user }) {
         setAvailableRoomIds([]);
         return;
       }
-      const data = await getAvailableRooms(date, startTime, end, { department: user.department });
+      const data = await getAvailableRooms(date, startTime, end, { department: user.department }, { signal });
       const ids = (data.data || []).map(r => r.id);
       setAvailableRoomIds(ids);
     } catch (err) {
-      setError(err.message);
+      if (err.name === 'AbortError') return;
+      setError(err.message || 'Failed to check availability');
     }
   };
 
@@ -70,7 +90,7 @@ export default function BookingView({ user }) {
       const data = await getMyBookings();
       setMyBookings(data.data || []);
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Failed to load bookings');
     }
   };
 
@@ -108,25 +128,47 @@ export default function BookingView({ user }) {
   };
 
   const handleBookRoom = async (roomId) => {
-    const { date, startTime, endTime, purpose, comment } = bookingData;
+    console.log('🟢 handleBookRoom called with roomId:', roomId);
+
+    let { date, startTime, endTime, purpose, comment } = bookingData;
+
+    // 🔧 Auto-fill endTime if missing (default: +1 hour)
+    if (!endTime && startTime) {
+      const [h, m] = startTime.split(':').map(Number);
+      const endH = (h + 1) % 24;
+      const endM = m;
+      const autoEnd = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+      setBookingData(prev => ({ ...prev, endTime: autoEnd }));
+      endTime = autoEnd;
+      console.log('⏰ Auto-filled endTime:', endTime);
+    }
+
+    console.log('📦 Booking data:', { date, startTime, endTime, purpose, comment });
+
     if (!date || !startTime || !endTime || !purpose) {
-      setError('Please fill all required fields.');
+      setError('Please fill all required fields (Date, Start, End, Purpose).');
       return;
     }
     if (startTime >= endTime) {
       setError('End time must be after start time.');
       return;
     }
+
     setLoading(true);
+    setError('');
+    setSuccess('');
+
     try {
-      await createBooking({ roomId, date, startTime, endTime, purpose, comment });
+      const result = await createBooking({ roomId, date, startTime, endTime, purpose, comment });
+      console.log('✅ Booking success:', result);
       setSuccess('Booking created successfully!');
-      setBookingData({ ...bookingData, purpose: '', comment: '' });
+      setBookingData({ ...bookingData, purpose: '', comment: '', endTime: '' });
       setSelectedRoom(null);
-      fetchMyBookings();
-      fetchAvailableRooms();
+      await Promise.all([fetchMyBookings(), fetchAvailableRooms(abortControllerRef.current?.signal)]);
     } catch (err) {
-      setError(err.message);
+      console.error('❌ Booking error:', err);
+      const message = err.response?.data?.message || err.message || 'Booking failed. Please try again.';
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -139,14 +181,26 @@ export default function BookingView({ user }) {
       fetchMyBookings();
       setSuccess('Booking cancelled.');
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Cancellation failed');
     }
   };
 
   const isRoomAvailable = (roomId) => availableRoomIds.includes(roomId);
+  const isTimeFilled = bookingData.date && bookingData.startTime && bookingData.endTime;
 
   return (
     <div>
+      {error && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-lg mb-4">
+          <strong>Error:</strong> {error}
+        </div>
+      )}
+      {success && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-lg mb-4">
+          {success}
+        </div>
+      )}
+
       <div className="bg-white border border-slate-200 rounded-xl p-4 mb-6 shadow-sm flex flex-wrap gap-4 items-end">
         <div>
           <label className="block text-xs font-medium text-slate-700 mb-1">Date</label>
@@ -179,7 +233,7 @@ export default function BookingView({ user }) {
           />
         </div>
         <div className="text-xs text-slate-500 italic">
-          Select a time slot to see room availability.
+          {isTimeFilled ? 'Select a room below' : 'Fill date/time to see availability'}
         </div>
       </div>
 
@@ -212,7 +266,6 @@ export default function BookingView({ user }) {
                 {room.hasWiFi && <span className="bg-slate-100 px-2 py-0.5 rounded">WiFi</span>}
               </div>
 
-              {/* Review summary */}
               <div className="mt-3 flex items-center gap-2">
                 {avgRating ? (
                   <span className="text-sm font-medium text-amber-600">{avgRating} ★</span>
@@ -343,7 +396,6 @@ export default function BookingView({ user }) {
         )}
       </div>
 
-      {/* Reviews Modal */}
       {selectedReviewRoom && selectedRoomReviews && (
         <ReviewsModal
           room={selectedReviewRoom}
