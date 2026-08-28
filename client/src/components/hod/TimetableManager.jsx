@@ -19,6 +19,8 @@ import {
   FileSpreadsheet,
   RefreshCw,
   X,
+  FileText,
+  HelpCircle,
 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -262,9 +264,43 @@ export default function TimetableManager({ user }) {
     }
   };
 
+  // ----- Enhanced Download Template Function -----
+  const downloadTemplate = () => {
+    const group = `${uploadSemester} Sec ${uploadSection}`;
+    const sampleRows = [
+      `Monday,09:00,09:50,Database Management Systems,${group},Dr. A. Sharma`,
+      `Monday,09:50,10:40,Algorithms & Data Structures,${group},Prof. R. Patel`,
+      `Monday,10:40,11:30,Software Engineering,${group},Dr. S. Kumar`,
+      `Tuesday,09:00,09:50,Database Management Systems,${group},Dr. A. Sharma`,
+      `Tuesday,09:50,10:40,Software Engineering,${group},Dr. S. Kumar`,
+      `Tuesday,10:40,11:30,Algorithms & Data Structures,${group},Prof. R. Patel`,
+      `Wednesday,10:40,11:30,Algorithms & Data Structures,${group},Prof. R. Patel`,
+      `Wednesday,11:30,12:20,Natural Language Processing,${group},Dr. N. Verma`,
+      `Wednesday,12:20,13:10,Software Engineering,${group},Dr. S. Kumar`,
+      `Wednesday,14:10,15:50,Data Science Lab,${group},Prof. M. Gupta`,
+      `Thursday,09:00,10:40,Database Management Systems Lab,${group},Dr. A. Sharma`,
+      `Thursday,10:40,12:20,Natural Language Processing,${group},Dr. N. Verma`,
+      `Thursday,12:20,13:10,Software Engineering,${group},Dr. S. Kumar`,
+      `Thursday,14:10,15:50,Computing Algorithms & IKS,${group},Prof. M. Gupta`,
+      `Friday,09:00,10:40,Web Technologies Lab,${group},Prof. K. Singh`,
+      `Friday,11:30,13:10,Summer Internship Mentorship,${group},Prof. Faculty Mentor`,
+      `Saturday,10:00,12:00,Remedial & Project Guidance,${group},Department Faculty`,
+    ];
+
+    const csvContent = 'Day,Start Time,End Time,Subject,Class Group,Faculty\n' + sampleRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `NITRR_Timetable_Template_${uploadSemester}_Sec${uploadSection}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   // ----- Single Slot Update & Delete -----
   const handleUpdateEntry = async (entryId, updatedData) => {
-    // Client-side validation for manual slot edit
     if (!updatedData.startTime || !updatedData.endTime || !updatedData.subject || !updatedData.faculty) {
       setError('Start Time, End Time, Subject, and Faculty are all required.');
       return;
@@ -310,21 +346,6 @@ export default function TimetableManager({ user }) {
     }
   };
 
-  const downloadTemplate = () => {
-    let csv = 'Day,Start Time,End Time,Subject,Class Group,Faculty\n';
-    days.forEach((day, idx) => {
-      csv += `${day},09:00,09:50,Core Subject ${idx + 1},${uploadSemester} Sec ${uploadSection},Prof. Faculty Name\n`;
-    });
-
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `NITRR_Timetable_Template_${uploadSemester}_Sec${uploadSection}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <div className="space-y-6">
       {/* Alert Banners */}
@@ -349,7 +370,7 @@ export default function TimetableManager({ user }) {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Dedicated CSV / Excel Upload Card */}
+        {/* Left Column: Dedicated CSV / Excel Upload Card & Template Section */}
         <div className="lg:col-span-5 space-y-6">
           <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm">
             <div className="flex items-center gap-2.5 mb-5 pb-3 border-b border-slate-100">
@@ -413,21 +434,33 @@ export default function TimetableManager({ user }) {
                 </div>
               </div>
 
-              {/* 3. File Input & Template */}
-              <div className="pt-2">
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-bold text-slate-800">
-                    4. Choose CSV / Excel File *
-                  </label>
+              {/* 3. Enhanced Download Template Banner */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                    <FileText className="w-4 h-4 text-indigo-600" />
+                    <span>Download Pre-Formatted Template</span>
+                  </div>
                   <button
                     type="button"
                     onClick={downloadTemplate}
-                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 inline-flex items-center gap-1"
+                    className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1.5 shadow-sm transition-all"
                   >
-                    <Download className="w-3.5 h-3.5" /> Template
+                    <Download className="w-3.5 h-3.5" />
+                    <span>.CSV Template</span>
                   </button>
                 </div>
 
+                <div className="text-[11px] text-slate-500 leading-relaxed">
+                  Generates an editable spreadsheet pre-filled for <strong className="text-slate-700">{uploadSemester} Sem Sec {uploadSection}</strong> (Monday–Sunday slots in 24h format).
+                </div>
+              </div>
+
+              {/* 4. File Input */}
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                  4. Select Spreadsheet File (.csv, .xlsx, .xls) *
+                </label>
                 <input
                   ref={fileInputRef}
                   type="file"
