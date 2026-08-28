@@ -16,9 +16,15 @@ export default function FacultyDashboard({ user }) {
   const [pendingReviews, setPendingReviews] = useState([]);
   const [activeReviewBooking, setActiveReviewBooking] = useState(null);
 
+  // Check on mount and run a 20-second live background check for completed slots
   useEffect(() => {
     if (user) {
       checkPendingReviews();
+      const interval = setInterval(() => {
+        checkPendingReviews();
+      }, 20000);
+
+      return () => clearInterval(interval);
     }
   }, [user]);
 
@@ -27,8 +33,8 @@ export default function FacultyDashboard({ user }) {
       const res = await getPendingReviews();
       const list = res.data || [];
       setPendingReviews(list);
-      if (list.length > 0) {
-        // Prompt for the most recently completed booking
+      // Auto-open review popup if pending reviews exist and none is currently open
+      if (list.length > 0 && !activeReviewBooking) {
         setActiveReviewBooking(list[0]);
       }
     } catch (err) {

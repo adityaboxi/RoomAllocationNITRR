@@ -17,35 +17,50 @@ import { getPendingReviews, getNotifications } from './services/api';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(() => {
-    try {
-      const saved = localStorage.getItem('currentUser');
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
+    const saved = localStorage.getItem('currentUser');
+    return saved ? JSON.parse(saved) : null;
   });
 
   const [notifications, setNotifications] = useState([]);
   const [pendingReviews, setPendingReviews] = useState([]);
-  const [showReviewPopup, setShowReviewPopup] = useState(false);
   const [currentPending, setCurrentPending] = useState(null);
+  const [showReviewPopup, setShowReviewPopup] = useState(false);
 
   const socketRef = useRef(null);
+  const isMountedRef = useRef(true);
 
-  // Initial fetch of notifications & pending reviews on user login/refresh
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Fetch initial notifications and pending reviews + Poll every 30 seconds
   useEffect(() => {
     if (currentUser) {
       fetchUserNotifications();
       fetchPendingReviews();
+
+      // Background heartbeat to trigger review popup as soon as a class ends
+      const reviewInterval = setInterval(() => {
+        if (isMountedRef.current) {
+          fetchPendingReviews();
+        }
+      }, 30000);
+
+      return () => clearInterval(reviewInterval);
     }
   }, [currentUser]);
 
   const fetchUserNotifications = async () => {
     try {
       const res = await getNotifications();
-      setNotifications(res.data || []);
+      if (isMountedRef.current) {
+        setNotifications(res.data || []);
+      }
     } catch (err) {
-      console.warn('Initial notifications fetch notice:', err.message);
+      console.warn('Notifications fetch notice:', err.message);
     }
   };
 
@@ -54,10 +69,13 @@ export default function App() {
     try {
       const res = await getPendingReviews();
       const pending = res.data || [];
-      setPendingReviews(pending);
-      if (pending.length > 0) {
-        setCurrentPending(pending[0]);
-        setShowReviewPopup(true);
+      if (isMountedRef.current) {
+        setPendingReviews(pending);
+        // Only open popup if not already open
+        if (pending.length > 0 && !showReviewPopup) {
+          setCurrentPending(pending[0]);
+          setShowReviewPopup(true);
+        }
       }
     } catch (err) {
       console.warn('Pending reviews lookup notice:', err.message);
@@ -187,7 +205,7 @@ export default function App() {
           )}
         </main>
 
-        {/* Completed Class Review Popup */}
+        {/* Global Completed Class Review Popup */}
         {showReviewPopup && currentPending && (
           <ReviewPopup
             booking={currentPending}

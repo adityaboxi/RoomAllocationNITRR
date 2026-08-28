@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Review = require('../models/Review');
 const Booking = require('../models/Booking');
+const { getIO } = require('../utils/socket');
 
 // Helper to get normalized current date (YYYY-MM-DD)
 const getTodayDateString = () => {
@@ -64,7 +65,7 @@ exports.getPendingReviews = async (req, res) => {
   }
 };
 
-// ---------- SUBMIT REVIEW (With guards against reviewing future classes) ----------
+// ---------- SUBMIT REVIEW (With Real-Time Socket Broadcast) ----------
 exports.submitReview = async (req, res) => {
   try {
     const { bookingId, rating, comment } = req.body;
@@ -124,6 +125,15 @@ exports.submitReview = async (req, res) => {
     booking.status = 'completed';
     await booking.save();
 
+    // ⚡ Emit Real-Time Socket Event to all connected clients immediately
+    const io = getIO();
+    if (io) {
+      io.emit('review-created', {
+        roomId: (booking.roomId?._id || booking.roomId).toString(),
+        review,
+      });
+    }
+
     res.status(201).json({ success: true, message: 'Review submitted successfully', data: review });
   } catch (error) {
     console.error('Submit review error:', error);
@@ -145,7 +155,8 @@ exports.getRoomReviews = async (req, res) => {
 
     const reviews = await Review.find({ roomId })
       .populate('facultyId', 'name email department')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
     const totalRatings = reviews.reduce((sum, r) => sum + r.rating, 0);
     const avgRating = reviews.length > 0 ? Number((totalRatings / reviews.length).toFixed(1)) : 0;
@@ -164,12 +175,13 @@ exports.getRoomReviews = async (req, res) => {
   }
 };
 
-// ---------- GET MY REVIEWS (Resolves missing API endpoint for frontend) ----------
+// ---------- GET MY REVIEWS ----------
 exports.getMyReviews = async (req, res) => {
   try {
     const reviews = await Review.find({ facultyId: req.user._id || req.user.id })
       .populate('roomId', 'name roomNumber building floor')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
     res.json({
       success: true,

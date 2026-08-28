@@ -10,6 +10,7 @@ import {
   unlockRoom,
 } from '../services/api';
 import {
+  getSocket,
   onBookingCancelled,
   onBookingCreated,
   offBookingCancelled,
@@ -109,7 +110,7 @@ export default function BookingView({ user }) {
     };
   }, [bookingData.date, bookingData.startTime, bookingData.endTime, user?.department]);
 
-  // Real-Time Socket.IO Synchronization
+  // Real-Time Socket.IO Synchronization (Bookings + Live Reviews)
   useEffect(() => {
     const handleBookingCancelled = (data) => {
       fetchAvailableRooms(abortControllerRef.current?.signal);
@@ -126,11 +127,39 @@ export default function BookingView({ user }) {
     onBookingCancelled(handleBookingCancelled);
     onBookingCreated(handleBookingCreated);
 
+    // Live Socket.IO Listener for real-time review updates
+    const socket = getSocket();
+    const handleReviewCreated = ({ roomId, review }) => {
+      if (!roomId || !review) return;
+      const targetId = String(roomId);
+
+      setReviews((prev) => {
+        const raw = prev[targetId] || [];
+        const existing = Array.isArray(raw) ? raw : raw.reviews || [];
+        const filtered = existing.filter((r) => (r.id || r._id) !== (review.id || review._id));
+        return {
+          ...prev,
+          [targetId]: [review, ...filtered],
+        };
+      });
+
+      if (selectedReviewRoom && String(selectedReviewRoom.id || selectedReviewRoom._id) === targetId) {
+        setSelectedRoomReviews((prev) => [review, ...(prev || [])]);
+      }
+    };
+
+    if (socket) {
+      socket.on('review-created', handleReviewCreated);
+    }
+
     return () => {
       offBookingCancelled(handleBookingCancelled);
       offBookingCreated(handleBookingCreated);
+      if (socket) {
+        socket.off('review-created', handleReviewCreated);
+      }
     };
-  }, []);
+  }, [selectedReviewRoom]);
 
   // Cleanup room lock if component unmounts while booking modal is open
   useEffect(() => {
@@ -145,7 +174,14 @@ export default function BookingView({ user }) {
   const fetchRooms = async () => {
     try {
       const data = await getRooms({ department: user?.department });
-      setRooms(data.data || []);
+      const roomList = data.data || [];
+      setRooms(roomList);
+
+      // Pre-fetch reviews for all rooms to show stars immediately on cards
+      roomList.forEach((r) => {
+        const rId = r.id || r._id;
+        fetchReviewsForRoom(rId);
+      });
     } catch (err) {
       setError(err.message || 'Failed to load department rooms');
     }
@@ -195,11 +231,10 @@ export default function BookingView({ user }) {
     setLoadingReviews((prev) => ({ ...prev, [roomId]: true }));
     try {
       const data = await getRoomReviews(roomId);
-      const reviewsArray = data.data?.reviews || data.data || [];
+      const reviewsArray = data.data?.reviews || (Array.isArray(data.data) ? data.data : []);
       setReviews((prev) => ({ ...prev, [roomId]: reviewsArray }));
     } catch (err) {
-      console.error('Failed to fetch room reviews:', err);
-      setReviews((prev) => ({ ...prev, [roomId]: [] }));
+      console.warn('Failed to fetch room reviews:', err.message);
     } finally {
       setLoadingReviews((prev) => ({ ...prev, [roomId]: false }));
     }
@@ -207,22 +242,20 @@ export default function BookingView({ user }) {
 
   const handleViewReviews = (room) => {
     const roomId = room.id || room._id;
-    if (reviews[roomId] && reviews[roomId].length > 0) {
-      setSelectedReviewRoom(room);
-      setSelectedRoomReviews(reviews[roomId]);
-      return;
-    }
+    const raw = reviews[roomId] || [];
+    const list = Array.isArray(raw) ? raw : raw.reviews || [];
+
     setSelectedReviewRoom(room);
-    setSelectedRoomReviews([]);
+    setSelectedRoomReviews(list);
     fetchReviewsForRoom(roomId);
   };
 
   useEffect(() => {
     if (selectedReviewRoom) {
       const roomId = selectedReviewRoom.id || selectedReviewRoom._id;
-      if (reviews[roomId]) {
-        setSelectedRoomReviews(reviews[roomId]);
-      }
+      const raw = reviews[roomId] || [];
+      const list = Array.isArray(raw) ? raw : raw.reviews || [];
+      setSelectedRoomReviews(list);
     }
   }, [reviews, selectedReviewRoom]);
 
@@ -230,7 +263,6 @@ export default function BookingView({ user }) {
     const { name, value } = e.target;
     setBookingData((prev) => {
       const updated = { ...prev, [name]: value };
-      // Auto-set End Time to +1 hour if user changes Start Time
       if (name === 'startTime' && value) {
         if (!prev.endTime || prev.endTime <= value) {
           updated.endTime = getDefaultEndHHMM(value);
@@ -451,11 +483,12 @@ export default function BookingView({ user }) {
             {rooms.map((room) => {
               const roomId = room.id || room._id;
               const available = isRoomAvailable(room);
-              const roomReviews = reviews[roomId] || [];
+              const rawReviews = reviews[roomId] || [];
+              const roomReviews = Array.isArray(rawReviews) ? rawReviews : rawReviews.reviews || [];
               const avgRating =
                 roomReviews.length > 0
                   ? (
-                      roomReviews.reduce((acc, r) => acc + r.rating, 0) / roomReviews.length
+                      roomReviews.reduce((acc, r) => acc + (r.rating || 0), 0) / roomReviews.length
                     ).toFixed(1)
                   : null;
 
@@ -526,7 +559,7 @@ export default function BookingView({ user }) {
                       )}
                     </div>
 
-                    {/* Reviews */}
+                    {/* Live Star Ratings on Room Card */}
                     <div className="mt-3.5 flex items-center justify-between pt-2 border-t border-slate-100">
                       <div className="flex items-center gap-1">
                         <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />

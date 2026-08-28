@@ -256,6 +256,15 @@ exports.createRoom = async (req, res) => {
       createdByName: req.user.name,
     });
 
+    // ⚡ Real-Time Socket Broadcast
+    const io = getIO();
+    if (io) {
+      io.emit('timetable-updated', {
+        department,
+        reason: 'room-created',
+      });
+    }
+
     res.status(201).json({ success: true, message: 'Room created successfully', data: room });
   } catch (error) {
     console.error('Create room error:', error);
@@ -346,6 +355,16 @@ exports.updateRoom = async (req, res) => {
     delete req.body.createdByName;
 
     const updatedRoom = await Room.findByIdAndUpdate(id, req.body, { new: true, runValidators: true });
+
+    // ⚡ Real-Time Socket Broadcast
+    const io = getIO();
+    if (io) {
+      io.emit('timetable-updated', {
+        department: room.department,
+        reason: 'room-updated',
+      });
+    }
+
     res.json({ success: true, message: 'Room updated successfully', data: updatedRoom });
   } catch (error) {
     console.error('Update room error:', error);
@@ -379,6 +398,15 @@ exports.toggleRoomAvailability = async (req, res) => {
 
     room.isAvailable = !room.isAvailable;
     await room.save();
+
+    // ⚡ Real-Time Socket Broadcast
+    const io = getIO();
+    if (io) {
+      io.emit('timetable-updated', {
+        department: room.department,
+        reason: 'room-availability-toggled',
+      });
+    }
 
     res.json({
       success: true,

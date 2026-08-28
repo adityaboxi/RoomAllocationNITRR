@@ -91,3 +91,33 @@ export const offTimetableUpdated = (callback) => {
   const s = getSocket();
   if (s && callback) s.off('timetable-updated', callback);
 };
+
+export const onReviewCreated = (callback) => {
+  const s = getSocket();
+  if (s && callback) s.on('review-created', callback);
+};
+
+export const offReviewCreated = (callback) => {
+  const s = getSocket();
+  if (s && callback) s.off('review-created', callback);
+};
+
+export const onRoomLocked = (callback) => {
+  const s = getSocket();
+  if (s && callback) s.on('room-locked', callback);
+};
+
+export const offRoomLocked = (callback) => {
+  const s = getSocket();
+  if (s && callback) s.off('room-locked', callback);
+};
+
+export const onRoomUnlocked = (callback) => {
+  const s = getSocket();
+  if (s && callback) s.on('room-unlocked', callback);
+};
+
+export const offRoomUnlocked = (callback) => {
+  const s = getSocket();
+  if (s && callback) s.off('room-unlocked', callback);
+};

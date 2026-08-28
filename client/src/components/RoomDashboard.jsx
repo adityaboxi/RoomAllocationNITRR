@@ -81,10 +81,17 @@ export default function RoomDashboard({ user }) {
       ]);
 
       if (isMountedRef.current) {
-        setRooms(roomsRes.data || []);
+        const fetchedRooms = roomsRes.data || [];
+        setRooms(fetchedRooms);
         const ids = (availRes.data || []).map((r) => r.id || r._id);
         setAvailableRoomIds(ids);
         setCurrentTime(new Date());
+
+        // Pre-fetch reviews for all fetched rooms to populate star ratings
+        fetchedRooms.forEach((r) => {
+          const rId = r.id || r._id;
+          fetchReviewsForRoom(rId);
+        });
       }
     } catch (err) {
       if (isMountedRef.current) {
@@ -104,7 +111,7 @@ export default function RoomDashboard({ user }) {
 
     try {
       const data = await getRoomReviews(roomId);
-      const reviewsArray = data.data?.reviews || data.data || [];
+      const reviewsArray = data.data?.reviews || (Array.isArray(data.data) ? data.data : []);
       if (isMountedRef.current) {
         setReviews((prev) => ({ ...prev, [roomId]: reviewsArray }));
         if (selectedRoom && (selectedRoom.id === roomId || selectedRoom._id === roomId)) {
@@ -112,10 +119,7 @@ export default function RoomDashboard({ user }) {
         }
       }
     } catch (err) {
-      console.error('Failed to fetch room reviews:', err);
-      if (isMountedRef.current && selectedRoom && (selectedRoom.id === roomId || selectedRoom._id === roomId)) {
-        setSelectedRoomReviews([]);
-      }
+      console.warn('Failed to fetch room reviews:', err.message);
     } finally {
       if (isMountedRef.current) {
         setLoadingReviews((prev) => ({ ...prev, [roomId]: false }));
@@ -145,7 +149,7 @@ export default function RoomDashboard({ user }) {
     return () => clearInterval(interval);
   }, [user?.department]);
 
-  // Real-time Socket.IO Listeners (Instant triggers for all actions)
+  // Real-time Socket.IO Listeners (Instant triggers for all actions + Real-time Reviews)
   useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
@@ -156,11 +160,31 @@ export default function RoomDashboard({ user }) {
       }
     };
 
+    // Live Socket listener for newly submitted reviews
+    const handleReviewCreated = ({ roomId, review }) => {
+      if (!isMountedRef.current || !roomId || !review) return;
+      const targetId = String(roomId);
+
+      setReviews((prev) => {
+        const existing = prev[targetId] || [];
+        const filtered = existing.filter((r) => (r.id || r._id) !== (review.id || review._id));
+        return {
+          ...prev,
+          [targetId]: [review, ...filtered],
+        };
+      });
+
+      if (selectedRoom && String(selectedRoom.id || selectedRoom._id) === targetId) {
+        setSelectedRoomReviews((prev) => [review, ...(prev || [])]);
+      }
+    };
+
     socket.on('booking-created', handleUpdate);
     socket.on('booking-cancelled', handleUpdate);
     socket.on('room-locked', handleUpdate);
     socket.on('room-unlocked', handleUpdate);
     socket.on('timetable-updated', handleUpdate);
+    socket.on('review-created', handleReviewCreated);
 
     return () => {
       socket.off('booking-created', handleUpdate);
@@ -168,8 +192,9 @@ export default function RoomDashboard({ user }) {
       socket.off('room-locked', handleUpdate);
       socket.off('room-unlocked', handleUpdate);
       socket.off('timetable-updated', handleUpdate);
+      socket.off('review-created', handleReviewCreated);
     };
-  }, []);
+  }, [selectedRoom]);
 
   const isRoomAvailable = (room) => {
     const id = room.id || room._id;
@@ -331,11 +356,12 @@ export default function RoomDashboard({ user }) {
           {filteredRooms.map((room) => {
             const roomId = room.id || room._id;
             const available = isRoomAvailable(room);
-            const roomReviews = reviews[roomId] || [];
+            const rawReviews = reviews[roomId] || [];
+            const roomReviews = Array.isArray(rawReviews) ? rawReviews : rawReviews.reviews || [];
             const avgRating =
               roomReviews.length > 0
                 ? (
-                    roomReviews.reduce((acc, r) => acc + r.rating, 0) / roomReviews.length
+                    roomReviews.reduce((acc, r) => acc + (r.rating || 0), 0) / roomReviews.length
                   ).toFixed(1)
                 : null;
             const reviewCount = roomReviews.length;
@@ -407,7 +433,7 @@ export default function RoomDashboard({ user }) {
                     )}
                   </div>
 
-                  {/* Review Summary */}
+                  {/* Live Star Rating Summary */}
                   <div className="mt-3.5 flex items-center justify-between pt-2 border-t border-slate-100">
                     <div className="flex items-center gap-1">
                       <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
@@ -441,7 +467,7 @@ export default function RoomDashboard({ user }) {
         </div>
       )}
 
-      {/* Reviews Modal */}
+      {/* Real-Time Reviews Modal */}
       {selectedRoom && selectedRoomReviews !== null && (
         <ReviewsModal
           room={selectedRoom}

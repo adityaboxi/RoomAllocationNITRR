@@ -124,7 +124,7 @@ const cancelConflictingBookings = async (timetableEntries, department) => {
   return cancelledBookings;
 };
 
-// ---------- CORE REPLACEMENT LOGIC ----------
+// ---------- CORE REPLACEMENT & MERGE LOGIC ----------
 const replaceTimetableEntries = async ({ department, semester, section, entries, userId }) => {
   const validatedEntries = [];
   const errors = [];
@@ -193,16 +193,16 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
 
       if (a.day === b.day && isOverlapping(a.startTime, a.endTime, b.startTime, b.endTime)) {
         if (a.roomId.toString() === b.roomId.toString()) {
-          throw new Error(`Room collision: Same room scheduled twice on ${a.day} (${a.startTime}-${a.endTime} & ${b.startTime}-${b.endTime})`);
+          throw new Error(`🚫 Room collision in batch: Same room scheduled twice on ${a.day} (${a.startTime}-${a.endTime} & ${b.startTime}-${b.endTime})`);
         }
         if (a.faculty.toLowerCase() === b.faculty.toLowerCase()) {
-          throw new Error(`Faculty collision: Prof. ${a.faculty} is assigned to two overlapping classes on ${a.day} (${a.startTime}-${a.endTime} & ${b.startTime}-${b.endTime})`);
+          throw new Error(`🚫 Faculty collision in batch: Prof. ${a.faculty} is assigned to two overlapping classes on ${a.day} (${a.startTime}-${a.endTime} & ${b.startTime}-${b.endTime})`);
         }
       }
     }
   }
 
-  // 2. Inter-Batch Database Checks
+  // 2. Inter-Batch Database Checks (Checking existing classes from different semesters/sections in same room)
   for (const entry of validatedEntries) {
     const roomConflict = await Timetable.findOne({
       roomId: entry.roomId,
@@ -211,10 +211,14 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
       $or: [{ semester: { $ne: semester } }, { section: { $ne: section } }],
       startTime: { $lt: entry.endTime },
       endTime: { $gt: entry.startTime },
-    });
+    }).populate('roomId', 'name roomNumber');
 
     if (roomConflict) {
-      throw new Error(`Room clash with ${roomConflict.semester} Sem Sec ${roomConflict.section}: ${roomConflict.subject} on ${entry.day} (${roomConflict.startTime}-${roomConflict.endTime})`);
+      const roomName = roomConflict.roomId?.name || 'Classroom';
+      const roomNum = roomConflict.roomId?.roomNumber || '';
+      throw new Error(
+        `🚫 Timetable Collision: Room "${roomName}" (${roomNum}) is already occupied on ${entry.day} (${roomConflict.startTime} - ${roomConflict.endTime}) by ${roomConflict.subject} for ${roomConflict.semester} Sem Sec ${roomConflict.section} (Prof. ${roomConflict.faculty}).`
+      );
     }
 
     const facultyConflict = await Timetable.findOne({
@@ -227,11 +231,13 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
     });
 
     if (facultyConflict) {
-      throw new Error(`Faculty clash: Prof. ${entry.faculty} is already teaching ${facultyConflict.subject} on ${entry.day} (${facultyConflict.startTime}-${facultyConflict.endTime})`);
+      throw new Error(
+        `🚫 Faculty Collision: Prof. ${entry.faculty} is already teaching ${facultyConflict.subject} (${facultyConflict.semester} Sem Sec ${facultyConflict.section}) on ${entry.day} (${facultyConflict.startTime}-${facultyConflict.endTime}).`
+      );
     }
   }
 
-  // 3. Deactivate old slots for the specific rooms being uploaded & insert new
+  // 3. Deactivate old slots ONLY for the matching (department, roomId, semester, section)
   const targetRoomIds = [...new Set(validatedEntries.map((e) => e.roomId.toString()))];
 
   await Timetable.updateMany(
@@ -440,10 +446,68 @@ exports.updateRoomDayTimetable = async (req, res) => {
       };
     });
 
-    await Timetable.updateMany(
-      { roomId, day: day.trim(), isActive: true },
-      { $set: { isActive: false }, $inc: { version: 1 } }
-    );
+    // 1. Intra-batch collision check
+    for (let i = 0; i < validatedEntries.length; i++) {
+      for (let j = i + 1; j < validatedEntries.length; j++) {
+        const a = validatedEntries[i];
+        const b = validatedEntries[j];
+        if (isOverlapping(a.startTime, a.endTime, b.startTime, b.endTime)) {
+          throw new Error(`🚫 Slot Collision in form: Two slots overlap on ${day} (${a.startTime}-${a.endTime} & ${b.startTime}-${b.endTime})`);
+        }
+      }
+    }
+
+    // 2. Inter-database collision check for other semesters/sections in the same room
+    for (const entry of validatedEntries) {
+      const roomConflict = await Timetable.findOne({
+        roomId: room._id,
+        day: day.trim(),
+        isActive: true,
+        $or: [{ semester: { $ne: entry.semester } }, { section: { $ne: entry.section } }],
+        startTime: { $lt: entry.endTime },
+        endTime: { $gt: entry.startTime },
+      });
+
+      if (roomConflict) {
+        throw new Error(
+          `🚫 Timetable Collision: Room "${room.name}" (${room.roomNumber}) is already occupied on ${day} from ${roomConflict.startTime} to ${roomConflict.endTime} by ${roomConflict.subject} for ${roomConflict.semester} Sem Sec ${roomConflict.section} (Prof. ${roomConflict.faculty}).`
+        );
+      }
+
+      const facultyConflict = await Timetable.findOne({
+        faculty: { $regex: new RegExp('^' + escapeRegex(entry.faculty) + '$', 'i') },
+        day: day.trim(),
+        isActive: true,
+        $or: [{ semester: { $ne: entry.semester } }, { section: { $ne: entry.section } }],
+        startTime: { $lt: entry.endTime },
+        endTime: { $gt: entry.startTime },
+      });
+
+      if (facultyConflict) {
+        throw new Error(
+          `🚫 Faculty Collision: Prof. ${entry.faculty} is already teaching ${facultyConflict.subject} (${facultyConflict.semester} Sem Sec ${facultyConflict.section}) on ${day} (${facultyConflict.startTime}-${facultyConflict.endTime}).`
+        );
+      }
+    }
+
+    // 3. Deactivate previous slots ONLY for the matching (roomId, day, semester, section)
+    const distinctPairs = [
+      ...new Set(validatedEntries.map((e) => `${e.semester}__${e.section}`)),
+    ];
+
+    for (const pair of distinctPairs) {
+      const [sem, sec] = pair.split('__');
+      await Timetable.updateMany(
+        {
+          roomId: room._id,
+          day: day.trim(),
+          semester: sem,
+          section: sec,
+          isActive: true,
+        },
+        { $set: { isActive: false }, $inc: { version: 1 } }
+      );
+    }
 
     let created = [];
     if (validatedEntries.length > 0) {
@@ -709,12 +773,13 @@ exports.updateTimetableEntry = async (req, res) => {
       _id: { $ne: id },
       startTime: { $lt: checkEndTime },
       endTime: { $gt: checkStartTime },
-    });
+    }).populate('roomId', 'name roomNumber');
 
     if (roomCollision) {
+      const rName = roomCollision.roomId?.name || 'Classroom';
       return res.status(400).json({
         success: false,
-        message: `Room collision: Room is already scheduled for ${roomCollision.subject} (${roomCollision.semester} Sec ${roomCollision.section})`,
+        message: `🚫 Timetable Collision: Room "${rName}" is already occupied on ${entry.day} from ${roomCollision.startTime} to ${roomCollision.endTime} by ${roomCollision.subject} (${roomCollision.semester} Sem Sec ${roomCollision.section}, Prof. ${roomCollision.faculty}).`,
       });
     }
 

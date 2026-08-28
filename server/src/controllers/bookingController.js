@@ -513,6 +513,18 @@ exports.lockRoom = async (req, res) => {
       lockedAt: new Date(),
     });
 
+    // ⚡ Emit real-time lock event to all connected users
+    const io = getIO();
+    if (io) {
+      io.emit('room-locked', {
+        roomId: lock.roomId.toString(),
+        lockId,
+        date,
+        startTime,
+        endTime,
+      });
+    }
+
     res.json({
       success: true,
       message: 'Room locked successfully',
@@ -544,7 +556,18 @@ exports.unlockRoom = async (req, res) => {
       return res.status(403).json({ success: false, message: 'You do not have permission to unlock this room' });
     }
 
+    const roomId = booking.roomId?.toString();
     await Booking.deleteOne({ _id: booking._id });
+
+    // ⚡ Emit real-time unlock event to all connected users
+    const io = getIO();
+    if (io) {
+      io.emit('room-unlocked', {
+        roomId,
+        lockId,
+      });
+    }
+
     res.json({ success: true, message: 'Room unlocked successfully' });
   } catch (error) {
     console.error('Unlock room error:', error);
