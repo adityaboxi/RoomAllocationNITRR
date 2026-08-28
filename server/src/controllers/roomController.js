@@ -4,7 +4,6 @@ const Booking = require('../models/Booking');
 const Timetable = require('../models/Timetable');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
-const { getDayOfWeek } = require('../utils/helpers');
 const { sendBookingCancellationEmail } = require('../utils/email');
 const { getIO, emitToUser } = require('../utils/socket');
 
@@ -75,7 +74,7 @@ exports.getRooms = async (req, res) => {
 
     res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
-    console.error('Get rooms error:', error);
+    // console.error('Get rooms error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -96,7 +95,7 @@ exports.getRoom = async (req, res) => {
 
     res.json({ success: true, data: room });
   } catch (error) {
-    console.error('Get room error:', error);
+    // console.error('Get room error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -126,6 +125,7 @@ exports.getAvailableRooms = async (req, res) => {
     startTime = startTime.trim();
     endTime = endTime.trim();
 
+    const { getDayOfWeek } = require('../utils/helpers');
     const day = getDayOfWeek(date);
     const baseQuery = { isAvailable: true, isActive: true };
 
@@ -186,12 +186,12 @@ exports.getAvailableRooms = async (req, res) => {
       filters: { department, floor, building, roomType, hasProjector, hasAC, hasSmartBoard, hasWiFi },
     });
   } catch (error) {
-    console.error('Get available rooms error:', error);
+    // console.error('Get available rooms error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ---------- CREATE ROOM (Global & Department Ownership Verification) ----------
+// ---------- CREATE ROOM ----------
 exports.createRoom = async (req, res) => {
   try {
     let { name, roomNumber, capacity, type, floor, building } = req.body;
@@ -209,7 +209,7 @@ exports.createRoom = async (req, res) => {
     roomNumber = roomNumber.trim().toUpperCase();
     const department = req.user.department;
 
-    // Check across the entire institute (all departments) if this room is already registered
+    // Check across the entire institute if this room is already registered
     const existing = await Room.findOne({
       isActive: true,
       $or: [
@@ -256,7 +256,6 @@ exports.createRoom = async (req, res) => {
       createdByName: req.user.name,
     });
 
-    // ⚡ Real-Time Socket Broadcast
     const io = getIO();
     if (io) {
       io.emit('timetable-updated', {
@@ -267,12 +266,12 @@ exports.createRoom = async (req, res) => {
 
     res.status(201).json({ success: true, message: 'Room created successfully', data: room });
   } catch (error) {
-    console.error('Create room error:', error);
+    // console.error('Create room error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
 
-// ---------- UPDATE ROOM (Global Ownership Verification) ----------
+// ---------- UPDATE ROOM ----------
 exports.updateRoom = async (req, res) => {
   try {
     const { id } = req.params;
@@ -356,7 +355,6 @@ exports.updateRoom = async (req, res) => {
 
     const updatedRoom = await Room.findByIdAndUpdate(id, req.body, { new: true, runValidators: true });
 
-    // ⚡ Real-Time Socket Broadcast
     const io = getIO();
     if (io) {
       io.emit('timetable-updated', {
@@ -367,7 +365,7 @@ exports.updateRoom = async (req, res) => {
 
     res.json({ success: true, message: 'Room updated successfully', data: updatedRoom });
   } catch (error) {
-    console.error('Update room error:', error);
+    // console.error('Update room error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -399,7 +397,6 @@ exports.toggleRoomAvailability = async (req, res) => {
     room.isAvailable = !room.isAvailable;
     await room.save();
 
-    // ⚡ Real-Time Socket Broadcast
     const io = getIO();
     if (io) {
       io.emit('timetable-updated', {
@@ -414,7 +411,7 @@ exports.toggleRoomAvailability = async (req, res) => {
       data: room,
     });
   } catch (error) {
-    console.error('Toggle room error:', error);
+    // console.error('Toggle room error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -443,16 +440,10 @@ exports.deleteRoom = async (req, res) => {
       });
     }
 
-    // 1. Permanently delete room from collection
     await Room.findByIdAndDelete(id);
-
-    // 2. Cascade delete all timetable slots scheduled in this room
     const timetableDeleteResult = await Timetable.deleteMany({ roomId: id });
-
-    // 3. Clear temporary checkout locks on this room
     await Booking.deleteMany({ roomId: id, purpose: 'TEMPORARY_LOCK' });
 
-    // 4. Find all future active bookings in this room to cancel and notify faculty
     const todayStr = getTodayDateString();
     const affectedBookings = await Booking.find({
       roomId: id,
@@ -470,9 +461,7 @@ exports.deleteRoom = async (req, res) => {
       (async () => {
         try {
           await sendBookingCancellationEmail(booking, cancellationReason);
-        } catch (emailErr) {
-          console.warn('Email dispatch warning:', emailErr.message);
-        }
+        } catch (emailErr) {}
 
         const facultyUser = await User.findOne({ email: booking.facultyEmail });
         if (facultyUser) {
@@ -499,10 +488,9 @@ exports.deleteRoom = async (req, res) => {
             },
           });
         }
-      })().catch((err) => console.error('Notification error:', err));
+      })().catch(() => {});
     }
 
-    // 5. Emit real-time socket event
     const io = getIO();
     if (io) {
       io.emit('timetable-updated', {
@@ -526,7 +514,7 @@ exports.deleteRoom = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Delete room error:', error);
+    // console.error('Delete room error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 };

@@ -3,8 +3,10 @@ exports.errorHandler = (err, req, res, next) => {
   let error = { ...err };
   error.message = err.message || 'Internal Server Error';
 
-  // Log error details for server diagnostics
-  console.error(`🚨 [Error] ${req.method} ${req.originalUrl}:`, err);
+  // Log error details for server diagnostics in development mode
+  // if (process.env.NODE_ENV === 'development') {
+  //   console.error(`🚨 [Error] ${req.method} ${req.originalUrl}:`, err);
+  // }
 
   // 1. Mongoose Bad ObjectId (CastError)
   if (err.name === 'CastError') {
@@ -19,7 +21,7 @@ exports.errorHandler = (err, req, res, next) => {
   if (err.code === 11000) {
     const duplicateFields = Object.keys(err.keyValue || {}).join(', ');
     const message = duplicateFields
-      ? `Duplicate entry detected for field(s): ${duplicateFields}. Please use unique values.`
+      ? `Duplicate entry detected for: ${duplicateFields}. Please use a unique value.`
       : 'Duplicate entry detected in database.';
     return res.status(409).json({
       success: false,
@@ -42,9 +44,9 @@ exports.errorHandler = (err, req, res, next) => {
   if (err.name === 'MulterError') {
     let message = 'File upload error';
     if (err.code === 'LIMIT_FILE_SIZE') {
-      message = 'File size exceeds the 5MB maximum limit';
+      message = 'File size exceeds the configured maximum upload limit (5MB)';
     } else if (err.code === 'LIMIT_UNEXPECTED_FILE') {
-      message = 'Unexpected file field encountered in upload';
+      message = 'Unexpected file field encountered in upload request';
     }
     return res.status(400).json({
       success: false,

@@ -28,8 +28,14 @@ import {
   AlertCircle,
   X,
   Sparkles,
-  Info,
+  Loader2,
 } from 'lucide-react';
+
+const extractErrorMessage = (err, fallback) => {
+  if (!err) return fallback;
+  if (typeof err === 'string') return err;
+  return err.response?.data?.message || err.message || fallback;
+};
 
 const getTodayDateString = () => {
   const now = new Date();
@@ -63,6 +69,7 @@ export default function BookingView({ user }) {
   const [myBookings, setMyBookings] = useState([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [cancellingBookingId, setCancellingBookingId] = useState(null);
 
   const [bookingData, setBookingData] = useState({
     date: todayStr,
@@ -174,7 +181,7 @@ export default function BookingView({ user }) {
   const fetchRooms = async () => {
     try {
       const data = await getRooms({ department: user?.department });
-      const roomList = data.data || [];
+      const roomList = data?.data || [];
       setRooms(roomList);
 
       // Pre-fetch reviews for all rooms to show stars immediately on cards
@@ -183,7 +190,7 @@ export default function BookingView({ user }) {
         fetchReviewsForRoom(rId);
       });
     } catch (err) {
-      setError(err.message || 'Failed to load department rooms');
+      setError(extractErrorMessage(err, 'Failed to load department rooms.'));
     }
   };
 
@@ -209,20 +216,19 @@ export default function BookingView({ user }) {
         { signal }
       );
 
-      const ids = (data.data || []).map((r) => r.id || r._id);
+      const ids = (data?.data || []).map((r) => r.id || r._id);
       setAvailableRoomIds(ids);
     } catch (err) {
       if (err.name === 'AbortError') return;
-      console.warn('Availability lookup warning:', err.message);
     }
   };
 
   const fetchMyBookings = async () => {
     try {
       const data = await getMyBookings();
-      setMyBookings(data.data || []);
+      setMyBookings(data?.data || []);
     } catch (err) {
-      console.error('Failed to load user bookings:', err);
+      // Non-critical fallback
     }
   };
 
@@ -231,10 +237,10 @@ export default function BookingView({ user }) {
     setLoadingReviews((prev) => ({ ...prev, [roomId]: true }));
     try {
       const data = await getRoomReviews(roomId);
-      const reviewsArray = data.data?.reviews || (Array.isArray(data.data) ? data.data : []);
+      const reviewsArray = data?.data?.reviews || (Array.isArray(data?.data) ? data.data : []);
       setReviews((prev) => ({ ...prev, [roomId]: reviewsArray }));
     } catch (err) {
-      console.warn('Failed to fetch room reviews:', err.message);
+      // Non-critical fallback
     } finally {
       setLoadingReviews((prev) => ({ ...prev, [roomId]: false }));
     }
@@ -290,7 +296,7 @@ export default function BookingView({ user }) {
         setActiveLockId(lockRes.lockId);
       }
     } catch (err) {
-      console.warn('Room pre-lock notice:', err.message);
+      // Handled silently
     }
   };
 
@@ -322,7 +328,7 @@ export default function BookingView({ user }) {
 
     // Past-time check for today
     if (date === todayStr && startTime < currentHHMM) {
-      setError(`Cannot book past hours for today (Current time: ${currentHHMM}).`);
+      setError(`Cannot book past hours for today (Current local time: ${currentHHMM}).`);
       return;
     }
 
@@ -341,7 +347,7 @@ export default function BookingView({ user }) {
         lockId: activeLockId,
       });
 
-      setSuccess(`Room "${selectedRoom.name}" booked successfully!`);
+      setSuccess(`Room "${selectedRoom.name}" booked successfully! Confirmation details sent.`);
       setBookingData((prev) => ({ ...prev, purpose: '', comment: '' }));
       setSelectedRoom(null);
       setActiveLockId(null);
@@ -351,9 +357,7 @@ export default function BookingView({ user }) {
         fetchAvailableRooms(abortControllerRef.current?.signal),
       ]);
     } catch (err) {
-      const message =
-        err.response?.data?.message || err.message || 'Booking failed. Room slot may have been taken.';
-      setError(message);
+      setError(extractErrorMessage(err, 'Booking failed. Room slot may have been reserved by another faculty.'));
     } finally {
       setLoading(false);
     }
@@ -363,6 +367,9 @@ export default function BookingView({ user }) {
     const confirmCancel = window.confirm('Are you sure you want to cancel this booking?');
     if (!confirmCancel) return;
 
+    setCancellingBookingId(bookingId);
+    setError('');
+    setSuccess('');
     try {
       await cancelBooking(bookingId);
       setSuccess('Booking cancelled successfully.');
@@ -371,7 +378,9 @@ export default function BookingView({ user }) {
         fetchAvailableRooms(abortControllerRef.current?.signal),
       ]);
     } catch (err) {
-      setError(err.message || 'Cancellation failed');
+      setError(extractErrorMessage(err, 'Cancellation failed.'));
+    } finally {
+      setCancellingBookingId(null);
     }
   };
 
@@ -386,8 +395,8 @@ export default function BookingView({ user }) {
       {error && (
         <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
           <AlertCircle className="w-5 h-5 mr-2.5 text-rose-600 flex-shrink-0 mt-0.5" />
-          <div className="flex-1">{error}</div>
-          <button onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
+          <div className="flex-1 whitespace-pre-line font-medium">{error}</div>
+          <button type="button" onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -396,8 +405,8 @@ export default function BookingView({ user }) {
       {success && (
         <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-start text-emerald-800 text-sm font-medium animate-fadeIn">
           <CheckCircle2 className="w-5 h-5 mr-2.5 text-emerald-600 flex-shrink-0 mt-0.5" />
-          <div className="flex-1">{success}</div>
-          <button onClick={() => setSuccess('')} className="text-emerald-500 hover:text-emerald-700">
+          <div className="flex-1 font-medium">{success}</div>
+          <button type="button" onClick={() => setSuccess('')} className="text-emerald-500 hover:text-emerald-700">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -412,8 +421,8 @@ export default function BookingView({ user }) {
               Select Desired Booking Slot
             </h3>
           </div>
-          <span className="text-xs text-slate-400 font-mono">
-            Server Time: {currentHHMM}
+          <span className="text-xs text-slate-400 font-mono font-medium">
+            Local Time: {currentHHMM}
           </span>
         </div>
 
@@ -675,7 +684,10 @@ export default function BookingView({ user }) {
               className="bg-emerald-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-emerald-700 shadow-sm transition-all disabled:opacity-50 flex items-center gap-2"
             >
               {loading ? (
-                <span>Confirming Booking...</span>
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Confirming Booking...</span>
+                </>
               ) : (
                 <>
                   <span>Confirm Reservation</span>
@@ -729,6 +741,7 @@ export default function BookingView({ user }) {
                   const bookingId = b.id || b._id;
                   const isCancelled = b.status === 'cancelled';
                   const isActive = b.status === 'active';
+                  const isCancelling = cancellingBookingId === bookingId;
 
                   return (
                     <tr key={bookingId} className="hover:bg-slate-50/80 transition-colors">
@@ -777,9 +790,10 @@ export default function BookingView({ user }) {
                           <button
                             type="button"
                             onClick={() => handleCancelBooking(bookingId)}
-                            className="text-xs font-bold text-rose-600 hover:text-rose-800 hover:underline"
+                            disabled={isCancelling}
+                            className="text-xs font-bold text-rose-600 hover:text-rose-800 hover:underline disabled:opacity-40"
                           >
-                            Cancel Slot
+                            {isCancelling ? 'Cancelling...' : 'Cancel Slot'}
                           </button>
                         )}
                       </td>

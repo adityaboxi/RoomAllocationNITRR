@@ -17,7 +17,7 @@ export default function ReviewModal({ room, reviews = [], onClose }) {
 
   return (
     <div
-      className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn"
+      className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn font-sans"
       onClick={onClose}
     >
       <div
@@ -39,7 +39,7 @@ export default function ReviewModal({ room, reviews = [], onClose }) {
                 <span>•</span>
                 <span>
                   {avgRating !== null ? (
-                    <strong className="text-amber-600">
+                    <strong className="text-amber-600 font-semibold">
                       {avgRating} ★ ({reviewsArray.length} reviews)
                     </strong>
                   ) : (
@@ -80,7 +80,7 @@ export default function ReviewModal({ room, reviews = [], onClose }) {
                         <Star
                           key={star}
                           className={`w-3.5 h-3.5 ${
-                            star <= r.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-200'
+                            star <= (r.rating || 0) ? 'fill-amber-400 text-amber-400' : 'text-slate-200'
                           }`}
                         />
                       ))}

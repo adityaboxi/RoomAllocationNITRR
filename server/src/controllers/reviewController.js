@@ -3,7 +3,6 @@ const Review = require('../models/Review');
 const Booking = require('../models/Booking');
 const { getIO } = require('../utils/socket');
 
-// Helper to get normalized current date (YYYY-MM-DD)
 const getTodayDateString = () => {
   const now = new Date();
   const year = now.getFullYear();
@@ -12,7 +11,6 @@ const getTodayDateString = () => {
   return `${year}-${month}-${day}`;
 };
 
-// Helper to get normalized current time (HH:mm)
 const getCurrentTimeHHMM = () => {
   const now = new Date();
   const h = String(now.getHours()).padStart(2, '0');
@@ -20,7 +18,6 @@ const getCurrentTimeHHMM = () => {
   return `${h}:${m}`;
 };
 
-// Deterministic, timezone-safe check to determine if a class booking has completed
 const isBookingEnded = (booking) => {
   const todayStr = getTodayDateString();
   const currentHHMM = getCurrentTimeHHMM();
@@ -30,18 +27,16 @@ const isBookingEnded = (booking) => {
   return false;
 };
 
-// ---------- GET PENDING REVIEWS (Optimized: Replaced N+1 with Batch Query) ----------
+// ---------- GET PENDING REVIEWS ----------
 exports.getPendingReviews = async (req, res) => {
   try {
     const todayStr = getTodayDateString();
     const currentHHMM = getCurrentTimeHHMM();
 
-    // 1. Fetch all booking IDs already reviewed by this faculty member (1 indexed query)
     const reviewedBookingIds = await Review.distinct('bookingId', {
       facultyId: req.user._id || req.user.id,
     });
 
-    // 2. Fetch active/completed bookings that have not been reviewed yet
     const candidateBookings = await Booking.find({
       facultyEmail: req.user.email,
       status: { $in: ['active', 'completed'] },
@@ -51,7 +46,6 @@ exports.getPendingReviews = async (req, res) => {
       .populate('roomId', 'name roomNumber floor building')
       .sort({ date: -1, endTime: -1 });
 
-    // 3. Filter for bookings that have reached or passed their end time
     const pendingReviews = candidateBookings.filter((booking) => {
       if (booking.date < todayStr) return true;
       if (booking.date === todayStr && booking.endTime <= currentHHMM) return true;
@@ -60,12 +54,12 @@ exports.getPendingReviews = async (req, res) => {
 
     res.json({ success: true, data: pendingReviews, total: pendingReviews.length });
   } catch (error) {
-    console.error('Get pending reviews error:', error);
+    // console.error('Get pending reviews error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ---------- SUBMIT REVIEW (With Real-Time Socket Broadcast) ----------
+// ---------- SUBMIT REVIEW ----------
 exports.submitReview = async (req, res) => {
   try {
     const { bookingId, rating, comment } = req.body;
@@ -88,17 +82,14 @@ exports.submitReview = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Booking not found' });
     }
 
-    // Authorization check
     if (booking.facultyEmail !== req.user.email) {
       return res.status(403).json({ success: false, message: 'You can only review your own bookings' });
     }
 
-    // Ensure booking is not cancelled
     if (booking.status === 'cancelled') {
       return res.status(400).json({ success: false, message: 'Cannot review a cancelled booking' });
     }
 
-    // Ensure booking has actually concluded
     if (!isBookingEnded(booking)) {
       return res.status(400).json({
         success: false,
@@ -106,7 +97,6 @@ exports.submitReview = async (req, res) => {
       });
     }
 
-    // Check if review already exists
     const existing = await Review.findOne({ bookingId });
     if (existing) {
       return res.status(400).json({ success: false, message: 'You have already submitted a review for this booking' });
@@ -121,11 +111,9 @@ exports.submitReview = async (req, res) => {
       comment: (comment || '').trim() || 'No comment provided',
     });
 
-    // Mark booking status as completed
     booking.status = 'completed';
     await booking.save();
 
-    // ⚡ Emit Real-Time Socket Event to all connected clients immediately
     const io = getIO();
     if (io) {
       io.emit('review-created', {
@@ -136,7 +124,7 @@ exports.submitReview = async (req, res) => {
 
     res.status(201).json({ success: true, message: 'Review submitted successfully', data: review });
   } catch (error) {
-    console.error('Submit review error:', error);
+    // console.error('Submit review error:', error);
     if (error.code === 11000) {
       return res.status(400).json({ success: false, message: 'A review for this booking already exists' });
     }
@@ -170,7 +158,7 @@ exports.getRoomReviews = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Get room reviews error:', error);
+    // console.error('Get room reviews error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -189,7 +177,7 @@ exports.getMyReviews = async (req, res) => {
       total: reviews.length,
     });
   } catch (error) {
-    console.error('Get my reviews error:', error);
+    // console.error('Get my reviews error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

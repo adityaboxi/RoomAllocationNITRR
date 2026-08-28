@@ -2,10 +2,9 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 
 // ---------- TIMEZONE-SAFE IST DATE STRING (YYYY-MM-DD) ----------
-// Guarantees Indian Standard Time (Asia/Kolkata) regardless of cloud server location
 exports.getTodayDateString = () => {
   const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Kolkata',
+    timeZone: process.env.TIMEZONE || 'Asia/Kolkata',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -16,7 +15,7 @@ exports.getTodayDateString = () => {
 // ---------- TIMEZONE-SAFE IST TIME STRING (HH:mm) ----------
 exports.getCurrentTimeHHMM = () => {
   const formatter = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Kolkata',
+    timeZone: process.env.TIMEZONE || 'Asia/Kolkata',
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
@@ -85,6 +84,6 @@ exports.generateLockId = () =>
 // ---------- JWT TOKEN GENERATOR (Wired to .env) ----------
 exports.generateToken = (userId) => {
   const secret = process.env.JWT_SECRET || 'nitrr_secret_key_default';
-  const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
+  const expiresIn = process.env.JWT_EXPIRES_IN || process.env.JWT_EXPIRE || '7d';
   return jwt.sign({ userId }, secret, { expiresIn });
 };

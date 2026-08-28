@@ -20,10 +20,17 @@ import {
   RefreshCw,
   X,
   FileText,
-  HelpCircle,
+  Loader2,
 } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+// Helper to safely extract error messages
+const extractErrorMessage = (err, fallback) => {
+  if (!err) return fallback;
+  if (typeof err === 'string') return err;
+  return err.response?.data?.message || err.message || fallback;
+};
 
 // Helper to validate 24-hour HH:mm time
 const isValidTimeFormat = (time) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(time);
@@ -45,6 +52,7 @@ export default function TimetableManager({ user }) {
   const [tableLoading, setTableLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [actionLoadingId, setActionLoadingId] = useState(null);
 
   // File Upload State
   const [uploadSemester, setUploadSemester] = useState('5th');
@@ -75,13 +83,13 @@ export default function TimetableManager({ user }) {
   const fetchRooms = async () => {
     try {
       const data = await getRooms({ department: user?.department });
-      const roomList = data.data || [];
+      const roomList = data?.data || [];
       setRooms(roomList);
       if (roomList.length > 0 && !uploadRoomId) {
         setUploadRoomId(roomList[0].id || roomList[0]._id);
       }
     } catch (err) {
-      console.error('Fetch rooms error:', err);
+      setError(extractErrorMessage(err, 'Failed to fetch rooms list.'));
     }
   };
 
@@ -94,9 +102,9 @@ export default function TimetableManager({ user }) {
       if (filterDay !== 'ALL') params.day = filterDay;
 
       const data = await getTimetable(params);
-      setTimetable(data.data || []);
+      setTimetable(data?.data || []);
     } catch (err) {
-      setError(err.message || 'Failed to load timetable');
+      setError(extractErrorMessage(err, 'Failed to load timetable schedule.'));
     } finally {
       setTableLoading(false);
     }
@@ -112,7 +120,7 @@ export default function TimetableManager({ user }) {
           const lines = text.split(/\r\n|\n/).filter((l) => l.trim() !== '');
 
           if (lines.length <= 1) {
-            return reject(new Error('The spreadsheet file is empty or has no data rows.'));
+            return reject(new Error('The spreadsheet file is empty or contains no data rows.'));
           }
 
           const headers = lines[0].split(',').map((h) => h.trim().toLowerCase().replace(/[\s_-]/g, ''));
@@ -120,7 +128,11 @@ export default function TimetableManager({ user }) {
           const missing = required.filter((r) => !headers.includes(r));
 
           if (missing.length > 0) {
-            return reject(new Error(`Wrong format: Missing required columns [${missing.join(', ')}].\nExpected Header: Day, Start Time, End Time, Subject, Class Group, Faculty`));
+            return reject(
+              new Error(
+                `Wrong format: Missing required columns [${missing.join(', ')}].\nExpected Header: Day, Start Time, End Time, Subject, Class Group, Faculty`
+              )
+            );
           }
 
           const dayIdx = headers.indexOf('day');
@@ -156,7 +168,7 @@ export default function TimetableManager({ user }) {
             parsedRows.push({ rowNumber: i, day, startTime, endTime, subject, faculty });
           }
 
-          // Check for collision between rows in the uploaded file
+          // Check for intra-batch collision between rows in the uploaded file
           for (let i = 0; i < parsedRows.length; i++) {
             for (let j = i + 1; j < parsedRows.length; j++) {
               const a = parsedRows[i];
@@ -207,7 +219,7 @@ export default function TimetableManager({ user }) {
       try {
         await verifyCSVContent(file);
       } catch (validationErr) {
-        setError(validationErr.message);
+        setError(extractErrorMessage(validationErr, 'Spreadsheet format verification failed.'));
         setSelectedFile(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
         return;
@@ -258,7 +270,7 @@ export default function TimetableManager({ user }) {
       setFilterRoomId(uploadRoomId);
       await fetchScheduleTable();
     } catch (err) {
-      setError(err.message);
+      setError(extractErrorMessage(err, 'Failed to upload timetable file.'));
     } finally {
       setUploading(false);
     }
@@ -329,7 +341,7 @@ export default function TimetableManager({ user }) {
       setEditingEntry(null);
       await fetchScheduleTable();
     } catch (err) {
-      setError(err.message);
+      setError(extractErrorMessage(err, 'Failed to update timetable entry.'));
     } finally {
       setLoading(false);
     }
@@ -337,12 +349,17 @@ export default function TimetableManager({ user }) {
 
   const handleDeleteEntry = async (entryId) => {
     if (!window.confirm('Are you sure you want to delete this schedule slot?')) return;
+    setActionLoadingId(entryId);
+    setError('');
+    setSuccess('');
     try {
       await deleteTimetableEntry(entryId);
       setSuccess('Slot removed from timetable.');
       await fetchScheduleTable();
     } catch (err) {
-      setError(err.message);
+      setError(extractErrorMessage(err, 'Failed to delete timetable entry.'));
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -353,7 +370,7 @@ export default function TimetableManager({ user }) {
         <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
           <AlertCircle className="w-5 h-5 mr-2.5 text-rose-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1 whitespace-pre-line font-medium">{error}</div>
-          <button onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
+          <button type="button" onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -363,7 +380,7 @@ export default function TimetableManager({ user }) {
         <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-start text-emerald-800 text-sm font-medium animate-fadeIn">
           <CheckCircle2 className="w-5 h-5 mr-2.5 text-emerald-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1">{success}</div>
-          <button onClick={() => setSuccess('')} className="text-emerald-500 hover:text-emerald-700">
+          <button type="button" onClick={() => setSuccess('')} className="text-emerald-500 hover:text-emerald-700">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -495,7 +512,7 @@ export default function TimetableManager({ user }) {
                     disabled={uploading}
                     className="w-full bg-indigo-600 text-white py-2.5 rounded-xl text-xs sm:text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2 shadow-sm"
                   >
-                    <Upload className="w-4 h-4" />
+                    {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                     <span>{uploading ? 'Validating & Publishing...' : 'Upload & Publish Timetable'}</span>
                   </button>
                 </div>
@@ -613,6 +630,8 @@ export default function TimetableManager({ user }) {
                   <tbody className="divide-y divide-slate-100 bg-white">
                     {timetable.map((entry) => {
                       const entryId = entry.id || entry._id;
+                      const isRowBusy = actionLoadingId === entryId;
+
                       return (
                         <tr key={entryId} className="hover:bg-slate-50/80 transition-colors">
                           <td className="px-4 py-3.5 text-sm">
@@ -650,7 +669,8 @@ export default function TimetableManager({ user }) {
                                 id: entryId,
                                 roomId: entry.roomId?._id || entry.roomId?.id || entry.roomId,
                               })}
-                              className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                              disabled={isRowBusy}
+                              className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-40"
                               title="Edit Entry"
                             >
                               <Edit2 className="w-4 h-4" />
@@ -658,10 +678,11 @@ export default function TimetableManager({ user }) {
                             <button
                               type="button"
                               onClick={() => handleDeleteEntry(entryId)}
-                              className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-lg transition-colors"
+                              disabled={isRowBusy}
+                              className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-40"
                               title="Delete Entry"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              {isRowBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                             </button>
                           </td>
                         </tr>
@@ -760,7 +781,7 @@ export default function TimetableManager({ user }) {
                 <button
                   type="button"
                   onClick={() => setEditingEntry(null)}
-                  className="bg-slate-100 text-slate-700 px-4 py-1.5 rounded-xl text-xs font-semibold hover:bg-slate-200"
+                  className="bg-slate-100 text-slate-700 px-4 py-1.5 rounded-xl text-xs font-semibold hover:bg-slate-200 transition-all"
                 >
                   Cancel
                 </button>
@@ -768,9 +789,10 @@ export default function TimetableManager({ user }) {
                   type="button"
                   onClick={() => handleUpdateEntry(editingEntry.id, editingEntry)}
                   disabled={loading}
-                  className="bg-indigo-600 text-white px-5 py-1.5 rounded-xl text-xs font-bold hover:bg-indigo-700 shadow-sm disabled:opacity-50"
+                  className="bg-indigo-600 text-white px-5 py-1.5 rounded-xl text-xs font-bold hover:bg-indigo-700 shadow-sm disabled:opacity-50 flex items-center gap-1.5 transition-all"
                 >
-                  {loading ? 'Saving...' : 'Save Changes'}
+                  {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{loading ? 'Saving...' : 'Save Changes'}</span>
                 </button>
               </div>
             </div>

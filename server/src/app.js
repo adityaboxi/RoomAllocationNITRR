@@ -15,7 +15,7 @@ const { errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
 
-// ---------- GLOBAL CORS CONFIGURATION ----------
+// ---------- GLOBAL CORS CONFIGURATION (Dynamic from .env) ----------
 const allowedOrigins = (
   process.env.CORS_ORIGIN ||
   process.env.CLIENT_URL ||
@@ -27,11 +27,11 @@ const allowedOrigins = (
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps, curl, or Postman)
+      // Allow requests with no origin (such as server-to-server, mobile apps, or Postman)
       if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
         callback(null, true);
       } else {
-        callback(null, true); // Permissive in development
+        callback(null, true);
       }
     },
     credentials: true,
@@ -41,8 +41,9 @@ app.use(
 );
 
 // Body Parsing Middlewares
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+const bodyLimit = process.env.BODY_LIMIT || '10mb';
+app.use(express.json({ limit: bodyLimit }));
+app.use(express.urlencoded({ extended: true, limit: bodyLimit }));
 
 // ---------- REST API ROUTES ----------
 app.use('/api/auth', authRoutes);
@@ -88,19 +89,19 @@ app.get('/', (req, res) => {
         'GET /api/rooms/buildings',
         'GET /api/rooms/department/:department',
         'GET /api/rooms/:roomId/availability',
-        'POST /api/rooms (Faculty or HOD)',
-        'PUT /api/rooms/:id (Creator or HOD)',
-        'PUT /api/rooms/:id/toggle (Creator or HOD)',
-        'DELETE /api/rooms/:id (Creator or HOD)',
+        'POST /api/rooms',
+        'PUT /api/rooms/:id',
+        'PUT /api/rooms/:id/toggle',
+        'DELETE /api/rooms/:id',
       ],
       timetable: [
         'GET /api/timetable',
         'GET /api/timetable/department/:department',
         'GET /api/timetable/faculty/:facultyName',
         'GET /api/timetable/room/:roomId',
-        'POST /api/timetable (Semester/Section Replacement)',
-        'POST /api/timetable/room-day (Room & Day-Wise Replacement)',
-        'POST /api/timetable/upload (Excel/CSV Stream Upload)',
+        'POST /api/timetable',
+        'POST /api/timetable/room-day',
+        'POST /api/timetable/upload',
         'PUT /api/timetable/:id',
         'DELETE /api/timetable/:id',
       ],

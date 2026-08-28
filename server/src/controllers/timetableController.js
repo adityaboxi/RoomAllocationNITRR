@@ -16,7 +16,8 @@ const { Readable } = require('stream');
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const isValidTimeFormat = (time) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(time);
 
-// ---------- MULTER STORAGE ----------
+// ---------- MULTER STORAGE (Wired to Configured Limits) ----------
+const maxUploadBytes = (parseInt(process.env.MAX_FILE_UPLOAD_MB, 10) || 5) * 1024 * 1024;
 const upload = multer({
   storage: multer.memoryStorage(),
   fileFilter: (req, file, cb) => {
@@ -32,7 +33,7 @@ const upload = multer({
       );
     }
   },
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  limits: { fileSize: maxUploadBytes },
 });
 
 // ---------- HIGH-SPEED IN-MEMORY ROOM RESOLVER (O(1) Lookup) ----------
@@ -88,9 +89,7 @@ const cancelConflictingBookings = async (timetableEntries, department) => {
         try {
           await sendBookingCancellationEmail(booking, booking.conflictMessage);
           await Booking.findByIdAndUpdate(booking._id, { notified: true });
-        } catch (emailError) {
-          console.warn('Email dispatch warning:', emailError.message);
-        }
+        } catch (emailError) {}
 
         const facultyUser = await User.findOne({ email: booking.facultyEmail });
         if (facultyUser) {
@@ -117,7 +116,7 @@ const cancelConflictingBookings = async (timetableEntries, department) => {
             },
           });
         }
-      })().catch((err) => console.error('Notification error:', err));
+      })().catch(() => {});
     }
   }
 
@@ -202,7 +201,7 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
     }
   }
 
-  // 2. Inter-Batch Database Checks (Checking existing classes from different semesters/sections in same room)
+  // 2. Inter-Batch Database Checks
   for (const entry of validatedEntries) {
     const roomConflict = await Timetable.findOne({
       roomId: entry.roomId,
@@ -284,7 +283,7 @@ exports.getTimetable = async (req, res) => {
     const formatted = entries.map((e) => ({ ...e, id: e._id.toString() }));
     res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
-    console.error('Get timetable error:', error);
+    // console.error('Get timetable error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -400,7 +399,7 @@ exports.replaceTimetable = async (req, res) => {
       data: result,
     });
   } catch (error) {
-    console.error('Replace timetable error:', error);
+    // console.error('Replace timetable error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -531,7 +530,7 @@ exports.updateRoomDayTimetable = async (req, res) => {
       data: created,
     });
   } catch (error) {
-    console.error('Update room day timetable error:', error);
+    // console.error('Update room day timetable error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -595,6 +594,9 @@ exports.replaceTimetableFromFile = async (req, res) => {
         jsonData.push(rowData);
       });
     }
+
+    // Release memory buffer explicitly
+    req.file.buffer = null;
 
     if (jsonData.length === 0) {
       return res.status(400).json({ success: false, message: 'The uploaded spreadsheet contains no data rows.' });
@@ -728,7 +730,7 @@ exports.replaceTimetableFromFile = async (req, res) => {
       data: result,
     });
   } catch (error) {
-    console.error('File upload error:', error);
+    // console.error('File upload error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -798,7 +800,7 @@ exports.updateTimetableEntry = async (req, res) => {
     const updated = await Timetable.findById(id).populate('roomId', 'name roomNumber floor building department');
     res.json({ success: true, message: 'Timetable entry updated successfully', data: updated });
   } catch (error) {
-    console.error('Update timetable entry error:', error);
+    // console.error('Update timetable entry error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -826,7 +828,7 @@ exports.deleteTimetableEntry = async (req, res) => {
 
     res.json({ success: true, message: 'Timetable entry deleted successfully' });
   } catch (error) {
-    console.error('Delete timetable entry error:', error);
+    // console.error('Delete timetable entry error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 };

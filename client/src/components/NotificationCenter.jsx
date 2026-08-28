@@ -20,7 +20,14 @@ import {
   AlertCircle,
   X,
   Inbox,
+  Loader2,
 } from 'lucide-react';
+
+const extractErrorMessage = (err, fallback) => {
+  if (!err) return fallback;
+  if (typeof err === 'string') return err;
+  return err.response?.data?.message || err.message || fallback;
+};
 
 export default function NotificationCenter({
   user,
@@ -48,7 +55,7 @@ export default function NotificationCenter({
     try {
       await markAsRead(id);
     } catch (err) {
-      setError(err.message || 'Failed to update notification status');
+      setError(extractErrorMessage(err, 'Failed to update notification status.'));
       if (onRefresh) onRefresh();
     }
   };
@@ -62,7 +69,7 @@ export default function NotificationCenter({
     try {
       await markAllAsRead();
     } catch (err) {
-      setError(err.message || 'Failed to mark all as read');
+      setError(extractErrorMessage(err, 'Failed to mark all notifications as read.'));
       if (onRefresh) onRefresh();
     }
   };
@@ -76,7 +83,7 @@ export default function NotificationCenter({
     try {
       await deleteNotification(id);
     } catch (err) {
-      setError(err.message || 'Failed to delete notification');
+      setError(extractErrorMessage(err, 'Failed to delete notification.'));
       if (onRefresh) onRefresh();
     }
   };
@@ -93,7 +100,7 @@ export default function NotificationCenter({
     try {
       await deleteAll();
     } catch (err) {
-      setError(err.message || 'Failed to delete notifications');
+      setError(extractErrorMessage(err, 'Failed to clear notifications.'));
       if (onRefresh) onRefresh();
     }
   };
@@ -116,7 +123,7 @@ export default function NotificationCenter({
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 font-sans">
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white border border-slate-200 p-5 rounded-3xl shadow-sm">
         <div className="flex items-center gap-3.5">
@@ -167,16 +174,19 @@ export default function NotificationCenter({
 
       {error && (
         <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
-          <AlertCircle className="w-5 h-5 mr-2 text-rose-600 flex-shrink-0 mt-0.5" />
-          <div className="flex-1">{error}</div>
-          <button onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
+          <AlertCircle className="w-5 h-5 mr-2.5 text-rose-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 whitespace-pre-line">{error}</div>
+          <button type="button" onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
       {loading ? (
-        <div className="p-12 text-center text-slate-400 text-sm">Loading your inbox...</div>
+        <div className="p-12 text-center text-slate-400 text-sm flex items-center justify-center gap-2">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          <span>Loading your inbox...</span>
+        </div>
       ) : notifications.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-3xl p-16 text-center text-slate-400">
           <Inbox className="w-12 h-12 text-slate-300 mx-auto mb-3" />

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Star, X, MessageSquare, Building2 } from 'lucide-react';
+import { Star, X, MessageSquare } from 'lucide-react';
 import { formatDate } from '../utils/helpers';
 
 export default function ReviewsModal({ room, reviews = [], onClose }) {
@@ -39,7 +39,7 @@ export default function ReviewsModal({ room, reviews = [], onClose }) {
                 <span>•</span>
                 <span>
                   {avgRating !== null ? (
-                    <strong className="text-amber-600">{avgRating} ★ ({reviewsArray.length} reviews)</strong>
+                    <strong className="text-amber-600 font-semibold">{avgRating} ★ ({reviewsArray.length} reviews)</strong>
                   ) : (
                     'No reviews yet'
                   )}
@@ -78,7 +78,7 @@ export default function ReviewsModal({ room, reviews = [], onClose }) {
                         <Star
                           key={star}
                           className={`w-3.5 h-3.5 ${
-                            star <= r.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-200'
+                            star <= (r.rating || 0) ? 'fill-amber-400 text-amber-400' : 'text-slate-200'
                           }`}
                         />
                       ))}

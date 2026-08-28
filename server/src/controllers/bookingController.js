@@ -2,11 +2,9 @@ const mongoose = require('mongoose');
 const Booking = require('../models/Booking');
 const Room = require('../models/Room');
 const Timetable = require('../models/Timetable');
-const User = require('../models/User');
-const Notification = require('../models/Notification');
-const { getDayOfWeek, generateLockId, isOverlapping } = require('../utils/helpers');
+const { getDayOfWeek, generateLockId } = require('../utils/helpers');
 const { sendBookingConfirmationEmail, sendBookingCancellationEmail } = require('../utils/email');
-const { getIO, emitToUser } = require('../utils/socket');
+const { getIO } = require('../utils/socket');
 
 // Helper to validate HH:mm format
 const isValidTimeFormat = (time) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(time);
@@ -49,7 +47,7 @@ exports.getBookings = async (req, res) => {
 
     res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
-    console.error('Get bookings error:', error);
+    // console.error('Get bookings error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -69,7 +67,7 @@ exports.getMyBookings = async (req, res) => {
 
     res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
-    console.error('Get my bookings error:', error);
+    // console.error('Get my bookings error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -98,7 +96,7 @@ exports.getBooking = async (req, res) => {
 
     res.json({ success: true, data: booking });
   } catch (error) {
-    console.error('Get booking by ID error:', error);
+    // console.error('Get booking by ID error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -128,7 +126,7 @@ exports.getBookingsByRoom = async (req, res) => {
 
     res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
-    console.error('Get bookings by room error:', error);
+    // console.error('Get bookings by room error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -154,7 +152,7 @@ exports.getBookingsByFaculty = async (req, res) => {
 
     res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
-    console.error('Get bookings by faculty error:', error);
+    // console.error('Get bookings by faculty error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -200,13 +198,14 @@ exports.createBooking = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Cannot book a past date' });
     }
 
+    const maxDaysAdvance = parseInt(process.env.MAX_BOOKING_DAYS_ADVANCE, 10) || 7;
     const todayDate = new Date(todayStr);
     const maxBookingDate = new Date(todayDate);
-    maxBookingDate.setDate(maxBookingDate.getDate() + 7);
+    maxBookingDate.setDate(maxBookingDate.getDate() + maxDaysAdvance);
     const maxDateStr = maxBookingDate.toISOString().split('T')[0];
 
     if (date > maxDateStr) {
-      return res.status(400).json({ success: false, message: 'Cannot book more than 7 days in advance' });
+      return res.status(400).json({ success: false, message: `Cannot book more than ${maxDaysAdvance} days in advance` });
     }
 
     const day = getDayOfWeek(date);
@@ -323,7 +322,7 @@ exports.createBooking = async (req, res) => {
     // Asynchronous confirmation email dispatch
     sendBookingConfirmationEmail(populated)
       .then(() => Booking.findByIdAndUpdate(booking._id, { notified: true }))
-      .catch((err) => console.error('Confirmation email error:', err.message));
+      .catch((err) => {});
 
     // Emit Socket.IO event for live UI update
     const io = getIO();
@@ -346,7 +345,7 @@ exports.createBooking = async (req, res) => {
       data: populated,
     });
   } catch (error) {
-    console.error('Create booking error:', error);
+    // console.error('Create booking error:', error);
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
@@ -400,7 +399,7 @@ exports.cancelBooking = async (req, res) => {
     // Send cancellation email asynchronously
     sendBookingCancellationEmail(booking, booking.conflictMessage)
       .then(() => Booking.findByIdAndUpdate(booking._id, { notified: true }))
-      .catch((err) => console.error('Cancellation email error:', err.message));
+      .catch((err) => {});
 
     // Emit Socket.IO event safely
     const io = getIO();
@@ -422,7 +421,7 @@ exports.cancelBooking = async (req, res) => {
       data: booking,
     });
   } catch (error) {
-    console.error('Cancel booking error:', error);
+    // console.error('Cancel booking error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -519,11 +518,11 @@ exports.lockRoom = async (req, res) => {
       success: true,
       message: 'Room locked successfully',
       lockId,
-      expiresIn: '5 minutes',
+      expiresIn: `${parseInt(process.env.LOCK_EXPIRY_SECONDS, 10) || 300} seconds`,
       data: lock,
     });
   } catch (error) {
-    console.error('Lock room error:', error);
+    // console.error('Lock room error:', error);
     res.status(500).json({ success: false, message: 'Failed to lock room', error: error.message });
   }
 };
@@ -559,7 +558,7 @@ exports.unlockRoom = async (req, res) => {
 
     res.json({ success: true, message: 'Room unlocked successfully' });
   } catch (error) {
-    console.error('Unlock room error:', error);
+    // console.error('Unlock room error:', error);
     res.status(500).json({ success: false, message: 'Failed to unlock room', error: error.message });
   }
 };

@@ -19,7 +19,7 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response Interceptor
+// Response Interceptor with Human-Readable Error Extraction
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
@@ -29,7 +29,11 @@ api.interceptors.response.use(
         localStorage.removeItem('currentUser');
       }
     }
-    const message = error.response?.data?.message || error.message || 'Server request failed';
+    const message =
+      error.response?.data?.message ||
+      (typeof error.response?.data === 'string' ? error.response.data : null) ||
+      error.message ||
+      'Server request failed. Please check your connection.';
     return Promise.reject(new Error(message));
   }
 );
@@ -38,8 +42,8 @@ api.interceptors.response.use(
 export const login = (email, password) =>
   api.post('/api/auth/login', { email, password });
 
-export const signup = (name, email, password, confirmPassword, department) =>
-  api.post('/api/auth/signup', { name, email, password, confirmPassword, department });
+export const signup = (name, email, password, confirmPassword, department, role) =>
+  api.post('/api/auth/signup', { name, email, password, confirmPassword, department, role });
 
 export const sendSignupOtp = (data) =>
   api.post('/api/auth/send-signup-otp', data);

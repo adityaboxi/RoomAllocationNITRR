@@ -5,6 +5,8 @@ const Notification = require('../models/Notification');
 const Timetable = require('../models/Timetable');
 const Review = require('../models/Review');
 
+let cleanupTimer = null;
+
 const runDatabaseCleanup = async () => {
   const now = new Date();
 
@@ -22,7 +24,7 @@ const runDatabaseCleanup = async () => {
 
   const cancelledCutoffStr = cancelledCutoff.toISOString().split('T')[0];
 
-  console.log(`\n🧹 [CRON] Starting Configured Database Pruning Job at ${now.toISOString()}...`);
+  // console.log(`\n🧹 [CRON] Starting Configured Database Pruning Job at ${now.toISOString()}...`);
 
   try {
     // 🛡️ Protect referenced booking records
@@ -55,7 +57,7 @@ const runDatabaseCleanup = async () => {
         verified: true,
       }),
 
-      // 2. Delete temporary checkout locks
+      // 2. Delete temporary checkout locks older than 1h
       Booking.deleteMany({
         purpose: 'TEMPORARY_LOCK',
         createdAt: { $lt: oneHourAgo },
@@ -87,16 +89,16 @@ const runDatabaseCleanup = async () => {
       }),
     ]);
 
-    console.log(`   ├─ 🗑️  Expired/verified OTPs pruned: ${otpResult.deletedCount}`);
-    console.log(`   ├─ 🗑️  Abandoned locks cleared: ${locksResult.deletedCount}`);
-    console.log(`   ├─ 🗑️  Old read notifications purged: ${readNotifsResult.deletedCount}`);
-    console.log(`   ├─ 🗑️  Stale unread notifications purged: ${staleUnreadNotifsResult.deletedCount}`);
-    console.log(`   ├─ 🗑️  Archived cancelled bookings deleted: ${cancelledBookingsResult.deletedCount} (${protectedBookingObjectIds.length} protected)`);
-    console.log(`   ├─ 🗑️  Decommissioned timetable slots pruned: ${inactiveTimetableResult.deletedCount}`);
-    console.log(`   └─ 🛡️  Relational integrity preserved.`);
-    console.log(`✅ [CRON] Database Pruning Finished Successfully.\n`);
+    // console.log(`   ├─ 🗑️  Expired/verified OTPs pruned: ${otpResult.deletedCount}`);
+    // console.log(`   ├─ 🗑️  Abandoned locks cleared: ${locksResult.deletedCount}`);
+    // console.log(`   ├─ 🗑️  Old read notifications purged: ${readNotifsResult.deletedCount}`);
+    // console.log(`   ├─ 🗑️  Stale unread notifications purged: ${staleUnreadNotifsResult.deletedCount}`);
+    // console.log(`   ├─ 🗑️  Archived cancelled bookings deleted: ${cancelledBookingsResult.deletedCount} (${protectedBookingObjectIds.length} protected)`);
+    // console.log(`   ├─ 🗑️  Decommissioned timetable slots pruned: ${inactiveTimetableResult.deletedCount}`);
+    // console.log(`   └─ 🛡️  Relational integrity preserved.`);
+    // console.log(`✅ [CRON] Database Pruning Finished Successfully.\n`);
   } catch (error) {
-    console.error('❌ [CRON] Database Pruning Error:', error.message);
+    // console.error('❌ [CRON] Database Pruning Error:', error.message);
   }
 };
 
@@ -109,14 +111,23 @@ const startCleanupScheduler = () => {
   const intervalHours = parseInt(process.env.CLEANUP_CRON_INTERVAL_HOURS, 10) || 24;
   const intervalMs = intervalHours * 60 * 60 * 1000;
 
-  setInterval(() => {
+  cleanupTimer = setInterval(() => {
     runDatabaseCleanup();
   }, intervalMs);
 
-  console.log(`⏰ Database auto-pruning scheduler registered (Interval: ${intervalHours}h)`);
+  // console.log(`⏰ Database auto-pruning scheduler registered (Interval: ${intervalHours}h)`);
+};
+
+const stopCleanupScheduler = () => {
+  if (cleanupTimer) {
+    clearInterval(cleanupTimer);
+    cleanupTimer = null;
+    // console.log('🛑 Database auto-pruning scheduler stopped.');
+  }
 };
 
 module.exports = {
   runDatabaseCleanup,
   startCleanupScheduler,
+  stopCleanupScheduler,
 };

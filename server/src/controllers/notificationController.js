@@ -2,11 +2,10 @@ const mongoose = require('mongoose');
 const Notification = require('../models/Notification');
 
 // ---------- GET NOTIFICATIONS ----------
-// Retrieves notifications for the logged-in user with unread count and pagination support
 exports.getNotifications = async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 50;
     const skip = (page - 1) * limit;
 
     const [notifications, total, unreadCount] = await Promise.all([
@@ -19,7 +18,6 @@ exports.getNotifications = async (req, res) => {
       Notification.countDocuments({ userId: req.user._id || req.user.id, read: false }),
     ]);
 
-    // Format IDs for frontend consistency
     const formatted = notifications.map((n) => ({
       ...n,
       id: n._id.toString(),
@@ -34,12 +32,12 @@ exports.getNotifications = async (req, res) => {
       pages: Math.ceil(total / limit) || 1,
     });
   } catch (error) {
-    console.error('Get notifications error:', error);
+    // console.error('Get notifications error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ---------- MARK SINGLE AS READ (Atomic) ----------
+// ---------- MARK SINGLE AS READ ----------
 exports.markAsRead = async (req, res) => {
   try {
     const { id } = req.params;
@@ -60,12 +58,12 @@ exports.markAsRead = async (req, res) => {
 
     res.json({ success: true, message: 'Notification marked as read', data: notification });
   } catch (error) {
-    console.error('Mark notification as read error:', error);
+    // console.error('Mark notification as read error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ---------- MARK ALL AS READ (Bulk Atomic) ----------
+// ---------- MARK ALL AS READ ----------
 exports.markAllAsRead = async (req, res) => {
   try {
     const result = await Notification.updateMany(
@@ -79,12 +77,12 @@ exports.markAllAsRead = async (req, res) => {
       modifiedCount: result.modifiedCount,
     });
   } catch (error) {
-    console.error('Mark all notifications read error:', error);
+    // console.error('Mark all notifications read error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ---------- DELETE SINGLE NOTIFICATION (Atomic) ----------
+// ---------- DELETE SINGLE NOTIFICATION ----------
 exports.deleteNotification = async (req, res) => {
   try {
     const { id } = req.params;
@@ -104,12 +102,12 @@ exports.deleteNotification = async (req, res) => {
 
     res.json({ success: true, message: 'Notification deleted successfully' });
   } catch (error) {
-    console.error('Delete notification error:', error);
+    // console.error('Delete notification error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ---------- DELETE ALL NOTIFICATIONS (Bulk) ----------
+// ---------- DELETE ALL NOTIFICATIONS ----------
 exports.deleteAll = async (req, res) => {
   try {
     const result = await Notification.deleteMany({
@@ -122,7 +120,7 @@ exports.deleteAll = async (req, res) => {
       deletedCount: result.deletedCount,
     });
   } catch (error) {
-    console.error('Delete all notifications error:', error);
+    // console.error('Delete all notifications error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

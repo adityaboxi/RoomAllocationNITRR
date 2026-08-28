@@ -10,9 +10,7 @@ import {
   Calendar,
   CalendarPlus,
   LayoutDashboard,
-  Users,
   Clock,
-  Sparkles,
   CheckCircle2,
 } from 'lucide-react';
 
@@ -31,16 +29,16 @@ export default function HODDashboard({ user }) {
     setLoadingStats(true);
     try {
       const data = await getDepartmentStats(user.department);
-      setStats(data.data || null);
+      setStats(data?.data || null);
     } catch (err) {
-      console.warn('Stats fetch notice:', err.message);
+      // Handled silently
     } finally {
       setLoadingStats(false);
     }
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 font-sans">
       {/* Top Header Card */}
       <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3.5">

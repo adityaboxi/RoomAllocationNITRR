@@ -57,10 +57,10 @@ export default function App() {
     try {
       const res = await getNotifications();
       if (isMountedRef.current) {
-        setNotifications(res.data || []);
+        setNotifications(res?.data || []);
       }
     } catch (err) {
-      console.warn('Notifications fetch notice:', err.message);
+      // Handled silently
     }
   };
 
@@ -68,7 +68,7 @@ export default function App() {
     if (!currentUser) return;
     try {
       const res = await getPendingReviews();
-      const pending = res.data || [];
+      const pending = res?.data || [];
       if (isMountedRef.current) {
         setPendingReviews(pending);
         // Only open popup if not already open
@@ -78,7 +78,7 @@ export default function App() {
         }
       }
     } catch (err) {
-      console.warn('Pending reviews lookup notice:', err.message);
+      // Handled silently
     }
   };
 

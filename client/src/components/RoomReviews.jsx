@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getRoomReviews } from '../services/api';
-import { Star, MessageSquare } from 'lucide-react';
+import { Star } from 'lucide-react';
 
 export default function RoomReviews({ roomId }) {
   const [reviews, setReviews] = useState([]);
@@ -16,21 +16,21 @@ export default function RoomReviews({ roomId }) {
         setLoading(true);
         try {
           const data = await getRoomReviews(roomId);
-          const reviewList = data.data?.reviews || (Array.isArray(data.data) ? data.data : []);
+          const reviewList = data?.data?.reviews || (Array.isArray(data?.data) ? data.data : []);
           const average =
-            data.data?.avgRating !== undefined
+            data?.data?.avgRating !== undefined
               ? data.data.avgRating
               : reviewList.length > 0
-              ? reviewList.reduce((sum, r) => sum + r.rating, 0) / reviewList.length
+              ? reviewList.reduce((sum, r) => sum + (r.rating || 0), 0) / reviewList.length
               : 0;
 
           if (isMounted) {
             setReviews(reviewList);
             setAvgRating(Number(average) || 0);
-            setCount(data.data?.count !== undefined ? data.data.count : reviewList.length);
+            setCount(data?.data?.count !== undefined ? data.data.count : reviewList.length);
           }
         } catch (err) {
-          console.warn('Room review lookup notice:', err.message);
+          // Handled silently
         } finally {
           if (isMounted) {
             setLoading(false);
@@ -47,21 +47,21 @@ export default function RoomReviews({ roomId }) {
   }, [roomId]);
 
   if (loading) {
-    return <div className="text-[11px] text-slate-400">Loading ratings...</div>;
+    return <div className="text-[11px] text-slate-400 font-medium">Loading ratings...</div>;
   }
 
   if (count === 0) {
-    return <div className="text-[11px] text-slate-400">No ratings yet</div>;
+    return <div className="text-[11px] text-slate-400 font-medium">No ratings yet</div>;
   }
 
   return (
-    <div className="mt-2 space-y-1">
+    <div className="mt-2 space-y-1 font-sans">
       <div className="flex items-center gap-1.5">
         <div className="flex items-center gap-1 text-amber-500">
           <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-          <span className="text-xs font-bold">{avgRating.toFixed(1)}</span>
+          <span className="text-xs font-bold text-slate-800">{avgRating.toFixed(1)}</span>
         </div>
-        <span className="text-[11px] text-slate-400">
+        <span className="text-[11px] text-slate-400 font-medium">
           ({count} review{count > 1 ? 's' : ''})
         </span>
       </div>

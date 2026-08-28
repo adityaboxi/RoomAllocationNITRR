@@ -10,10 +10,12 @@ exports.initSocket = (server) => {
 
   io = socketIo(server, {
     cors: {
-      origin: allowedOrigins,
+      origin: allowedOrigins.includes('*') ? '*' : allowedOrigins,
       credentials: true,
     },
     transports: ['websocket', 'polling'],
+    pingTimeout: parseInt(process.env.SOCKET_PING_TIMEOUT, 10) || 20000,
+    pingInterval: parseInt(process.env.SOCKET_PING_INTERVAL, 10) || 25000,
   });
 
   io.use((socket, next) => {
@@ -37,12 +39,14 @@ exports.initSocket = (server) => {
   });
 
   io.on('connection', (socket) => {
-    const userId = socket.userId.toString();
-    socket.join(userId);
-    console.log(`🔌 [SOCKET] User connected: ${userId} (Socket: ${socket.id})`);
+    const userId = socket.userId?.toString();
+    if (userId) {
+      socket.join(userId);
+    }
+    // console.log(`🔌 [SOCKET] User connected: ${userId} (Socket: ${socket.id})`);
 
     socket.on('disconnect', (reason) => {
-      console.log(`🔌 [SOCKET] User disconnected: ${userId} (${reason})`);
+      // console.log(`🔌 [SOCKET] User disconnected: ${userId} (${reason})`);
     });
   });
 

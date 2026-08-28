@@ -6,16 +6,20 @@ import {
   Building2,
   Clock,
   Search,
-  Filter,
   Star,
   Users,
   Layers,
-  Sparkles,
-  CheckCircle2,
   AlertCircle,
   RefreshCw,
   X,
+  Loader2,
 } from 'lucide-react';
+
+const extractErrorMessage = (err, fallback) => {
+  if (!err) return fallback;
+  if (typeof err === 'string') return err;
+  return err.response?.data?.message || err.message || fallback;
+};
 
 const getTodayDateString = () => {
   const now = new Date();
@@ -81,9 +85,9 @@ export default function RoomDashboard({ user }) {
       ]);
 
       if (isMountedRef.current) {
-        const fetchedRooms = roomsRes.data || [];
+        const fetchedRooms = roomsRes?.data || [];
         setRooms(fetchedRooms);
-        const ids = (availRes.data || []).map((r) => r.id || r._id);
+        const ids = (availRes?.data || []).map((r) => r.id || r._id);
         setAvailableRoomIds(ids);
         setCurrentTime(new Date());
 
@@ -95,7 +99,7 @@ export default function RoomDashboard({ user }) {
       }
     } catch (err) {
       if (isMountedRef.current) {
-        setError(err.message || 'Failed to refresh room availability');
+        setError(extractErrorMessage(err, 'Failed to refresh room availability.'));
       }
     } finally {
       if (isMountedRef.current) {
@@ -111,7 +115,7 @@ export default function RoomDashboard({ user }) {
 
     try {
       const data = await getRoomReviews(roomId);
-      const reviewsArray = data.data?.reviews || (Array.isArray(data.data) ? data.data : []);
+      const reviewsArray = data?.data?.reviews || (Array.isArray(data?.data) ? data.data : []);
       if (isMountedRef.current) {
         setReviews((prev) => ({ ...prev, [roomId]: reviewsArray }));
         if (selectedRoom && (selectedRoom.id === roomId || selectedRoom._id === roomId)) {
@@ -119,7 +123,7 @@ export default function RoomDashboard({ user }) {
         }
       }
     } catch (err) {
-      console.warn('Failed to fetch room reviews:', err.message);
+      // Non-critical background lookup handled silently
     } finally {
       if (isMountedRef.current) {
         setLoadingReviews((prev) => ({ ...prev, [roomId]: false }));
@@ -221,7 +225,7 @@ export default function RoomDashboard({ user }) {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 font-sans">
       {/* Header Controls Bar */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
@@ -266,10 +270,11 @@ export default function RoomDashboard({ user }) {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search by room name, number, or building..."
-              className="w-full pl-10 pr-3.5 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs sm:text-sm outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600"
+              className="w-full pl-10 pr-3.5 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs sm:text-sm outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all"
             />
             {searchTerm && (
               <button
+                type="button"
                 onClick={() => setSearchTerm('')}
                 className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
               >
@@ -282,7 +287,7 @@ export default function RoomDashboard({ user }) {
             <select
               value={selectedFloor}
               onChange={(e) => setSelectedFloor(e.target.value)}
-              className="border border-slate-200 bg-slate-50/50 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600"
+              className="border border-slate-200 bg-slate-50/50 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all"
             >
               {floors.map((fl) => (
                 <option key={fl} value={fl}>
@@ -332,9 +337,9 @@ export default function RoomDashboard({ user }) {
 
       {error && (
         <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
-          <AlertCircle className="w-5 h-5 mr-2 text-rose-600 flex-shrink-0 mt-0.5" />
-          <div className="flex-1">{error}</div>
-          <button onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
+          <AlertCircle className="w-5 h-5 mr-2.5 text-rose-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 whitespace-pre-line">{error}</div>
+          <button type="button" onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -342,8 +347,9 @@ export default function RoomDashboard({ user }) {
 
       {/* Room Status Cards Grid */}
       {loading && rooms.length === 0 ? (
-        <div className="p-16 text-center text-slate-400 text-sm">
-          Loading live room availability...
+        <div className="p-16 text-center text-slate-400 text-sm flex items-center justify-center gap-2">
+          <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+          <span>Loading live room availability...</span>
         </div>
       ) : filteredRooms.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center text-slate-400">

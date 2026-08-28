@@ -2,7 +2,6 @@ const Room = require('../models/Room');
 const Booking = require('../models/Booking');
 const Timetable = require('../models/Timetable');
 
-// Helper to get today's date string YYYY-MM-DD
 const getTodayDateString = () => {
   const now = new Date();
   const year = now.getFullYear();
@@ -22,7 +21,6 @@ exports.getDepartmentStats = async (req, res) => {
 
     department = department.trim();
 
-    // Ensure HOD can only access their own department's statistics
     if (req.user.role === 'HOD' && req.user.department !== department) {
       return res.status(403).json({
         success: false,
@@ -32,7 +30,6 @@ exports.getDepartmentStats = async (req, res) => {
 
     const todayStr = getTodayDateString();
 
-    // Execute all count aggregation queries in parallel for minimal latency
     const [
       totalRooms,
       availableRooms,
@@ -59,7 +56,7 @@ exports.getDepartmentStats = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Get department stats error:', error);
+    // console.error('Get department stats error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

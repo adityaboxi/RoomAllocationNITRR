@@ -23,18 +23,6 @@ export const initSocket = (token) => {
       reconnectionAttempts: 10,
       reconnectionDelay: 2000,
     });
-
-    socket.on('connect', () => {
-      console.log('🔌 Socket connected successfully (ID:', socket.id, ')');
-    });
-
-    socket.on('connect_error', (err) => {
-      console.warn('⚠️ Socket connection error:', err.message);
-    });
-
-    socket.on('disconnect', (reason) => {
-      console.log('🔌 Socket disconnected:', reason);
-    });
   }
 
   return socket;

@@ -17,11 +17,19 @@ import {
   ArrowLeft,
   RefreshCw,
   Clock,
+  Loader2,
 } from 'lucide-react';
 import { getDepartments } from '../services/api';
 import nitrrLogo from '../assets/nitrr_new_logo_new.png';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+// Safe error extractor helper
+const extractErrorMessage = (err, fallback) => {
+  if (!err) return fallback;
+  if (typeof err === 'string') return err;
+  return err.response?.data?.message || err.message || fallback;
+};
 
 // Parse fallback departments from client .env or default list
 const getInitialDepartments = () => {
@@ -85,7 +93,7 @@ export default function AuthPage({ onLoginSuccess }) {
     const loadDepartments = async () => {
       try {
         const res = await getDepartments();
-        const deptList = (res.data || []).map((d) => (typeof d === 'string' ? { code: d, name: d } : d));
+        const deptList = (res?.data || []).map((d) => (typeof d === 'string' ? { code: d, name: d } : d));
         if (deptList.length > 0) {
           setDepartments(deptList);
           setFormData((prev) => ({
@@ -94,7 +102,7 @@ export default function AuthPage({ onLoginSuccess }) {
           }));
         }
       } catch (err) {
-        console.warn('Using environment fallback departments:', err.message);
+        // Fallback to initial departments silently
       }
     };
 
@@ -177,7 +185,7 @@ export default function AuthPage({ onLoginSuccess }) {
         });
 
         const data = await res.json();
-        if (!res.ok) throw new Error(data.message || 'Login failed');
+        if (!res.ok) throw new Error(data.message || 'Login failed. Please verify your credentials.');
 
         localStorage.setItem('token', data.token);
         localStorage.setItem('currentUser', JSON.stringify(data.user));
@@ -197,7 +205,7 @@ export default function AuthPage({ onLoginSuccess }) {
           return;
         }
         if (formData.password !== formData.confirmPassword) {
-          setError('Passwords do not match.');
+          setError('Passwords do not match. Please re-enter your password.');
           setLoading(false);
           return;
         }
@@ -211,16 +219,17 @@ export default function AuthPage({ onLoginSuccess }) {
             password: formData.password,
             confirmPassword: formData.confirmPassword,
             department: formData.department,
+            role,
           }),
         });
 
         const data = await res.json();
-        if (!res.ok) throw new Error(data.message || 'Failed to dispatch OTP');
+        if (!res.ok) throw new Error(data.message || 'Failed to dispatch verification code.');
 
         setEmailForReset(cleanEmail);
         setOtpPurpose('signup');
         setOtpTimer(300);
-        setSuccessMsg(data.message || 'Verification OTP sent! Check your inbox.');
+        setSuccessMsg(data.message || 'Verification OTP sent! Please check your email inbox.');
         setView('verify-otp');
         setLoading(false);
         return;
@@ -234,18 +243,18 @@ export default function AuthPage({ onLoginSuccess }) {
         });
 
         const data = await res.json();
-        if (!res.ok) throw new Error(data.message || 'Failed to dispatch reset OTP');
+        if (!res.ok) throw new Error(data.message || 'Failed to send password reset code.');
 
         setEmailForReset(cleanEmail);
         setOtpPurpose('forgot');
         setOtpTimer(300);
-        setSuccessMsg(data.message || 'Password reset OTP sent! Check your inbox.');
+        setSuccessMsg(data.message || 'Password reset code sent! Please check your email inbox.');
         setView('verify-otp');
         setLoading(false);
         return;
       }
     } catch (err) {
-      setError(err.message || 'Authentication request failed');
+      setError(extractErrorMessage(err, 'Authentication request failed. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -257,7 +266,7 @@ export default function AuthPage({ onLoginSuccess }) {
     setLoading(true);
 
     if (otp.length !== 6) {
-      setError('Please enter the full 6-digit OTP code.');
+      setError('Please enter the full 6-digit verification code.');
       setLoading(false);
       return;
     }
@@ -271,7 +280,7 @@ export default function AuthPage({ onLoginSuccess }) {
       } else if (otpPurpose === 'forgot') {
         url = `${API_BASE}/api/auth/verify-reset-otp`;
       } else {
-        throw new Error('Invalid OTP session. Please start over.');
+        throw new Error('Verification session expired. Please start over.');
       }
 
       const res = await fetch(url, {
@@ -281,7 +290,7 @@ export default function AuthPage({ onLoginSuccess }) {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Verification failed');
+      if (!res.ok) throw new Error(data.message || 'Invalid or expired verification code.');
 
       if (otpPurpose === 'signup') {
         localStorage.setItem('token', data.token);
@@ -289,11 +298,11 @@ export default function AuthPage({ onLoginSuccess }) {
         if (onLoginSuccess) onLoginSuccess(data.user);
       } else {
         setResetToken(data.resetToken);
-        setSuccessMsg('OTP verified successfully! Please enter your new password.');
+        setSuccessMsg('OTP verified successfully! Please choose your new password.');
         setView('reset-password');
       }
     } catch (err) {
-      setError(err.message || 'OTP verification failed');
+      setError(extractErrorMessage(err, 'OTP verification failed. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -316,6 +325,7 @@ export default function AuthPage({ onLoginSuccess }) {
               password: formData.password,
               confirmPassword: formData.confirmPassword,
               department: formData.department,
+              role,
             }
           : { email: emailForReset };
 
@@ -326,12 +336,12 @@ export default function AuthPage({ onLoginSuccess }) {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Failed to resend OTP');
+      if (!res.ok) throw new Error(data.message || 'Failed to resend verification code.');
 
       setOtpTimer(300);
-      setSuccessMsg('A new OTP has been sent to your email.');
+      setSuccessMsg('A fresh verification code has been dispatched to your email.');
     } catch (err) {
-      setError(err.message || 'Failed to resend OTP');
+      setError(extractErrorMessage(err, 'Failed to resend OTP. Please try again.'));
     } finally {
       setResending(false);
     }
@@ -348,11 +358,11 @@ export default function AuthPage({ onLoginSuccess }) {
       return;
     }
     if (newPassword !== confirmNewPassword) {
-      setError('Passwords do not match.');
+      setError('New passwords do not match. Please re-type carefully.');
       return;
     }
     if (newPassword.length < 8) {
-      setError('Password must be at least 8 characters long.');
+      setError('New password must be at least 8 characters long.');
       return;
     }
 
@@ -370,9 +380,9 @@ export default function AuthPage({ onLoginSuccess }) {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Password reset failed');
+      if (!res.ok) throw new Error(data.message || 'Failed to update password.');
 
-      setSuccessMsg('✅ Password updated successfully! Please sign in with your new credentials.');
+      setSuccessMsg('Password updated successfully! Please sign in with your new password.');
       setFormData((prev) => ({
         ...prev,
         password: '',
@@ -382,7 +392,7 @@ export default function AuthPage({ onLoginSuccess }) {
       }));
       setView('login');
     } catch (err) {
-      setError(err.message || 'Password reset failed');
+      setError(extractErrorMessage(err, 'Password reset failed.'));
     } finally {
       setLoading(false);
     }
@@ -448,28 +458,28 @@ export default function AuthPage({ onLoginSuccess }) {
           {error && (
             <div className="mb-4 p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start text-rose-800 text-xs sm:text-sm font-medium animate-fadeIn">
               <ShieldAlert className="w-5 h-5 mr-2 text-rose-600 flex-shrink-0 mt-0.5" />
-              <div className="flex-1">{error}</div>
+              <div className="flex-1 whitespace-pre-line">{error}</div>
             </div>
           )}
 
           {successMsg && (
             <div className="mb-4 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start text-emerald-800 text-xs sm:text-sm font-medium animate-fadeIn">
               <CheckCircle2 className="w-5 h-5 mr-2 text-emerald-600 flex-shrink-0 mt-0.5" />
-              <div className="flex-1">{successMsg}</div>
+              <div className="flex-1 whitespace-pre-line">{successMsg}</div>
             </div>
           )}
 
           {/* VIEW: LOGIN & SIGNUP */}
           {(view === 'login' || view === 'signup') && (
             <div>
-              {/* Role Indicator / Selector */}
+              {/* Role Selector */}
               <div className="mb-5">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
                     1. Authorization Role
                   </span>
                   <span className="text-[11px] font-semibold text-slate-500">
-                    Active:{' '}
+                    Selected:{' '}
                     <strong className={role === 'HOD' ? 'text-emerald-700' : 'text-indigo-700'}>
                       {role}
                     </strong>
@@ -756,19 +766,19 @@ export default function AuthPage({ onLoginSuccess }) {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full mt-3 flex items-center justify-center py-3 px-4 rounded-xl text-white bg-slate-950 hover:bg-slate-800 font-bold text-sm shadow-md transition-all active:scale-[0.99] disabled:opacity-50"
+                  className="w-full mt-3 flex items-center justify-center py-3 px-4 rounded-xl text-white bg-slate-950 hover:bg-slate-800 font-bold text-sm shadow-md transition-all active:scale-[0.99] disabled:opacity-50 gap-2"
                 >
                   {loading ? (
-                    <span className="flex items-center gap-2">
-                      <RefreshCw className="animate-spin h-4 w-4 text-white" />
-                      Processing...
-                    </span>
+                    <>
+                      <Loader2 className="animate-spin h-4 w-4 text-white" />
+                      <span>Processing...</span>
+                    </>
                   ) : (
                     <>
                       <span>
                         {view === 'login' ? `Sign In as ${role}` : `Register & Enter Portal`}
                       </span>
-                      <ArrowRight className="w-4 h-4 ml-2" />
+                      <ArrowRight className="w-4 h-4" />
                     </>
                   )}
                 </button>
@@ -808,7 +818,7 @@ export default function AuthPage({ onLoginSuccess }) {
                       value={formData.email}
                       onChange={handleInputChange}
                       placeholder="faculty@gmail.com"
-                      className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none"
+                      className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
                       required
                     />
                   </div>
@@ -818,8 +828,17 @@ export default function AuthPage({ onLoginSuccess }) {
                   disabled={loading}
                   className="w-full py-3 px-4 rounded-xl text-white bg-slate-950 hover:bg-slate-800 font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                 >
-                  {loading ? 'Sending Code...' : 'Send Reset Code'}
-                  <ArrowRight className="w-4 h-4" />
+                  {loading ? (
+                    <>
+                      <Loader2 className="animate-spin h-4 w-4" />
+                      <span>Sending Code...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Send Reset Code</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
                 </button>
               </form>
             </div>
@@ -870,7 +889,7 @@ export default function AuthPage({ onLoginSuccess }) {
                       onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                       placeholder="123456"
                       maxLength="6"
-                      className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 font-mono text-center tracking-widest text-lg font-bold focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none"
+                      className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 font-mono text-center tracking-widest text-lg font-bold focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
                       required
                     />
                   </div>
@@ -882,7 +901,7 @@ export default function AuthPage({ onLoginSuccess }) {
                     type="button"
                     onClick={handleResendOtp}
                     disabled={resending || otpTimer > 240}
-                    className="font-semibold text-indigo-600 hover:text-indigo-800 disabled:opacity-40"
+                    className="font-semibold text-indigo-600 hover:text-indigo-800 disabled:opacity-40 transition-all"
                   >
                     {resending ? 'Resending...' : 'Resend Code'}
                   </button>
@@ -891,9 +910,16 @@ export default function AuthPage({ onLoginSuccess }) {
                 <button
                   type="submit"
                   disabled={loading || otp.length !== 6}
-                  className="w-full py-3 px-4 rounded-xl text-white bg-slate-950 hover:bg-slate-800 font-bold text-sm shadow-md transition-all disabled:opacity-50"
+                  className="w-full py-3 px-4 rounded-xl text-white bg-slate-950 hover:bg-slate-800 font-bold text-sm shadow-md transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  {loading ? 'Verifying...' : 'Confirm & Proceed'}
+                  {loading ? (
+                    <>
+                      <Loader2 className="animate-spin h-4 w-4" />
+                      <span>Verifying...</span>
+                    </>
+                  ) : (
+                    <span>Confirm & Proceed</span>
+                  )}
                 </button>
               </form>
             </div>
@@ -932,7 +958,7 @@ export default function AuthPage({ onLoginSuccess }) {
                       value={formData.newPassword}
                       onChange={handleInputChange}
                       placeholder="••••••••"
-                      className="w-full pl-10 pr-10 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none"
+                      className="w-full pl-10 pr-10 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
                       required
                     />
                     <button
@@ -957,7 +983,7 @@ export default function AuthPage({ onLoginSuccess }) {
                       value={formData.confirmNewPassword}
                       onChange={handleInputChange}
                       placeholder="••••••••"
-                      className="w-full pl-10 pr-10 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none"
+                      className="w-full pl-10 pr-10 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
                       required
                     />
                     <button
@@ -977,9 +1003,16 @@ export default function AuthPage({ onLoginSuccess }) {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full py-3 px-4 rounded-xl text-white bg-slate-950 hover:bg-slate-800 font-bold text-sm shadow-md transition-all disabled:opacity-50"
+                  className="w-full py-3 px-4 rounded-xl text-white bg-slate-950 hover:bg-slate-800 font-bold text-sm shadow-md transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  {loading ? 'Updating Password...' : 'Save Password & Sign In'}
+                  {loading ? (
+                    <>
+                      <Loader2 className="animate-spin h-4 w-4" />
+                      <span>Updating Password...</span>
+                    </>
+                  ) : (
+                    <span>Save Password & Sign In</span>
+                  )}
                 </button>
               </form>
             </div>

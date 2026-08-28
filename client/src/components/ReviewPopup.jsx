@@ -1,6 +1,12 @@
 import React, { useState } from 'react';
 import { createReview } from '../services/api';
-import { Star, X, CheckCircle2, Sparkles, MessageSquare } from 'lucide-react';
+import { Star, X, CheckCircle2, Sparkles, Loader2 } from 'lucide-react';
+
+const extractErrorMessage = (err, fallback) => {
+  if (!err) return fallback;
+  if (typeof err === 'string') return err;
+  return err.response?.data?.message || err.message || fallback;
+};
 
 export default function ReviewPopup({ booking, onSubmit, onSkip }) {
   if (!booking) return null;
@@ -34,7 +40,7 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
         onSubmit({ bookingId, rating, comment });
       }
     } catch (err) {
-      setError(err.message || 'Failed to submit review. Please try again.');
+      setError(extractErrorMessage(err, 'Failed to submit review. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -42,7 +48,7 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
 
   return (
     <div
-      className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn"
+      className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn font-sans"
       onClick={onSkip}
     >
       <div
@@ -68,12 +74,12 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
           </div>
         </div>
 
-        <p className="text-xs sm:text-sm text-slate-600 mb-4 bg-slate-50 p-3 rounded-xl border border-slate-100">
+        <p className="text-xs sm:text-sm text-slate-600 mb-4 bg-slate-50 p-3 rounded-xl border border-slate-100 leading-relaxed">
           How was your experience in <strong>{roomName}</strong> on <strong>{booking.date}</strong> ({booking.startTime} - {booking.endTime})?
         </p>
 
         {error && (
-          <div className="bg-rose-50 border border-rose-200 text-rose-800 p-3 rounded-xl mb-4 text-xs font-medium">
+          <div className="bg-rose-50 border border-rose-200 text-rose-800 p-3 rounded-xl mb-4 text-xs font-medium whitespace-pre-line">
             {error}
           </div>
         )}
@@ -130,7 +136,10 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
               className="flex-1 bg-slate-900 text-white py-2.5 rounded-xl text-xs font-bold hover:bg-slate-800 transition-all shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5"
             >
               {loading ? (
-                <span>Submitting...</span>
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Submitting...</span>
+                </>
               ) : (
                 <>
                   <span>Submit Rating</span>

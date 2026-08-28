@@ -7,7 +7,6 @@ import {
   LayoutDashboard,
   CalendarPlus,
   GraduationCap,
-  Sparkles,
   Star,
 } from 'lucide-react';
 
@@ -31,14 +30,14 @@ export default function FacultyDashboard({ user }) {
   const checkPendingReviews = async () => {
     try {
       const res = await getPendingReviews();
-      const list = res.data || [];
+      const list = res?.data || [];
       setPendingReviews(list);
       // Auto-open review popup if pending reviews exist and none is currently open
       if (list.length > 0 && !activeReviewBooking) {
         setActiveReviewBooking(list[0]);
       }
     } catch (err) {
-      console.warn('Pending reviews lookup note:', err.message);
+      // Non-critical background lookup handled silently
     }
   };
 
@@ -52,7 +51,7 @@ export default function FacultyDashboard({ user }) {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 font-sans">
       {/* Top Header Card */}
       <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3.5">
@@ -116,7 +115,7 @@ export default function FacultyDashboard({ user }) {
           <button
             type="button"
             onClick={() => setActiveReviewBooking(pendingReviews[0])}
-            className="text-xs font-bold text-amber-900 underline hover:text-amber-950"
+            className="text-xs font-bold text-amber-900 underline hover:text-amber-950 transition-colors"
           >
             Review Now
           </button>

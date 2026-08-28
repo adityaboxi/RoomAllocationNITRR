@@ -19,6 +19,7 @@ import {
   Layers,
   UserCheck,
   X,
+  Loader2,
 } from 'lucide-react';
 
 const getTodayDateString = () => {
@@ -36,10 +37,17 @@ const getCurrentTimeString = () => {
   return `${h}:${m}`;
 };
 
+const extractErrorMessage = (err, fallback) => {
+  if (!err) return fallback;
+  if (typeof err === 'string') return err;
+  return err.response?.data?.message || err.message || fallback;
+};
+
 export default function RoomManager({ user }) {
   const [rooms, setRooms] = useState([]);
   const [availableRoomIds, setAvailableRoomIds] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [actionLoadingId, setActionLoadingId] = useState(null);
   const [fetchLoading, setFetchLoading] = useState(true);
   const [editingRoom, setEditingRoom] = useState(null);
 
@@ -83,11 +91,11 @@ export default function RoomManager({ user }) {
         getAvailableRooms(date, startTime, endTime, { department: user?.department }),
       ]);
 
-      setRooms(data.data || []);
-      const freeIds = (availData.data || []).map((r) => r.id || r._id);
+      setRooms(data?.data || []);
+      const freeIds = (availData?.data || []).map((r) => r.id || r._id);
       setAvailableRoomIds(freeIds);
     } catch (err) {
-      setError(err.message || 'Failed to load department rooms');
+      setError(extractErrorMessage(err, 'Failed to load department rooms. Please check your connection.'));
     } finally {
       setFetchLoading(false);
     }
@@ -118,7 +126,7 @@ export default function RoomManager({ user }) {
     const trimmedNumber = formData.roomNumber.trim().toUpperCase();
 
     if (!trimmedName || !trimmedNumber) {
-      setError('Please provide a room name and room number.');
+      setError('Please provide a valid room name and room number.');
       return;
     }
 
@@ -134,13 +142,15 @@ export default function RoomManager({ user }) {
     });
 
     if (isDuplicate) {
-      setError(`This room is already present! A room with the name "${trimmedName}" or room number "${trimmedNumber}" already exists in the ${user?.department} department.`);
+      setError(
+        `This room is already present! A room with the name "${trimmedName}" or room number "${trimmedNumber}" already exists in the ${user?.department} department.`
+      );
       return;
     }
 
     const capacityNum = parseInt(formData.capacity, 10);
     if (isNaN(capacityNum) || capacityNum <= 0) {
-      setError('Room capacity must be a positive integer.');
+      setError('Room capacity must be a positive number greater than 0.');
       return;
     }
 
@@ -160,16 +170,16 @@ export default function RoomManager({ user }) {
       if (editingRoom) {
         const roomId = editingRoom.id || editingRoom._id;
         await updateRoom(roomId, payload);
-        setSuccess(`Room "${payload.name}" updated successfully.`);
+        setSuccess(`Room "${payload.name}" (${payload.roomNumber}) updated successfully.`);
       } else {
         await createRoom(payload);
-        setSuccess(`Room "${payload.name}" added to ${user?.department} inventory.`);
+        setSuccess(`Room "${payload.name}" (${payload.roomNumber}) added to ${user?.department} inventory.`);
       }
 
       resetForm();
       await fetchRooms();
     } catch (err) {
-      setError(err.message || 'Failed to save room details');
+      setError(extractErrorMessage(err, 'Failed to save room details. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -178,7 +188,7 @@ export default function RoomManager({ user }) {
   const handleEdit = (room) => {
     const isOwner = room.createdBy && room.createdBy.toString() === currentUserId?.toString();
     if (!isOwner && !isHOD) {
-      setError(`Only Prof. ${room.createdByName || 'the creator'} or the HOD can edit "${room.name}".`);
+      setError(`Permission denied: Only Prof. ${room.createdByName || 'the creator'} or the HOD can edit "${room.name}".`);
       return;
     }
 
@@ -204,42 +214,52 @@ export default function RoomManager({ user }) {
   const handleToggle = async (room) => {
     const isOwner = room.createdBy && room.createdBy.toString() === currentUserId?.toString();
     if (!isOwner && !isHOD) {
-      setError(`Only Prof. ${room.createdByName || 'the creator'} or the HOD can toggle "${room.name}".`);
+      setError(`Permission denied: Only Prof. ${room.createdByName || 'the creator'} or the HOD can toggle "${room.name}".`);
       return;
     }
 
     const roomId = room.id || room._id;
+    setActionLoadingId(roomId);
+    setError('');
+    setSuccess('');
     try {
       await toggleRoomAvailability(roomId);
       await fetchRooms();
-      setSuccess(`Room "${room.name}" availability toggled.`);
+      setSuccess(`Room "${room.name}" availability toggled successfully.`);
     } catch (err) {
-      setError(err.message || 'Failed to toggle room status');
+      setError(extractErrorMessage(err, 'Failed to toggle room status.'));
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
   const handleDelete = async (room) => {
     const isOwner = room.createdBy && room.createdBy.toString() === currentUserId?.toString();
     if (!isOwner && !isHOD) {
-      setError(`Only Prof. ${room.createdByName || 'the creator'} or the HOD can delete "${room.name}".`);
+      setError(`Permission denied: Only Prof. ${room.createdByName || 'the creator'} or the HOD can delete "${room.name}".`);
       return;
     }
 
     const roomId = room.id || room._id;
     const confirmDelete = window.confirm(
-      `Are you sure you want to remove "${room.name}" (${room.roomNumber})?\n\nThis will remove the room and cascade-delete its timetable slots and cancel conflicting future bookings.`
+      `Are you sure you want to remove "${room.name}" (${room.roomNumber})?\n\nThis will remove the room and cascade-cancel any scheduled slots and active bookings.`
     );
     if (!confirmDelete) return;
 
+    setActionLoadingId(roomId);
+    setError('');
+    setSuccess('');
     try {
       await deleteRoom(roomId);
       await fetchRooms();
-      setSuccess(`Room "${room.name}" removed.`);
+      setSuccess(`Room "${room.name}" removed successfully.`);
       if (editingRoom && (editingRoom.id === roomId || editingRoom._id === roomId)) {
         resetForm();
       }
     } catch (err) {
-      setError(err.message || 'Failed to delete room');
+      setError(extractErrorMessage(err, 'Failed to delete room.'));
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -247,9 +267,9 @@ export default function RoomManager({ user }) {
     <div className="space-y-6">
       {error && (
         <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
-          <AlertCircle className="w-5 h-5 mr-2 text-rose-600 flex-shrink-0 mt-0.5" />
-          <div className="flex-1">{error}</div>
-          <button onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
+          <AlertCircle className="w-5 h-5 mr-2.5 text-rose-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 whitespace-pre-line">{error}</div>
+          <button type="button" onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -257,9 +277,9 @@ export default function RoomManager({ user }) {
 
       {success && (
         <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-start text-emerald-800 text-sm font-medium animate-fadeIn">
-          <CheckCircle2 className="w-5 h-5 mr-2 text-emerald-600 flex-shrink-0 mt-0.5" />
+          <CheckCircle2 className="w-5 h-5 mr-2.5 text-emerald-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1">{success}</div>
-          <button onClick={() => setSuccess('')} className="text-emerald-500 hover:text-emerald-700">
+          <button type="button" onClick={() => setSuccess('')} className="text-emerald-500 hover:text-emerald-700">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -298,7 +318,7 @@ export default function RoomManager({ user }) {
                 value={formData.name}
                 onChange={handleChange}
                 placeholder="e.g. Alan Turing Lab"
-                className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none"
+                className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
                 required
               />
             </div>
@@ -313,7 +333,7 @@ export default function RoomManager({ user }) {
                   value={formData.roomNumber}
                   onChange={handleChange}
                   placeholder="CS-101"
-                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm uppercase bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none"
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm uppercase bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
                   required
                 />
               </div>
@@ -328,7 +348,7 @@ export default function RoomManager({ user }) {
                   value={formData.capacity}
                   onChange={handleChange}
                   placeholder="60"
-                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none"
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
                   required
                 />
               </div>
@@ -341,7 +361,7 @@ export default function RoomManager({ user }) {
                   name="type"
                   value={formData.type}
                   onChange={handleChange}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
                 >
                   <option value="Classroom">Classroom</option>
                   <option value="Lab">Lab</option>
@@ -358,7 +378,7 @@ export default function RoomManager({ user }) {
                   value={formData.floor}
                   onChange={handleChange}
                   placeholder="Ground Floor"
-                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none"
+                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
                   required
                 />
               </div>
@@ -371,7 +391,7 @@ export default function RoomManager({ user }) {
                 value={formData.building}
                 onChange={handleChange}
                 placeholder="Main Campus / CSE Block"
-                className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none"
+                className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
                 required
               />
             </div>
@@ -428,13 +448,14 @@ export default function RoomManager({ user }) {
                 disabled={loading}
                 className="flex-1 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-slate-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm"
               >
-                {loading ? 'Saving...' : editingRoom ? 'Update Room' : 'Add Room'}
+                {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+                <span>{loading ? 'Saving...' : editingRoom ? 'Update Room' : 'Add Room'}</span>
               </button>
               {editingRoom && (
                 <button
                   type="button"
                   onClick={resetForm}
-                  className="bg-slate-100 text-slate-700 px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-slate-200"
+                  className="bg-slate-100 text-slate-700 px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-slate-200 transition-all"
                 >
                   Cancel
                 </button>
@@ -490,6 +511,7 @@ export default function RoomManager({ user }) {
                       const isOwner = room.createdBy && room.createdBy.toString() === currentUserId?.toString();
                       const canModify = isOwner || isHOD;
                       const isFreeNow = availableRoomIds.includes(roomId);
+                      const isActionBusy = actionLoadingId === roomId;
 
                       return (
                         <tr key={roomId} className="hover:bg-slate-50/80 transition-colors">
@@ -502,7 +524,7 @@ export default function RoomManager({ user }) {
                               <UserCheck className="w-3 h-3 text-indigo-500" />
                               <span>Added by: <strong className="text-slate-600">{room.createdByName || 'Faculty'}</strong></span>
                               {isOwner && (
-                                <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.2 rounded font-bold ml-1">
+                                <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-bold ml-1">
                                   You
                                 </span>
                               )}
@@ -546,7 +568,8 @@ export default function RoomManager({ user }) {
                                 <button
                                   type="button"
                                   onClick={() => handleEdit(room)}
-                                  className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                                  disabled={isActionBusy}
+                                  className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-40"
                                   title="Edit Room"
                                 >
                                   <Edit2 className="w-4 h-4" />
@@ -554,17 +577,19 @@ export default function RoomManager({ user }) {
                                 <button
                                   type="button"
                                   onClick={() => handleToggle(room)}
-                                  className={`p-1.5 rounded-lg transition-colors ${
+                                  disabled={isActionBusy}
+                                  className={`p-1.5 rounded-lg transition-colors disabled:opacity-40 ${
                                     room.isAvailable ? 'text-amber-600 hover:bg-amber-50' : 'text-emerald-600 hover:bg-emerald-50'
                                   }`}
                                   title={room.isAvailable ? 'Deactivate room' : 'Activate room'}
                                 >
-                                  <Power className="w-4 h-4" />
+                                  {isActionBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Power className="w-4 h-4" />}
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => handleDelete(room)}
-                                  className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-lg transition-colors"
+                                  disabled={isActionBusy}
+                                  className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-40"
                                   title="Delete Room"
                                 >
                                   <Trash2 className="w-4 h-4" />

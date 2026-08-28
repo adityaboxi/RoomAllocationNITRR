@@ -20,7 +20,8 @@ exports.protect = async (req, res, next) => {
     // Verify token cryptographic signature
     let decoded;
     try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const secret = process.env.JWT_SECRET || 'nitrr_secret_key_default';
+      decoded = jwt.verify(token, secret);
     } catch (jwtError) {
       if (jwtError.name === 'TokenExpiredError') {
         return res.status(401).json({
@@ -55,7 +56,7 @@ exports.protect = async (req, res, next) => {
     req.user = user;
     next();
   } catch (error) {
-    console.error('Auth protect error:', error);
+    // console.error('Auth protect error:', error);
     return res.status(401).json({
       success: false,
       message: 'Authentication failed.',

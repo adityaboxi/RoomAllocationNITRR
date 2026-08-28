@@ -16,8 +16,8 @@ if (smtpUser && smtpPass && !isLoggingOnly) {
       pass: smtpPass,
     },
     pool: true,
-    maxConnections: 5,
-    maxMessages: 100,
+    maxConnections: parseInt(process.env.SMTP_MAX_CONNECTIONS, 10) || 5,
+    maxMessages: parseInt(process.env.SMTP_MAX_MESSAGES, 10) || 100,
   });
 }
 
@@ -53,7 +53,7 @@ exports.sendOTPEmail = async (email, otp, purpose = 'forgot') => {
   </div>`;
 
   if (!transporter || isLoggingOnly) {
-    console.log(`\n📧 [EMAIL SIMULATION] To: ${email} | Subject: ${subject} | OTP: ${otp}`);
+    // console.log(`\n📧 [EMAIL SIMULATION] To: ${email} | Subject: ${subject} | OTP: ${otp}`);
     return;
   }
 
@@ -64,10 +64,10 @@ exports.sendOTPEmail = async (email, otp, purpose = 'forgot') => {
       subject,
       html,
     });
-    console.log(`✅ [EMAIL DISPATCHED] OTP successfully sent to: ${email}`);
+    // console.log(`✅ [EMAIL DISPATCHED] OTP successfully sent to: ${email}`);
   } catch (error) {
-    console.error(`❌ [EMAIL ERROR] Failed sending to ${email}:`, error.message);
-    console.log(`📧 [FALLBACK OTP LOG] For: ${email} -> ${otp}`);
+    // console.error(`❌ [EMAIL ERROR] Failed sending to ${email}:`, error.message);
+    // console.log(`📧 [FALLBACK OTP LOG] For: ${email} -> ${otp}`);
   }
 };
 
@@ -101,7 +101,7 @@ exports.sendBookingConfirmationEmail = async (booking) => {
   </div>`;
 
   if (!transporter || isLoggingOnly) {
-    console.log(`\n📧 [EMAIL SIMULATION] Booking Confirmation to ${booking.facultyEmail} for ${roomName} on ${booking.date}`);
+    // console.log(`\n📧 [EMAIL SIMULATION] Booking Confirmation to ${booking.facultyEmail} for ${roomName} on ${booking.date}`);
     return;
   }
 
@@ -112,9 +112,9 @@ exports.sendBookingConfirmationEmail = async (booking) => {
       subject: `✅ Booking Confirmed: ${roomName} (${booking.date})`,
       html,
     });
-    console.log(`✅ Confirmation email sent to ${booking.facultyEmail}`);
+    // console.log(`✅ Confirmation email sent to ${booking.facultyEmail}`);
   } catch (error) {
-    console.error(`❌ Failed to send confirmation email to ${booking.facultyEmail}:`, error.message);
+    // console.error(`❌ Failed to send confirmation email to ${booking.facultyEmail}:`, error.message);
   }
 };
 
@@ -144,7 +144,7 @@ exports.sendBookingCancellationEmail = async (booking, reason) => {
   </div>`;
 
   if (!transporter || isLoggingOnly) {
-    console.log(`\n📧 [EMAIL SIMULATION] Cancellation Notice to ${booking.facultyEmail} for ${roomName}: ${reason}`);
+    // console.log(`\n📧 [EMAIL SIMULATION] Cancellation Notice to ${booking.facultyEmail} for ${roomName}: ${reason}`);
     return;
   }
 
@@ -155,8 +155,8 @@ exports.sendBookingCancellationEmail = async (booking, reason) => {
       subject: `❌ Booking Cancelled: ${roomName} on ${booking.date}`,
       html,
     });
-    console.log(`✅ Cancellation email sent to ${booking.facultyEmail}`);
+    // console.log(`✅ Cancellation email sent to ${booking.facultyEmail}`);
   } catch (error) {
-    console.error(`❌ Failed to send cancellation email:`, error.message);
+    // console.error(`❌ Failed to send cancellation email:`, error.message);
   }
 };
