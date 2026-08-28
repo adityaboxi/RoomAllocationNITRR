@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   getRooms,
+  getAvailableRooms,
   createRoom,
   updateRoom,
   toggleRoomAvailability,
@@ -16,13 +17,28 @@ import {
   AlertCircle,
   Users,
   Layers,
-  Sparkles,
   UserCheck,
   X,
 } from 'lucide-react';
 
+const getTodayDateString = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getCurrentTimeString = () => {
+  const now = new Date();
+  const h = String(now.getHours()).padStart(2, '0');
+  const m = String(now.getMinutes()).padStart(2, '0');
+  return `${h}:${m}`;
+};
+
 export default function RoomManager({ user }) {
   const [rooms, setRooms] = useState([]);
+  const [availableRoomIds, setAvailableRoomIds] = useState([]);
   const [loading, setLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(true);
   const [editingRoom, setEditingRoom] = useState(null);
@@ -56,8 +72,20 @@ export default function RoomManager({ user }) {
     setFetchLoading(true);
     setError('');
     try {
-      const data = await getRooms({ department: user?.department });
+      const date = getTodayDateString();
+      const startTime = getCurrentTimeString();
+      const [h, m] = startTime.split(':').map(Number);
+      const endH = (h + 1) % 24;
+      const endTime = `${String(endH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+
+      const [data, availData] = await Promise.all([
+        getRooms({ department: user?.department }),
+        getAvailableRooms(date, startTime, endTime, { department: user?.department }),
+      ]);
+
       setRooms(data.data || []);
+      const freeIds = (availData.data || []).map((r) => r.id || r._id);
+      setAvailableRoomIds(freeIds);
     } catch (err) {
       setError(err.message || 'Failed to load department rooms');
     } finally {
@@ -86,8 +114,27 @@ export default function RoomManager({ user }) {
     setError('');
     setSuccess('');
 
-    if (!formData.name.trim() || !formData.roomNumber.trim()) {
+    const trimmedName = formData.name.trim();
+    const trimmedNumber = formData.roomNumber.trim().toUpperCase();
+
+    if (!trimmedName || !trimmedNumber) {
       setError('Please provide a room name and room number.');
+      return;
+    }
+
+    // Instant duplicate check against department's existing room catalog
+    const isDuplicate = rooms.some((r) => {
+      const isCurrentEditing = editingRoom && (r.id === editingRoom.id || r._id === editingRoom._id);
+      if (isCurrentEditing) return false;
+
+      return (
+        r.name.trim().toLowerCase() === trimmedName.toLowerCase() ||
+        r.roomNumber.trim().toUpperCase() === trimmedNumber
+      );
+    });
+
+    if (isDuplicate) {
+      setError(`This room is already present! A room with the name "${trimmedName}" or room number "${trimmedNumber}" already exists in the ${user?.department} department.`);
       return;
     }
 
@@ -101,8 +148,8 @@ export default function RoomManager({ user }) {
 
     const payload = {
       ...formData,
-      name: formData.name.trim(),
-      roomNumber: formData.roomNumber.trim().toUpperCase(),
+      name: trimmedName,
+      roomNumber: trimmedNumber,
       capacity: capacityNum,
       floor: formData.floor.trim(),
       building: formData.building.trim(),
@@ -180,7 +227,7 @@ export default function RoomManager({ user }) {
 
     const roomId = room.id || room._id;
     const confirmDelete = window.confirm(
-      `Are you sure you want to remove "${room.name}" (${room.roomNumber})?\n\nThis will soft-decommission the room and cancel conflicting future bookings.`
+      `Are you sure you want to remove "${room.name}" (${room.roomNumber})?\n\nThis will remove the room and cascade-delete its timetable slots and cancel conflicting future bookings.`
     );
     if (!confirmDelete) return;
 
@@ -396,7 +443,7 @@ export default function RoomManager({ user }) {
           </form>
         </div>
 
-        {/* Right Column: Rooms List Table with Creator Badges */}
+        {/* Right Column: Rooms List Table with Live Occupancy */}
         <div className="lg:col-span-8">
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
             <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
@@ -430,7 +477,7 @@ export default function RoomManager({ user }) {
                         Capacity
                       </th>
                       <th className="text-left px-4 py-3 text-xs font-bold text-slate-600 uppercase tracking-wider">
-                        Status
+                        Live Status
                       </th>
                       <th className="text-right px-4 py-3 text-xs font-bold text-slate-600 uppercase tracking-wider">
                         Actions
@@ -442,6 +489,7 @@ export default function RoomManager({ user }) {
                       const roomId = room.id || room._id;
                       const isOwner = room.createdBy && room.createdBy.toString() === currentUserId?.toString();
                       const canModify = isOwner || isHOD;
+                      const isFreeNow = availableRoomIds.includes(roomId);
 
                       return (
                         <tr key={roomId} className="hover:bg-slate-50/80 transition-colors">
@@ -477,15 +525,19 @@ export default function RoomManager({ user }) {
                           </td>
 
                           <td className="px-4 py-3.5 text-sm">
-                            <span
-                              className={`inline-flex items-center px-2.5 py-1 text-xs font-bold rounded-full ${
-                                room.isAvailable
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : 'bg-rose-100 text-rose-800'
-                              }`}
-                            >
-                              {room.isAvailable ? 'Available' : 'Unavailable'}
-                            </span>
+                            {!room.isAvailable ? (
+                              <span className="inline-flex items-center px-2.5 py-1 text-xs font-bold rounded-full bg-slate-100 text-slate-600">
+                                ⚪ Deactivated
+                              </span>
+                            ) : isFreeNow ? (
+                              <span className="inline-flex items-center px-2.5 py-1 text-xs font-bold rounded-full bg-emerald-100 text-emerald-800">
+                                🟢 Free Now
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2.5 py-1 text-xs font-bold rounded-full bg-rose-100 text-rose-800">
+                                🔴 Class / Booked
+                              </span>
+                            )}
                           </td>
 
                           <td className="px-4 py-3.5 text-sm text-right space-x-1.5 whitespace-nowrap">

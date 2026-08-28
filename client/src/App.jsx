@@ -32,7 +32,7 @@ export default function App() {
 
   const socketRef = useRef(null);
 
-  // Initial fetch of unread notifications & pending reviews on user login/refresh
+  // Initial fetch of notifications & pending reviews on user login/refresh
   useEffect(() => {
     if (currentUser) {
       fetchUserNotifications();
@@ -81,15 +81,7 @@ export default function App() {
         }
 
         const handleCancelled = (data) => {
-          const newNotif = {
-            id: Date.now(),
-            message: `Booking cancelled: ${data.roomName || 'Room'} on ${data.date} (${data.startTime} - ${data.endTime}). Reason: ${data.reason || 'Schedule clash'}`,
-            type: 'booking-cancelled',
-            read: false,
-            createdAt: new Date().toISOString(),
-          };
-
-          setNotifications((prev) => [newNotif, ...prev]);
+          fetchUserNotifications();
 
           if ('Notification' in window && Notification.permission === 'granted') {
             new Notification('❌ Booking Cancelled', {
@@ -98,17 +90,8 @@ export default function App() {
           }
         };
 
-        const handleTimetableUpdate = (data) => {
-          if (data?.department === currentUser.department) {
-            const newNotif = {
-              id: Date.now(),
-              message: `Master timetable for ${data.department} Sem ${data.semester} Sec ${data.section} was updated.`,
-              type: 'timetable-updated',
-              read: false,
-              createdAt: new Date().toISOString(),
-            };
-            setNotifications((prev) => [newNotif, ...prev]);
-          }
+        const handleTimetableUpdate = () => {
+          fetchUserNotifications();
         };
 
         onBookingCancelled(handleCancelled);
@@ -190,7 +173,14 @@ export default function App() {
               <Route path="/" element={<Dashboard user={currentUser} onLogout={handleLogout} />} />
               <Route
                 path="/notifications"
-                element={<NotificationCenter user={currentUser} />}
+                element={
+                  <NotificationCenter
+                    user={currentUser}
+                    notifications={notifications}
+                    setNotifications={setNotifications}
+                    onRefresh={fetchUserNotifications}
+                  />
+                }
               />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

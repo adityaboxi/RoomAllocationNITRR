@@ -22,62 +22,62 @@ import {
   Inbox,
 } from 'lucide-react';
 
-export default function NotificationCenter({ user }) {
-  const [notifications, setNotifications] = useState([]);
-  const [loading, setLoading] = useState(true);
+export default function NotificationCenter({
+  user,
+  notifications = [],
+  setNotifications,
+  onRefresh,
+}) {
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const fetchNotifications = async () => {
-    try {
-      const data = await getNotifications();
-      setNotifications(data.data || []);
-    } catch (err) {
-      setError(err.message || 'Failed to load notifications');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    fetchNotifications();
+    if (onRefresh) {
+      onRefresh();
+    }
   }, []);
 
   // Optimistic Single Mark As Read
   const handleMarkRead = async (id) => {
-    // 1. Optimistic local state update
-    setNotifications((prev) =>
-      prev.map((n) => ((n.id === id || n._id === id) ? { ...n, read: true } : n))
-    );
+    if (setNotifications) {
+      setNotifications((prev) =>
+        prev.map((n) => ((n.id === id || n._id === id) ? { ...n, read: true } : n))
+      );
+    }
 
     try {
       await markAsRead(id);
     } catch (err) {
       setError(err.message || 'Failed to update notification status');
-      fetchNotifications(); // Rollback on failure
+      if (onRefresh) onRefresh();
     }
   };
 
   // Optimistic Mark All As Read
   const handleMarkAllRead = async () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    if (setNotifications) {
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    }
 
     try {
       await markAllAsRead();
     } catch (err) {
       setError(err.message || 'Failed to mark all as read');
-      fetchNotifications();
+      if (onRefresh) onRefresh();
     }
   };
 
   // Optimistic Delete Single Notification
   const handleDelete = async (id) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== id && n._id !== id));
+    if (setNotifications) {
+      setNotifications((prev) => prev.filter((n) => n.id !== id && n._id !== id));
+    }
 
     try {
       await deleteNotification(id);
     } catch (err) {
       setError(err.message || 'Failed to delete notification');
-      fetchNotifications();
+      if (onRefresh) onRefresh();
     }
   };
 
@@ -86,17 +86,21 @@ export default function NotificationCenter({ user }) {
     const confirmDelete = window.confirm('Are you sure you want to clear your notification history?');
     if (!confirmDelete) return;
 
-    setNotifications([]);
+    if (setNotifications) {
+      setNotifications([]);
+    }
 
     try {
       await deleteAll();
     } catch (err) {
       setError(err.message || 'Failed to delete notifications');
-      fetchNotifications();
+      if (onRefresh) onRefresh();
     }
   };
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const unreadCount = Array.isArray(notifications)
+    ? notifications.filter((n) => !n.read).length
+    : 0;
 
   const renderTypeIcon = (type) => {
     switch (type) {

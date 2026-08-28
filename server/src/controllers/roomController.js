@@ -18,7 +18,7 @@ const getTodayDateString = () => {
   return `${year}-${month}-${day}`;
 };
 
-// ---------- GET ROOMS ----------
+// ---------- GET ROOMS (Department Isolated) ----------
 exports.getRooms = async (req, res) => {
   try {
     const {
@@ -37,7 +37,13 @@ exports.getRooms = async (req, res) => {
 
     const query = { isActive: true };
 
-    if (department) query.department = department.trim();
+    // If caller is HOD, enforce department isolation
+    if (req.user && req.user.role === 'HOD') {
+      query.department = req.user.department;
+    } else if (department) {
+      query.department = department.trim();
+    }
+
     if (floor) query.floor = floor.trim();
     if (building) query.building = building.trim();
     if (isAvailable !== undefined) query.isAvailable = isAvailable === 'true';
@@ -124,7 +130,12 @@ exports.getAvailableRooms = async (req, res) => {
     const day = getDayOfWeek(date);
     const baseQuery = { isAvailable: true, isActive: true };
 
-    if (department) baseQuery.department = department.trim();
+    if (req.user && req.user.role === 'HOD') {
+      baseQuery.department = req.user.department;
+    } else if (department) {
+      baseQuery.department = department.trim();
+    }
+
     if (floor) baseQuery.floor = floor.trim();
     if (building) baseQuery.building = building.trim();
     if (roomType) baseQuery.type = roomType.trim();
@@ -181,7 +192,7 @@ exports.getAvailableRooms = async (req, res) => {
   }
 };
 
-// ---------- CREATE ROOM ----------
+// ---------- CREATE ROOM (Duplicate Verification) ----------
 exports.createRoom = async (req, res) => {
   try {
     let { name, roomNumber, capacity, type, floor, building } = req.body;
@@ -210,9 +221,10 @@ exports.createRoom = async (req, res) => {
     });
 
     if (existing) {
+      const matchType = existing.name.toLowerCase() === name.toLowerCase() ? 'name' : 'room number';
       return res.status(400).json({
         success: false,
-        message: `An active room "${existing.name}" (${existing.roomNumber}) already exists in ${department} department.`,
+        message: `This room is already present! A room with this ${matchType} ("${existing.name}" / ${existing.roomNumber}) already exists in ${department} department.`,
       });
     }
 
@@ -245,7 +257,7 @@ exports.createRoom = async (req, res) => {
   }
 };
 
-// ---------- UPDATE ROOM ----------
+// ---------- UPDATE ROOM (Duplicate Verification) ----------
 exports.updateRoom = async (req, res) => {
   try {
     const { id } = req.params;
@@ -265,7 +277,7 @@ exports.updateRoom = async (req, res) => {
     if (!isOwner && !isHOD) {
       return res.status(403).json({
         success: false,
-        message: `Permission denied: Room "${room.name}" was added by Prof. ${room.createdByName || 'another faculty member'}. Only the creator or the Department HOD can update it.`,
+        message: `Permission denied: Only the creator or the Department HOD can update this room.`,
       });
     }
 
@@ -277,6 +289,32 @@ exports.updateRoom = async (req, res) => {
     }
     if (req.body.capacity) {
       req.body.capacity = Number(req.body.capacity);
+    }
+
+    // Check duplicate name or room number against OTHER rooms in same department
+    if (req.body.name || req.body.roomNumber) {
+      const duplicateQuery = {
+        department: room.department,
+        isActive: true,
+        _id: { $ne: id },
+        $or: [],
+      };
+      if (req.body.name) {
+        duplicateQuery.$or.push({ name: { $regex: new RegExp('^' + escapeRegex(req.body.name) + '$', 'i') } });
+      }
+      if (req.body.roomNumber) {
+        duplicateQuery.$or.push({ roomNumber: { $regex: new RegExp('^' + escapeRegex(req.body.roomNumber) + '$', 'i') } });
+      }
+
+      if (duplicateQuery.$or.length > 0) {
+        const duplicate = await Room.findOne(duplicateQuery);
+        if (duplicate) {
+          return res.status(400).json({
+            success: false,
+            message: `This room is already present! Another room with this name or room number ("${duplicate.name}" / ${duplicate.roomNumber}) already exists in ${room.department}.`,
+          });
+        }
+      }
     }
 
     delete req.body.department;
@@ -311,7 +349,7 @@ exports.toggleRoomAvailability = async (req, res) => {
     if (!isOwner && !isHOD) {
       return res.status(403).json({
         success: false,
-        message: `Permission denied: Room "${room.name}" was added by Prof. ${room.createdByName || 'another faculty member'}. Only the creator or the Department HOD can toggle availability.`,
+        message: `Permission denied: Only the creator or the Department HOD can toggle availability.`,
       });
     }
 
@@ -329,7 +367,7 @@ exports.toggleRoomAvailability = async (req, res) => {
   }
 };
 
-// ---------- DELETE ROOM (WITH COMPLETE CASCADING & PURGE) ----------
+// ---------- DELETE ROOM ----------
 exports.deleteRoom = async (req, res) => {
   try {
     const { id } = req.params;
@@ -349,7 +387,7 @@ exports.deleteRoom = async (req, res) => {
     if (!isOwner && !isHOD) {
       return res.status(403).json({
         success: false,
-        message: `Permission denied: Room "${room.name}" was added by Prof. ${room.createdByName || 'another faculty member'}. Only the creator or Department HOD can delete it.`,
+        message: `Permission denied: Only the creator or Department HOD can delete this room.`,
       });
     }
 
@@ -377,7 +415,6 @@ exports.deleteRoom = async (req, res) => {
       booking.conflictMessage = cancellationReason;
       await booking.save();
 
-      // Async email & in-app notification
       (async () => {
         try {
           await sendBookingCancellationEmail(booking, cancellationReason);
@@ -398,7 +435,7 @@ exports.deleteRoom = async (req, res) => {
 
           await Notification.create({
             userId: facultyUser._id,
-            message: `Booking cancelled: Room "${room.name}" on ${booking.date} (${booking.startTime}-${booking.endTime}) was deleted by department HOD.`,
+            message: `Booking cancelled: Room "${room.name}" on ${booking.date} was deleted by department HOD.`,
             type: 'booking-cancelled',
             metadata: {
               roomId: room._id,
@@ -413,7 +450,7 @@ exports.deleteRoom = async (req, res) => {
       })().catch((err) => console.error('Notification error:', err));
     }
 
-    // 5. Emit real-time socket event to sync all connected dashboards
+    // 5. Emit real-time socket event
     const io = getIO();
     if (io) {
       io.emit('timetable-updated', {
