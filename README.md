@@ -1,152 +1,84 @@
-# 🏫 Room Allocation System - NIT Raipur
+# 🏫 Smart Room Allocation System — NIT Raipur
 
-[![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-18.x-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-18.x%20%7C%2020.x-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![React](https://img.shields.io/badge/React-18.x-61DAFB?logo=react&logoColor=white)](https://reactjs.org/)
-[![MongoDB](https://img.shields.io/badge/MongoDB-7.x-47A248?logo=mongodb&logoColor=white)](https://www.mongodb.com/)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.x-38B2AC?logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
+[![Vite](https://img.shields.io/badge/Vite-5.x-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
+[![MongoDB](https://img.shields.io/badge/MongoDB-6.x%20%7C%207.x-47A248?logo=mongodb&logoColor=white)](https://www.mongodb.com/)
 [![Socket.io](https://img.shields.io/badge/Socket.io-4.x-010101?logo=socket.io&logoColor=white)](https://socket.io/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.x-38B2AC?logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
 
-> A comprehensive room allocation system for NIT Raipur enabling professors to book rooms for extra classes and HODs to manage timetables efficiently with real-time conflict detection.
-
----
-
-## 📋 Table of Contents
-
-- [Overview](#overview)
-- [Features](#features)
-- [Tech Stack](#tech-stack)
-- [Quick Start](#quick-start)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Running the Application](#running-the-application)
-- [API Endpoints](#api-endpoints)
-- [Database Schema](#database-schema)
-- [Testing](#testing)
-- [Contributing](#contributing)
-- [Team](#team)
-- [License](#license)
+> **A real-time, concurrency-safe room allocation and master timetable platform designed for academic institutions.**  
+> Solves the challenge of overlapping classroom schedules, ad-hoc lecture bookings, and master timetable coordination through sub-second conflict detection, WebSocket broadcasts, and in-memory batch processing.
 
 ---
 
-## 🎯 Overview
+## 📌 Table of Contents
 
-The **Room Allocation System** solves the room shortage problem at NIT Raipur by providing a unified platform for:
-
-- **Professors/Faculty** → Book available rooms for extra classes, view real-time availability, and manage bookings
-- **HODs** → Manage department timetables, resolve conflicts, and oversee room allocations
-- **Real-time updates** → Instant room availability updates via Socket.IO
-- **Smart conflict detection** → Auto-cancel bookings when timetables change with email notifications
-
-The system handles the entire lifecycle from timetable creation to booking management, ensuring optimal room utilization.
-
----
-
-## ✨ Features
-
-### 👨‍🏫 For Faculty/Professors
-- **Real-time room availability** – See which rooms are free instantly
-- **Book rooms** – With purpose, date, time, and optional comments
-- **Email confirmations** – Receive booking confirmations via email
-- **Booking management** – View, cancel, and track booking status
-- **Review system** – Leave reviews for rooms after bookings
-- **Notifications** – Get notified of cancellations due to conflicts
-- **Password reset** – Secure OTP-based password recovery
-
-### 👑 For HODs
-- **Timetable management** – Create, update, and replace department timetables
-- **Bulk upload** – Upload timetables via CSV/Excel files (supports room names/numbers)
-- **Room management** – Add, update, delete, and toggle room availability
-- **Conflict resolution** – Auto-detect and cancel conflicting bookings
-- **Department stats** – View total rooms, active bookings, and timetable entries
-- **Real-time updates** – Socket.IO broadcasts for timetable changes
-
-### ⚙️ System Features
-- **Real-time availability** – Socket.IO for instant updates
-- **Automatic conflict detection** – Prevents double-booking
-- **Email notifications** – Booking confirmations and cancellations
-- **Role-based access control** – Faculty vs HOD permissions
-- **JWT authentication** – Secure token-based auth
-- **OTP verification** – Two-step signup flow
-- **Rate limiting** – 4 requests per second (configurable)
-- **File upload** – Support for CSV, XLSX, and XLS timetable files
-- **Review system** – Rate and review rooms after bookings
+1. [Executive Summary & Problem Statement](#-executive-summary)
+2. [High-Level Architecture & Data Flow](#-high-level-architecture)
+3. [Folder Structure & Code Organization](#-folder-structure)
+4. [Core Business Logic & Algorithms](#-core-business-logic--algorithms)
+   - [Conflict & Overlap Math](#1-time-overlap-detection-algorithm)
+   - [Two-Layer Real-Time Engine](#2-two-layer-real-time-sync-engine)
+   - [In-Memory Streaming Timetable Parser](#3-in-memory-streaming-timetable-parser)
+5. [Defensive Engineering & Edge Cases](#-defensive-engineering--edge-cases)
+6. [API Architecture & Endpoints](#-api-architecture--endpoints)
+7. [Database Schema & Indexing Strategy](#-database-schema--indexing-strategy)
+8. [Environment Configuration (`.env`)](#-environment-configuration)
+9. [Developer Setup & Quick Start](#-developer-setup--quick-start)
+10. [Troubleshooting & FAQ](#-troubleshooting--faq)
+11. [License](#-license)
 
 ---
 
-## 🛠️ Tech Stack
+## 📖 Executive Summary
 
-### Backend
-| Technology | Purpose |
-|------------|---------|
-| Node.js | JavaScript runtime environment |
-| Express.js | Web framework for REST API |
-| MongoDB | NoSQL database |
-| Mongoose | ODM for MongoDB schema & validation |
-| JSON Web Tokens | Authentication & session management |
-| Bcrypt.js | Password hashing |
-| Nodemailer | Email sending (OTP, confirmations) |
-| Socket.IO | Real-time bidirectional communication |
-| Multer | File upload handling |
-| ExcelJS | Excel file parsing |
-| csv-parse | CSV file parsing |
+In institutional environments like NIT Raipur, classroom allocation faces two competing demands:
+1. **Deterministic Schedules:** Recurring weekly master timetables uploaded by Department Heads (HODs).
+2. **Dynamic Demands:** Ad-hoc reservations by faculty members for extra lectures, seminars, remedial classes, or lab sessions.
 
-### Frontend
-| Technology | Purpose |
-|------------|---------|
-| React 18 | UI library with hooks |
-| Vite | Fast build tool & dev server |
-| Tailwind CSS | Utility-first styling |
-| Axios | HTTP client for API calls |
-| React Router | Client-side routing |
-| Socket.IO Client | Real-time updates |
-| Lucide React | Icon library |
-
-### Tools & Utilities
-| Technology | Purpose |
-|------------|---------|
-| Git | Version control |
-| dotenv | Environment variables |
-| Nodemon | Development auto-reload |
-| cors | Cross-origin resource sharing |
-| helmet | Security headers (optional) |
+### How this system solves it:
+- **Zero-Collision Guarantee:** Faculty cannot book a room that has a recurring timetable class or another active booking during that time window.
+- **Automated Cascading Cleanup:** When an HOD uploads a new timetable that conflicts with existing ad-hoc bookings, the conflicting bookings are automatically cancelled, and faculty members receive automated cancellation emails and in-app alerts.
+- **Standalone MongoDB Compatible:** Operates with high consistency without requiring multi-document replica set transactions (`startSession`).
+- **Zero-Refresh Real-Time UI:** Live room availability switches automatically via WebSockets and time-tick listeners.
 
 ---
 
-## 🚀 Quick Start
+## 🏗️ High-Level Architecture
 
-### Prerequisites
-- Node.js (v18 or higher)
-- MongoDB (v6 or higher)
-- npm or yarn
-- Git
+```mermaid
+flowchart TD
+    subgraph ClientLayer ["Frontend (React 18 + Vite + Tailwind)"]
+        UI["React SPA"]
+        SocketClient["Socket.IO Client"]
+        APIClient["Axios HTTP Client"]
+    end
 
-### Installation
+    subgraph ServerLayer ["Backend (Node.js + Express)"]
+        Router["Express REST Routes"]
+        AuthMiddleware["JWT & Role Middleware"]
+        Controllers["Controllers (Room, Timetable, Booking, Auth)"]
+        SocketServer["Socket.IO Server"]
+    end
 
-```bash
-# 1. Clone the repository
-git clone https://github.com/adityaboxi/RoomAllocationNITRR.git
-cd RoomAllocationNITRR
+    subgraph AsyncWorkers ["Background Async Handlers"]
+        EmailWorker["Nodemailer (SMTP Worker)"]
+    end
 
-# 2. Install backend dependencies
-cd server
-npm install
+    subgraph DataLayer ["Database (MongoDB)"]
+        DB[(MongoDB Database)]
+    end
 
-# 3. Set up environment variables
-cp .env.example .env
-# Edit .env with your credentials
+    UI --> APIClient
+    UI <--> SocketClient
 
-# 4. Install frontend dependencies (new terminal)
-cd ../client
-npm install
+    APIClient -->|HTTP Request + Bearer JWT| Router
+    Router --> AuthMiddleware
+    AuthMiddleware --> Controllers
 
-# 5. Start MongoDB (ensure it's running)
-# On Windows: net start MongoDB
-# On Linux: sudo systemctl start mongod
-# On macOS: brew services start mongodb-community
-
-# 6. Start the application
-# Backend (from server directory)
-npm run dev
-# Frontend (from client directory)
-npm run dev
+    Controllers -->|Compound Indexed Queries| DB
+    Controllers -.->|Detached Background Promise| EmailWorker
+    Controllers -->|Live State Events| SocketServer
+    SocketServer <-->|Bi-directional WS Events| SocketClient
