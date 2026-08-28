@@ -10,7 +10,15 @@ const TimetableSchema = new mongoose.Schema(
     },
     day: {
       type: String,
-      enum: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+      enum: [
+        'Monday',
+        'Tuesday',
+        'Wednesday',
+        'Thursday',
+        'Friday',
+        'Saturday',
+        'Sunday',
+      ],
       required: true,
       index: true,
     },
@@ -38,18 +46,17 @@ const TimetableSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      index: true,
     },
     semester: {
       type: String,
-      enum: ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'],
       required: true,
+      trim: true,
       index: true,
     },
     section: {
       type: String,
-      enum: ['A', 'B', 'C', 'D'],
       required: true,
+      trim: true,
       index: true,
     },
     department: {
@@ -79,10 +86,11 @@ const TimetableSchema = new mongoose.Schema(
 
 // High-Performance Query Indexes
 TimetableSchema.index({ department: 1, semester: 1, section: 1, isActive: 1 });
-TimetableSchema.index({ roomId: 1, day: 1, isActive: 1, startTime: 1, endTime: 1 });
-TimetableSchema.index({ faculty: 1, day: 1, isActive: 1, startTime: 1, endTime: 1 });
+TimetableSchema.index({ roomId: 1, day: 1, isActive: 1 });
+TimetableSchema.index({ faculty: 1, day: 1, isActive: 1 });
+TimetableSchema.index({ roomId: 1, day: 1, startTime: 1, endTime: 1, isActive: 1 });
 
-// Transform _id to id for JSON serialization
+// Transform _id to id for JSON output
 TimetableSchema.set('toJSON', {
   virtuals: true,
   transform: (doc, ret) => {
@@ -93,7 +101,7 @@ TimetableSchema.set('toJSON', {
   },
 });
 
-// Transform _id to id for Object serialization
+// Transform _id to id for Object output
 TimetableSchema.set('toObject', {
   virtuals: true,
   transform: (doc, ret) => {

@@ -31,7 +31,6 @@ exports.getBookings = async (req, res) => {
     if (date) query.date = date.trim();
     if (facultyEmail) query.facultyEmail = facultyEmail.trim().toLowerCase();
 
-    // HODs can view their entire department; Faculty members view their own bookings by default
     if (req.user.role === 'HOD') {
       if (!department) query.department = req.user.department;
     } else {
@@ -93,7 +92,6 @@ exports.getBooking = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Booking not found' });
     }
 
-    // Access control: Only booking owner or department HOD can view
     if (booking.facultyEmail !== req.user.email && req.user.role !== 'HOD') {
       return res.status(403).json({ success: false, message: 'Not authorized to view this booking' });
     }
@@ -140,7 +138,6 @@ exports.getBookingsByFaculty = async (req, res) => {
   try {
     const facultyEmail = req.params.facultyEmail.trim().toLowerCase();
 
-    // Faculty members can only view their own bookings unless user is HOD
     if (req.user.role !== 'HOD' && req.user.email !== facultyEmail) {
       return res.status(403).json({ success: false, message: 'Not authorized to view bookings of other faculty members' });
     }
@@ -162,7 +159,7 @@ exports.getBookingsByFaculty = async (req, res) => {
   }
 };
 
-// ---------- CREATE BOOKING (Standalone MongoDB Safe - No Transactions) ----------
+// ---------- CREATE BOOKING (Sunday Fully Enabled) ----------
 exports.createBooking = async (req, res) => {
   try {
     let { roomId, date, startTime, endTime, purpose, comment, lockId } = req.body;
@@ -183,7 +180,6 @@ exports.createBooking = async (req, res) => {
     date = date.trim();
     purpose = purpose.trim();
 
-    // Validate time format
     if (!isValidTimeFormat(startTime) || !isValidTimeFormat(endTime)) {
       return res.status(400).json({ success: false, message: 'Invalid time format. Expected HH:mm (24-hour)' });
     }
@@ -199,13 +195,11 @@ exports.createBooking = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Booking slot must be at least 15 minutes in duration' });
     }
 
-    // Date and Time Window Validation
     const todayStr = getTodayDateString();
     if (date < todayStr) {
       return res.status(400).json({ success: false, message: 'Cannot book a past date' });
     }
 
-    // Maximum 7 days advance reservation limit
     const todayDate = new Date(todayStr);
     const maxBookingDate = new Date(todayDate);
     maxBookingDate.setDate(maxBookingDate.getDate() + 7);
@@ -216,9 +210,6 @@ exports.createBooking = async (req, res) => {
     }
 
     const day = getDayOfWeek(date);
-    if (day === 'Sunday') {
-      return res.status(400).json({ success: false, message: 'Classroom reservations are not permitted on Sundays' });
-    }
 
     // 1. Room existence and availability check
     const room = await Room.findById(roomId);
@@ -229,7 +220,7 @@ exports.createBooking = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Room is currently deactivated or unavailable' });
     }
 
-    // 2. User double-booking check (faculty cannot have 2 classes at once)
+    // 2. User double-booking check
     const userConflictQuery = {
       facultyEmail: req.user.email,
       date,
@@ -334,7 +325,7 @@ exports.createBooking = async (req, res) => {
       .then(() => Booking.findByIdAndUpdate(booking._id, { notified: true }))
       .catch((err) => console.error('Confirmation email error:', err.message));
 
-    // Emit Socket.IO event for live UI update across all active clients
+    // Emit Socket.IO event for live UI update
     const io = getIO();
     if (io) {
       io.emit('booking-created', {
@@ -513,7 +504,6 @@ exports.lockRoom = async (req, res) => {
       lockedAt: new Date(),
     });
 
-    // ⚡ Emit real-time lock event to all connected users
     const io = getIO();
     if (io) {
       io.emit('room-locked', {
@@ -559,7 +549,6 @@ exports.unlockRoom = async (req, res) => {
     const roomId = booking.roomId?.toString();
     await Booking.deleteOne({ _id: booking._id });
 
-    // ⚡ Emit real-time unlock event to all connected users
     const io = getIO();
     if (io) {
       io.emit('room-unlocked', {

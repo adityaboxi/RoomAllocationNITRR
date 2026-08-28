@@ -23,6 +23,20 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
+// Helper to validate 24-hour HH:mm time
+const isValidTimeFormat = (time) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(time);
+
+// Helper to convert HH:mm to minutes
+const toMinutes = (timeStr) => {
+  const [h, m] = String(timeStr).trim().split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+};
+
+// Helper to check if two time ranges overlap
+const isOverlapping = (s1, e1, s2, e2) => {
+  return toMinutes(s1) < toMinutes(e2) && toMinutes(s2) < toMinutes(e1);
+};
+
 export default function TimetableManager({ user }) {
   const [rooms, setRooms] = useState([]);
   const [timetable, setTimetable] = useState([]);
@@ -46,7 +60,7 @@ export default function TimetableManager({ user }) {
   const [success, setSuccess] = useState('');
 
   const fileInputRef = useRef(null);
-  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
   useEffect(() => {
     fetchRooms();
@@ -86,8 +100,87 @@ export default function TimetableManager({ user }) {
     }
   };
 
+  // ----- Client-Side CSV Pre-Verification -----
+  const verifyCSVContent = async (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const text = e.target.result;
+          const lines = text.split(/\r\n|\n/).filter((l) => l.trim() !== '');
+
+          if (lines.length <= 1) {
+            return reject(new Error('The spreadsheet file is empty or has no data rows.'));
+          }
+
+          const headers = lines[0].split(',').map((h) => h.trim().toLowerCase().replace(/[\s_-]/g, ''));
+          const required = ['day', 'starttime', 'endtime', 'subject', 'faculty'];
+          const missing = required.filter((r) => !headers.includes(r));
+
+          if (missing.length > 0) {
+            return reject(new Error(`Wrong format: Missing required columns [${missing.join(', ')}].\nExpected Header: Day, Start Time, End Time, Subject, Class Group, Faculty`));
+          }
+
+          const dayIdx = headers.indexOf('day');
+          const startIdx = headers.indexOf('starttime');
+          const endIdx = headers.indexOf('endtime');
+          const subjIdx = headers.indexOf('subject');
+          const facultyIdx = headers.indexOf('faculty');
+
+          const parsedRows = [];
+          for (let i = 1; i < lines.length; i++) {
+            const cols = lines[i].split(',').map((c) => c.trim());
+            if (cols.length < 5) continue;
+
+            const day = cols[dayIdx];
+            const startTime = cols[startIdx];
+            const endTime = cols[endIdx];
+            const subject = cols[subjIdx];
+            const faculty = cols[facultyIdx];
+
+            if (!days.includes(day)) {
+              return reject(new Error(`Row #${i}: Invalid Day "${day}". Must be one of ${days.join(', ')}.`));
+            }
+            if (!isValidTimeFormat(startTime) || !isValidTimeFormat(endTime)) {
+              return reject(new Error(`Row #${i} ("${subject}"): Invalid time format (${startTime} - ${endTime}). Must be 24-hour HH:mm.`));
+            }
+            if (toMinutes(startTime) >= toMinutes(endTime)) {
+              return reject(new Error(`Row #${i} ("${subject}"): Start time (${startTime}) must be strictly before End time (${endTime}).`));
+            }
+            if (toMinutes(endTime) - toMinutes(startTime) < 30) {
+              return reject(new Error(`Row #${i} ("${subject}"): Class duration must be at least 30 minutes.`));
+            }
+
+            parsedRows.push({ rowNumber: i, day, startTime, endTime, subject, faculty });
+          }
+
+          // Check for collision between rows in the uploaded file
+          for (let i = 0; i < parsedRows.length; i++) {
+            for (let j = i + 1; j < parsedRows.length; j++) {
+              const a = parsedRows[i];
+              const b = parsedRows[j];
+
+              if (a.day === b.day && isOverlapping(a.startTime, a.endTime, b.startTime, b.endTime)) {
+                return reject(
+                  new Error(
+                    `🚫 Timetable Collision in File:\n• Row #${a.rowNumber}: "${a.subject}" (${a.startTime} - ${a.endTime})\n• Row #${b.rowNumber}: "${b.subject}" (${b.startTime} - ${b.endTime})\nBoth classes are scheduled at overlapping times on ${a.day}.`
+                  )
+                );
+              }
+            }
+          }
+
+          resolve(true);
+        } catch (err) {
+          reject(err);
+        }
+      };
+      reader.readAsText(file);
+    });
+  };
+
   // ----- File Staging & Upload -----
-  const handleFileSelect = (e) => {
+  const handleFileSelect = async (e) => {
     const file = e.target.files?.[0];
     setError('');
     setSuccess('');
@@ -101,10 +194,22 @@ export default function TimetableManager({ user }) {
     const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
 
     if (!validExtensions.includes(ext)) {
-      setError(`Invalid format (${ext}). Only .csv and .xlsx spreadsheets are permitted.`);
+      setError(`Invalid format (${ext}). Only .csv, .xlsx, and .xls spreadsheets are permitted.`);
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
+    }
+
+    // Client-side verification for CSV files
+    if (ext === '.csv') {
+      try {
+        await verifyCSVContent(file);
+      } catch (validationErr) {
+        setError(validationErr.message);
+        setSelectedFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
     }
 
     setSelectedFile(file);
@@ -147,7 +252,6 @@ export default function TimetableManager({ user }) {
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
 
-      // Reset filters so user sees the newly updated room schedule immediately
       setFilterSemester('ALL');
       setFilterRoomId(uploadRoomId);
       await fetchScheduleTable();
@@ -160,7 +264,24 @@ export default function TimetableManager({ user }) {
 
   // ----- Single Slot Update & Delete -----
   const handleUpdateEntry = async (entryId, updatedData) => {
+    // Client-side validation for manual slot edit
+    if (!updatedData.startTime || !updatedData.endTime || !updatedData.subject || !updatedData.faculty) {
+      setError('Start Time, End Time, Subject, and Faculty are all required.');
+      return;
+    }
+
+    if (toMinutes(updatedData.startTime) >= toMinutes(updatedData.endTime)) {
+      setError('Start time must be strictly before end time.');
+      return;
+    }
+
+    if (toMinutes(updatedData.endTime) - toMinutes(updatedData.startTime) < 30) {
+      setError('Class duration must be at least 30 minutes.');
+      return;
+    }
+
     setLoading(true);
+    setError('');
     try {
       const cleanRoomId =
         updatedData.roomId && typeof updatedData.roomId === 'object'
@@ -168,7 +289,7 @@ export default function TimetableManager({ user }) {
           : updatedData.roomId;
 
       await updateTimetableEntry(entryId, { ...updatedData, roomId: cleanRoomId });
-      setSuccess('Timetable entry updated.');
+      setSuccess('Timetable entry updated successfully.');
       setEditingEntry(null);
       await fetchScheduleTable();
     } catch (err) {
@@ -210,7 +331,7 @@ export default function TimetableManager({ user }) {
       {error && (
         <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
           <AlertCircle className="w-5 h-5 mr-2.5 text-rose-600 flex-shrink-0 mt-0.5" />
-          <div className="flex-1 whitespace-pre-line">{error}</div>
+          <div className="flex-1 whitespace-pre-line font-medium">{error}</div>
           <button onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
             <X className="w-4 h-4" />
           </button>
@@ -342,7 +463,7 @@ export default function TimetableManager({ user }) {
                     className="w-full bg-indigo-600 text-white py-2.5 rounded-xl text-xs sm:text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2 shadow-sm"
                   >
                     <Upload className="w-4 h-4" />
-                    <span>{uploading ? 'Processing Timetable...' : 'Upload & Publish Timetable'}</span>
+                    <span>{uploading ? 'Validating & Publishing...' : 'Upload & Publish Timetable'}</span>
                   </button>
                 </div>
               )}

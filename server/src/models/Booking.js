@@ -16,7 +16,15 @@ const BookingSchema = new mongoose.Schema(
     },
     day: {
       type: String,
-      enum: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+      enum: [
+        'Monday',
+        'Tuesday',
+        'Wednesday',
+        'Thursday',
+        'Friday',
+        'Saturday',
+        'Sunday',
+      ],
       required: true,
     },
     startTime: {
@@ -87,18 +95,16 @@ const BookingSchema = new mongoose.Schema(
   }
 );
 
-// Compound Unique Index for exact collision protection
+// Compound Indexes for fast collision checks
 BookingSchema.index(
   { roomId: 1, date: 1, startTime: 1, endTime: 1, status: 1 },
   { unique: false }
 );
-
-// High-Performance Query Indexes
 BookingSchema.index({ facultyEmail: 1, status: 1, date: -1 });
 BookingSchema.index({ department: 1, status: 1, date: 1 });
 BookingSchema.index({ roomId: 1, date: 1, status: 1, startTime: 1, endTime: 1 });
 
-// SAFE PARTIAL TTL INDEX: Only auto-deletes temporary lock placeholders, NEVER confirmed bookings
+// SAFE PARTIAL TTL INDEX: Auto-deletes temporary checkout locks after 5 minutes
 BookingSchema.index(
   { lockedAt: 1 },
   {
@@ -107,7 +113,7 @@ BookingSchema.index(
   }
 );
 
-// Transform _id to id on JSON output
+// Transform _id to id for JSON output
 BookingSchema.set('toJSON', {
   virtuals: true,
   transform: (doc, ret) => {
@@ -118,7 +124,7 @@ BookingSchema.set('toJSON', {
   },
 });
 
-// Transform _id to id on Object output
+// Transform _id to id for Object output
 BookingSchema.set('toObject', {
   virtuals: true,
   transform: (doc, ret) => {
