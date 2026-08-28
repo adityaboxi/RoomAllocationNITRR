@@ -54,8 +54,17 @@ const UserSchema = new mongoose.Schema(
   }
 );
 
-// High-Performance Query Indexes
+// High-Performance Query Index
 UserSchema.index({ department: 1, role: 1 });
+
+// 🔒 ATOMIC SINGLE-HOD CONSTRAINT: Enforces exactly 1 active HOD per department at the database level
+UserSchema.index(
+  { department: 1, role: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { role: 'HOD', isActive: true },
+  }
+);
 
 // Bcrypt password hashing pre-save hook
 UserSchema.pre('save', async function (next) {

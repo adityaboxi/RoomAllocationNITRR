@@ -100,6 +100,15 @@ RoomSchema.index({ floor: 1, roomNumber: 1 });
 RoomSchema.index({ building: 1, floor: 1 });
 RoomSchema.index({ createdBy: 1 });
 
+// 🔒 ATOMIC INSTITUTE-WIDE UNIQUE ROOM NUMBER: Guarantees no two departments can register the same room number
+RoomSchema.index(
+  { roomNumber: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { isActive: true },
+  }
+);
+
 // Transform _id to id for JSON output
 RoomSchema.set('toJSON', {
   virtuals: true,

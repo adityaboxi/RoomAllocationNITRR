@@ -1,6 +1,29 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 
+// ---------- TIMEZONE-SAFE IST DATE STRING (YYYY-MM-DD) ----------
+// Guarantees Indian Standard Time (Asia/Kolkata) regardless of cloud server location
+exports.getTodayDateString = () => {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  return formatter.format(new Date()); // Outputs 'YYYY-MM-DD'
+};
+
+// ---------- TIMEZONE-SAFE IST TIME STRING (HH:mm) ----------
+exports.getCurrentTimeHHMM = () => {
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  return formatter.format(new Date()); // Outputs 'HH:mm'
+};
+
 // ---------- TIMEZONE-SAFE LOCAL DAY OF WEEK PARSER ----------
 exports.getDayOfWeek = (dateString) => {
   if (!dateString || typeof dateString !== 'string') return 'Monday';
