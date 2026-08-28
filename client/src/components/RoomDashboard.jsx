@@ -135,30 +135,38 @@ export default function RoomDashboard({ user }) {
     }
   };
 
-  // Initial fetch and 30-second interval poll
+  // Continuous background synchronization (polls every 15s to keep live time & status fresh)
   useEffect(() => {
     fetchData();
     const interval = setInterval(() => {
       fetchData();
-    }, 30000);
+    }, 15000);
 
     return () => clearInterval(interval);
   }, [user?.department]);
 
-  // Real-time socket listeners
+  // Real-time Socket.IO Listeners (Instant triggers for all actions)
   useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
 
-    const handleUpdate = () => fetchData();
+    const handleUpdate = () => {
+      if (isMountedRef.current) {
+        fetchData();
+      }
+    };
 
     socket.on('booking-created', handleUpdate);
     socket.on('booking-cancelled', handleUpdate);
+    socket.on('room-locked', handleUpdate);
+    socket.on('room-unlocked', handleUpdate);
     socket.on('timetable-updated', handleUpdate);
 
     return () => {
       socket.off('booking-created', handleUpdate);
       socket.off('booking-cancelled', handleUpdate);
+      socket.off('room-locked', handleUpdate);
+      socket.off('room-unlocked', handleUpdate);
       socket.off('timetable-updated', handleUpdate);
     };
   }, []);

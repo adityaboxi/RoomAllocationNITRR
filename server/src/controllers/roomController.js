@@ -37,7 +37,6 @@ exports.getRooms = async (req, res) => {
 
     const query = { isActive: true };
 
-    // If caller is HOD, enforce department isolation
     if (req.user && req.user.role === 'HOD') {
       query.department = req.user.department;
     } else if (department) {
@@ -192,7 +191,7 @@ exports.getAvailableRooms = async (req, res) => {
   }
 };
 
-// ---------- CREATE ROOM (Duplicate Verification) ----------
+// ---------- CREATE ROOM (Global & Department Ownership Verification) ----------
 exports.createRoom = async (req, res) => {
   try {
     let { name, roomNumber, capacity, type, floor, building } = req.body;
@@ -210,31 +209,38 @@ exports.createRoom = async (req, res) => {
     roomNumber = roomNumber.trim().toUpperCase();
     const department = req.user.department;
 
-    // Check if an ACTIVE room already exists with this name or number in the department
+    // Check across the entire institute (all departments) if this room is already registered
     const existing = await Room.findOne({
-      department,
       isActive: true,
       $or: [
-        { name: { $regex: new RegExp('^' + escapeRegex(name) + '$', 'i') } },
         { roomNumber: { $regex: new RegExp('^' + escapeRegex(roomNumber) + '$', 'i') } },
+        { name: { $regex: new RegExp('^' + escapeRegex(name) + '$', 'i') }, department },
       ],
-    });
+    }).populate('createdBy', 'name email');
 
     if (existing) {
-      const matchType = existing.name.toLowerCase() === name.toLowerCase() ? 'name' : 'room number';
-      return res.status(400).json({
-        success: false,
-        message: `This room is already present! A room with this ${matchType} ("${existing.name}" / ${existing.roomNumber}) already exists in ${department} department.`,
-      });
+      const addedByProf = existing.createdByName || existing.createdBy?.name || 'an HOD/Faculty';
+      const existingDept = existing.department || 'another department';
+
+      if (existing.roomNumber.toUpperCase() === roomNumber.toUpperCase()) {
+        return res.status(400).json({
+          success: false,
+          message: `🚫 Cannot add room: Room Number "${existing.roomNumber}" is already registered by Prof. ${addedByProf} in the "${existingDept}" department (Room Name: "${existing.name}").`,
+        });
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: `🚫 Cannot add room: A room with the name "${existing.name}" is already registered by Prof. ${addedByProf} in your department (${existingDept}).`,
+        });
+      }
     }
 
-    // Clean up any stale soft-deleted duplicates
+    // Clean up any stale soft-deleted duplicate records
     await Room.deleteMany({
-      department,
       isActive: false,
       $or: [
-        { name: { $regex: new RegExp('^' + escapeRegex(name) + '$', 'i') } },
         { roomNumber: { $regex: new RegExp('^' + escapeRegex(roomNumber) + '$', 'i') } },
+        { name: { $regex: new RegExp('^' + escapeRegex(name) + '$', 'i') }, department },
       ],
     });
 
@@ -257,7 +263,7 @@ exports.createRoom = async (req, res) => {
   }
 };
 
-// ---------- UPDATE ROOM (Duplicate Verification) ----------
+// ---------- UPDATE ROOM (Global Ownership Verification) ----------
 exports.updateRoom = async (req, res) => {
   try {
     const { id } = req.params;
@@ -291,28 +297,46 @@ exports.updateRoom = async (req, res) => {
       req.body.capacity = Number(req.body.capacity);
     }
 
-    // Check duplicate name or room number against OTHER rooms in same department
+    // Check duplicate room number against ALL OTHER active rooms
     if (req.body.name || req.body.roomNumber) {
       const duplicateQuery = {
-        department: room.department,
         isActive: true,
         _id: { $ne: id },
         $or: [],
       };
-      if (req.body.name) {
-        duplicateQuery.$or.push({ name: { $regex: new RegExp('^' + escapeRegex(req.body.name) + '$', 'i') } });
-      }
+
       if (req.body.roomNumber) {
-        duplicateQuery.$or.push({ roomNumber: { $regex: new RegExp('^' + escapeRegex(req.body.roomNumber) + '$', 'i') } });
+        duplicateQuery.$or.push({
+          roomNumber: { $regex: new RegExp('^' + escapeRegex(req.body.roomNumber) + '$', 'i') },
+        });
+      }
+      if (req.body.name) {
+        duplicateQuery.$or.push({
+          name: { $regex: new RegExp('^' + escapeRegex(req.body.name) + '$', 'i') },
+          department: room.department,
+        });
       }
 
       if (duplicateQuery.$or.length > 0) {
-        const duplicate = await Room.findOne(duplicateQuery);
+        const duplicate = await Room.findOne(duplicateQuery).populate('createdBy', 'name email');
         if (duplicate) {
-          return res.status(400).json({
-            success: false,
-            message: `This room is already present! Another room with this name or room number ("${duplicate.name}" / ${duplicate.roomNumber}) already exists in ${room.department}.`,
-          });
+          const addedByProf = duplicate.createdByName || duplicate.createdBy?.name || 'an HOD/Faculty';
+          const existingDept = duplicate.department || 'another department';
+
+          if (
+            req.body.roomNumber &&
+            duplicate.roomNumber.toUpperCase() === req.body.roomNumber.toUpperCase()
+          ) {
+            return res.status(400).json({
+              success: false,
+              message: `🚫 Cannot update room: Room Number "${duplicate.roomNumber}" is already in use by Prof. ${addedByProf} in the "${existingDept}" department (Room: "${duplicate.name}").`,
+            });
+          } else {
+            return res.status(400).json({
+              success: false,
+              message: `🚫 Cannot update room: Room Name "${duplicate.name}" is already in use by Prof. ${addedByProf} in "${existingDept}".`,
+            });
+          }
         }
       }
     }
@@ -391,7 +415,7 @@ exports.deleteRoom = async (req, res) => {
       });
     }
 
-    // 1. Permanently delete room from collection to free name & roomNumber
+    // 1. Permanently delete room from collection
     await Room.findByIdAndDelete(id);
 
     // 2. Cascade delete all timetable slots scheduled in this room

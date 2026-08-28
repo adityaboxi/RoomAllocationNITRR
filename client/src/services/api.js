@@ -61,6 +61,9 @@ export const changePassword = (currentPassword, newPassword, confirmPassword) =>
 
 export const getMe = () => api.get('/api/auth/me');
 
+// Dynamic Metadata Endpoints
+export const getDepartments = () => api.get('/api/auth/departments');
+
 // Room Endpoints
 export const getRooms = (params = {}, options = {}) =>
   api.get('/api/rooms', { params, ...options });

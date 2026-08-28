@@ -18,13 +18,41 @@ import {
   RefreshCw,
   Clock,
 } from 'lucide-react';
+import { getDepartments } from '../services/api';
 import nitrrLogo from '../assets/nitrr_new_logo_new.png';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
+// Parse fallback departments from client .env or default list
+const getInitialDepartments = () => {
+  const envDepts = import.meta.env.VITE_DEPARTMENTS;
+  if (envDepts) {
+    return envDepts
+      .split(',')
+      .map((d) => d.trim())
+      .filter(Boolean)
+      .map((d) => ({ code: d, name: d }));
+  }
+
+  return [
+    { code: 'Computer Science & Engineering', name: 'Computer Science & Engineering (CSE)' },
+    { code: 'Information Technology', name: 'Information Technology (IT)' },
+    { code: 'Electronics & Communication', name: 'Electronics & Communication (ECE)' },
+    { code: 'Electrical Engineering', name: 'Electrical Engineering (EE)' },
+    { code: 'Mechanical Engineering', name: 'Mechanical Engineering (ME)' },
+    { code: 'Civil Engineering', name: 'Civil Engineering (CE)' },
+    { code: 'Chemical Engineering', name: 'Chemical Engineering (CHE)' },
+    { code: 'Biotechnology', name: 'Biotechnology (BT)' },
+    { code: 'Metallurgical & Materials', name: 'Metallurgical & Materials (MME)' },
+    { code: 'Mining Engineering', name: 'Mining Engineering (MIN)' },
+  ];
+};
+
 export default function AuthPage({ onLoginSuccess }) {
   const [view, setView] = useState('login');
   const [role, setRole] = useState('FACULTY');
+
+  const [departments, setDepartments] = useState(getInitialDepartments);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -33,7 +61,7 @@ export default function AuthPage({ onLoginSuccess }) {
     confirmPassword: '',
     newPassword: '',
     confirmNewPassword: '',
-    department: 'Computer Science & Engineering',
+    department: departments[0]?.code || 'Computer Science & Engineering',
   });
 
   const [otp, setOtp] = useState('');
@@ -52,18 +80,26 @@ export default function AuthPage({ onLoginSuccess }) {
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const departments = [
-    { code: 'Computer Science & Engineering', name: 'Computer Science & Engineering (CSE)' },
-    { code: 'Information Technology', name: 'Information Technology (IT)' },
-    { code: 'Electronics & Communication', name: 'Electronics & Communication (ECE)' },
-    { code: 'Electrical Engineering', name: 'Electrical Engineering (EE)' },
-    { code: 'Mechanical Engineering', name: 'Mechanical Engineering (ME)' },
-    { code: 'Civil Engineering', name: 'Civil Engineering (CE)' },
-    { code: 'Chemical Engineering', name: 'Chemical Engineering (CHE)' },
-    { code: 'Biotechnology', name: 'Biotechnology (BT)' },
-    { code: 'Metallurgical & Materials', name: 'Metallurgical & Materials (MME)' },
-    { code: 'Mining Engineering', name: 'Mining Engineering (MIN)' },
-  ];
+  // Fetch dynamic departments on mount from server
+  useEffect(() => {
+    const loadDepartments = async () => {
+      try {
+        const res = await getDepartments();
+        const deptList = (res.data || []).map((d) => (typeof d === 'string' ? { code: d, name: d } : d));
+        if (deptList.length > 0) {
+          setDepartments(deptList);
+          setFormData((prev) => ({
+            ...prev,
+            department: prev.department || deptList[0].code,
+          }));
+        }
+      } catch (err) {
+        console.warn('Using environment fallback departments:', err.message);
+      }
+    };
+
+    loadDepartments();
+  }, []);
 
   useEffect(() => {
     let interval = null;
@@ -184,7 +220,7 @@ export default function AuthPage({ onLoginSuccess }) {
         setEmailForReset(cleanEmail);
         setOtpPurpose('signup');
         setOtpTimer(300);
-        setSuccessMsg(data.message || 'Verification OTP sent! Check your inbox or server console.');
+        setSuccessMsg(data.message || 'Verification OTP sent! Check your inbox.');
         setView('verify-otp');
         setLoading(false);
         return;
@@ -203,7 +239,7 @@ export default function AuthPage({ onLoginSuccess }) {
         setEmailForReset(cleanEmail);
         setOtpPurpose('forgot');
         setOtpTimer(300);
-        setSuccessMsg(data.message || 'Password reset OTP sent! Check your inbox or server console.');
+        setSuccessMsg(data.message || 'Password reset OTP sent! Check your inbox.');
         setView('verify-otp');
         setLoading(false);
         return;
@@ -602,7 +638,7 @@ export default function AuthPage({ onLoginSuccess }) {
                 {view === 'signup' && (
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Department *
+                      Department / Branch *
                     </label>
                     <select
                       name="department"

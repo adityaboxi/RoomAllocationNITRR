@@ -11,9 +11,11 @@ const {
   verifyResetOtp,
   resetPassword,
   getMe,
+  getDepartments,
 } = require('../controllers/authController');
 
-// Public Authentication Routes
+// Public Authentication & Metadata Routes
+router.get('/departments', getDepartments); // Dynamic branch list from .env
 router.post('/login', login);
 router.post('/signup', signup); // Direct signup fallback
 router.post('/send-signup-otp', sendSignupOtp);

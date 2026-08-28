@@ -6,6 +6,32 @@ const bcrypt = require('bcryptjs');
 const { generateOTP, generateToken } = require('../utils/helpers');
 const { sendOTPEmail } = require('../utils/email');
 
+// Helper to get configured departments from environment variables
+const getConfiguredDepartments = () => {
+  const defaultList = [
+    'Computer Science & Engineering',
+    'Information Technology',
+    'Electronics & Communication',
+    'Electrical Engineering',
+    'Mechanical Engineering',
+    'Civil Engineering',
+    'Chemical Engineering',
+    'Biotechnology',
+    'Metallurgical & Materials',
+    'Mining Engineering',
+  ];
+
+  if (!process.env.DEPARTMENTS) {
+    return defaultList;
+  }
+
+  const parsed = process.env.DEPARTMENTS.split(',')
+    .map((d) => d.trim())
+    .filter(Boolean);
+
+  return parsed.length > 0 ? parsed : defaultList;
+};
+
 // Helper to safely encrypt temporary password in OTP collection
 const encryptTemporaryPassword = (password) => {
   const key = crypto.createHash('sha256').update(process.env.JWT_SECRET || 'fallback_secret_key').digest();
@@ -25,6 +51,21 @@ const decryptTemporaryPassword = (encryptedData) => {
   let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
   decrypted += decipher.final('utf8');
   return decrypted;
+};
+
+// ---------- GET DEPARTMENTS (Dynamic from .env) ----------
+exports.getDepartments = async (req, res) => {
+  try {
+    const departments = getConfiguredDepartments();
+    res.json({
+      success: true,
+      data: departments,
+      total: departments.length,
+    });
+  } catch (error) {
+    console.error('Get departments error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
 };
 
 // ---------- LOGIN ----------
@@ -61,8 +102,8 @@ exports.login = async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
-        department: user.department
-      }
+        department: user.department,
+      },
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -70,7 +111,7 @@ exports.login = async (req, res) => {
   }
 };
 
-// ---------- DIRECT SIGNUP (Fallback Endpoint) ----------
+// ---------- DIRECT SIGNUP (Fallback Endpoint with Duplicate HOD Protection) ----------
 exports.signup = async (req, res) => {
   try {
     let { name, email, password, confirmPassword, department } = req.body;
@@ -80,6 +121,15 @@ exports.signup = async (req, res) => {
 
     name = name.trim();
     email = email.trim().toLowerCase();
+    department = department.trim();
+
+    const validDepartments = getConfiguredDepartments();
+    if (!validDepartments.includes(department)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid department selected. Allowed: ${validDepartments.join(', ')}`,
+      });
+    }
 
     if (password !== confirmPassword) {
       return res.status(400).json({ success: false, message: 'Passwords do not match' });
@@ -89,19 +139,37 @@ exports.signup = async (req, res) => {
     }
     const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
     if (!passwordRegex.test(password)) {
-      return res.status(400).json({ success: false, message: 'Password must contain uppercase, lowercase, number, and special character' });
+      return res.status(400).json({
+        success: false,
+        message: 'Password must contain uppercase, lowercase, number, and special character',
+      });
     }
     if (!User.isValidEmail(email)) {
-      return res.status(400).json({ success: false, message: 'Only @gmail.com or @cse.nitrr.ac.in emails are allowed' });
+      return res.status(400).json({
+        success: false,
+        message: 'Only authorized university email addresses are allowed',
+      });
     }
     if (name.length > 100) {
       return res.status(400).json({ success: false, message: 'Name cannot exceed 100 characters' });
     }
 
-    const role = User.detectRole(email);
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ success: false, message: 'User already exists with this email' });
+    }
+
+    const role = User.detectRole(email);
+
+    // 🔒 Enforce Single HOD per Department Rule
+    if (role === 'HOD') {
+      const existingHOD = await User.findOne({ role: 'HOD', department, isActive: true });
+      if (existingHOD) {
+        return res.status(400).json({
+          success: false,
+          message: `🚫 Cannot register as HOD: Prof. ${existingHOD.name} (${existingHOD.email}) is already registered as the active HOD for the "${department}" department.`,
+        });
+      }
     }
 
     const user = await User.create({ name, email, password, role, department, isActive: true });
@@ -115,8 +183,8 @@ exports.signup = async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
-        department: user.department
-      }
+        department: user.department,
+      },
     });
   } catch (error) {
     console.error('Signup error:', error);
@@ -142,7 +210,10 @@ exports.changePassword = async (req, res) => {
     }
     const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
     if (!passwordRegex.test(newPassword)) {
-      return res.status(400).json({ success: false, message: 'Password must contain uppercase, lowercase, number, and special character' });
+      return res.status(400).json({
+        success: false,
+        message: 'Password must contain uppercase, lowercase, number, and special character',
+      });
     }
 
     const user = await User.findById(req.user.id).select('+password');
@@ -180,7 +251,7 @@ exports.forgotPassword = async (req, res) => {
       return res.status(404).json({ success: false, message: 'No account found with this email' });
     }
 
-    // Invalidate any existing forgot-password OTPs for this email
+    // Invalidate existing forgot-password OTPs
     await OTP.deleteMany({ email, purpose: 'forgot' });
 
     const otp = generateOTP();
@@ -190,7 +261,7 @@ exports.forgotPassword = async (req, res) => {
       email,
       otp,
       purpose: 'forgot',
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000)
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
     });
 
     try {
@@ -206,7 +277,7 @@ exports.forgotPassword = async (req, res) => {
   }
 };
 
-// ---------- VERIFY RESET OTP (Atomic to prevent race conditions) ----------
+// ---------- VERIFY RESET OTP ----------
 exports.verifyResetOtp = async (req, res) => {
   try {
     let { email, otp } = req.body;
@@ -217,12 +288,11 @@ exports.verifyResetOtp = async (req, res) => {
     email = email.trim().toLowerCase();
     otp = otp.trim();
 
-    // Atomic find and delete only if not expired
     const otpDoc = await OTP.findOneAndDelete({
       email,
       purpose: 'forgot',
       otp,
-      expiresAt: { $gt: new Date() }
+      expiresAt: { $gt: new Date() },
     });
 
     if (!otpDoc) {
@@ -237,7 +307,7 @@ exports.verifyResetOtp = async (req, res) => {
   }
 };
 
-// ---------- RESET PASSWORD (Secured against token/email mismatch) ----------
+// ---------- RESET PASSWORD ----------
 exports.resetPassword = async (req, res) => {
   try {
     let { email, resetToken, newPassword, confirmPassword } = req.body;
@@ -255,7 +325,10 @@ exports.resetPassword = async (req, res) => {
     }
     const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
     if (!passwordRegex.test(newPassword)) {
-      return res.status(400).json({ success: false, message: 'Password must contain uppercase, lowercase, number, and special character' });
+      return res.status(400).json({
+        success: false,
+        message: 'Password must contain uppercase, lowercase, number, and special character',
+      });
     }
 
     let decoded;
@@ -265,7 +338,6 @@ exports.resetPassword = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid or expired reset token' });
     }
 
-    // CRITICAL SECURITY FIX: Validate that token belongs to this exact email
     if (!decoded || decoded.email !== email) {
       return res.status(403).json({ success: false, message: 'Reset token does not match provided email' });
     }
@@ -278,7 +350,6 @@ exports.resetPassword = async (req, res) => {
     user.password = newPassword;
     await user.save();
 
-    // Invalidate any remaining OTPs
     await OTP.deleteMany({ email, purpose: 'forgot' });
 
     res.json({ success: true, message: 'Password reset successfully' });
@@ -302,8 +373,8 @@ exports.getMe = async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
-        department: user.department
-      }
+        department: user.department,
+      },
     });
   } catch (error) {
     console.error('Get me error:', error);
@@ -311,7 +382,7 @@ exports.getMe = async (req, res) => {
   }
 };
 
-// ---------- SEND SIGNUP OTP (Step 1 - Encrypted Password Payload) ----------
+// ---------- SEND SIGNUP OTP (With Instant HOD Check Before Sending OTP) ----------
 exports.sendSignupOtp = async (req, res) => {
   try {
     let { name, email, password, confirmPassword, department } = req.body;
@@ -321,6 +392,15 @@ exports.sendSignupOtp = async (req, res) => {
 
     name = name.trim();
     email = email.trim().toLowerCase();
+    department = department.trim();
+
+    const validDepartments = getConfiguredDepartments();
+    if (!validDepartments.includes(department)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid department selected. Allowed: ${validDepartments.join(', ')}`,
+      });
+    }
 
     if (password !== confirmPassword) {
       return res.status(400).json({ success: false, message: 'Passwords do not match' });
@@ -330,10 +410,16 @@ exports.sendSignupOtp = async (req, res) => {
     }
     const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
     if (!passwordRegex.test(password)) {
-      return res.status(400).json({ success: false, message: 'Password must contain uppercase, lowercase, number, and special character' });
+      return res.status(400).json({
+        success: false,
+        message: 'Password must contain uppercase, lowercase, number, and special character',
+      });
     }
     if (!User.isValidEmail(email)) {
-      return res.status(400).json({ success: false, message: 'Only @gmail.com or @cse.nitrr.ac.in emails are allowed' });
+      return res.status(400).json({
+        success: false,
+        message: 'Only authorized university email addresses are allowed',
+      });
     }
     if (name.length > 100) {
       return res.status(400).json({ success: false, message: 'Name cannot exceed 100 characters' });
@@ -344,13 +430,24 @@ exports.sendSignupOtp = async (req, res) => {
       return res.status(400).json({ success: false, message: 'User already exists with this email' });
     }
 
-    // Invalidate existing signup OTPs for this email to prevent multiple valid OTPs
+    const role = User.detectRole(email);
+
+    // 🔒 Enforce Single HOD per Department Rule BEFORE dispatching OTP
+    if (role === 'HOD') {
+      const existingHOD = await User.findOne({ role: 'HOD', department, isActive: true });
+      if (existingHOD) {
+        return res.status(400).json({
+          success: false,
+          message: `🚫 Cannot register as HOD: Prof. ${existingHOD.name} (${existingHOD.email}) is already registered as the active HOD for the "${department}" department.`,
+        });
+      }
+    }
+
     await OTP.deleteMany({ email, purpose: 'signup' });
 
     const otp = generateOTP();
     console.log(`📧 Signup OTP for ${email}: ${otp}`);
 
-    // Encrypt password before storing in temporary MongoDB OTP record
     const encryptedPassword = encryptTemporaryPassword(password);
 
     await OTP.create({
@@ -374,7 +471,7 @@ exports.sendSignupOtp = async (req, res) => {
   }
 };
 
-// ---------- VERIFY SIGNUP OTP (Step 2 - Atomic Creation & Cleanup) ----------
+// ---------- VERIFY SIGNUP OTP (Atomic Check) ----------
 exports.verifySignupOtp = async (req, res) => {
   try {
     let { email, otp } = req.body;
@@ -385,12 +482,11 @@ exports.verifySignupOtp = async (req, res) => {
     email = email.trim().toLowerCase();
     otp = otp.trim();
 
-    // Atomic find and delete to prevent concurrent registration race conditions
     const otpDoc = await OTP.findOneAndDelete({
       email,
       purpose: 'signup',
       otp,
-      expiresAt: { $gt: new Date() }
+      expiresAt: { $gt: new Date() },
     });
 
     if (!otpDoc) {
@@ -404,6 +500,17 @@ exports.verifySignupOtp = async (req, res) => {
 
     const password = decryptTemporaryPassword(encryptedPassword);
     const role = User.detectRole(email);
+
+    // 🔒 Final Safety Check for Duplicate HOD
+    if (role === 'HOD') {
+      const existingHOD = await User.findOne({ role: 'HOD', department, isActive: true });
+      if (existingHOD) {
+        return res.status(400).json({
+          success: false,
+          message: `🚫 Cannot register as HOD: Prof. ${existingHOD.name} (${existingHOD.email}) is already registered as the active HOD for the "${department}" department.`,
+        });
+      }
+    }
 
     const user = await User.create({ name, email, password, role, department, isActive: true });
     const token = generateToken(user._id);
