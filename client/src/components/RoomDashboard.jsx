@@ -13,6 +13,8 @@ import {
   RefreshCw,
   X,
   Loader2,
+  ArrowUpDown,
+  RotateCcw,
 } from 'lucide-react';
 
 const extractErrorMessage = (err, fallback) => {
@@ -36,6 +38,36 @@ const getCurrentTimeString = () => {
   return `${h}:${m}`;
 };
 
+// ---------- UNIVERSAL SEARCH ENGINE (Matches any room property) ----------
+const roomMatchesSearchQuery = (room, query) => {
+  if (!query || !query.trim()) return true;
+
+  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+
+  const amenityWords = [
+    room.hasProjector ? 'projector proj screen' : '',
+    room.hasAC ? 'ac air conditioning cooler' : '',
+    room.hasSmartBoard ? 'smartboard smart board digital board display' : '',
+    room.hasWiFi ? 'wifi internet wireless' : '',
+  ].join(' ');
+
+  const searchableCorpus = [
+    room.name || '',
+    room.roomNumber || '',
+    room.building || '',
+    room.floor || '',
+    room.type || '',
+    room.department || '',
+    room.capacity ? `capacity ${room.capacity} seats ${room.capacity} cap` : '',
+    room.createdByName || '',
+    amenityWords,
+  ]
+    .join(' ')
+    .toLowerCase();
+
+  return tokens.every((token) => searchableCorpus.includes(token));
+};
+
 export default function RoomDashboard({ user }) {
   const [rooms, setRooms] = useState([]);
   const [availableRoomIds, setAvailableRoomIds] = useState([]);
@@ -44,14 +76,21 @@ export default function RoomDashboard({ user }) {
   const [error, setError] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
 
-  // Search & Filter state
+  // Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'AVAILABLE' | 'OCCUPIED'
   const [selectedFloor, setSelectedFloor] = useState('ALL');
+  const [selectedType, setSelectedType] = useState('ALL');
+  const [minCapacity, setMinCapacity] = useState('ALL');
+  const [sortBy, setSortBy] = useState('DEFAULT');
+
+  // Amenities
   const [filterProjector, setFilterProjector] = useState(false);
   const [filterAC, setFilterAC] = useState(false);
   const [filterSmartBoard, setFilterSmartBoard] = useState(false);
+  const [filterWiFi, setFilterWiFi] = useState(false);
 
-  // Reviews state
+  // Reviews
   const [reviews, setReviews] = useState({});
   const [loadingReviews, setLoadingReviews] = useState({});
   const [selectedRoomReviews, setSelectedRoomReviews] = useState(null);
@@ -91,7 +130,6 @@ export default function RoomDashboard({ user }) {
         setAvailableRoomIds(ids);
         setCurrentTime(new Date());
 
-        // Pre-fetch reviews for all fetched rooms to populate star ratings
         fetchedRooms.forEach((r) => {
           const rId = r.id || r._id;
           fetchReviewsForRoom(rId);
@@ -99,7 +137,7 @@ export default function RoomDashboard({ user }) {
       }
     } catch (err) {
       if (isMountedRef.current) {
-        setError(extractErrorMessage(err, 'Failed to refresh room availability.'));
+        setError(extractErrorMessage(err, 'Failed to refresh live room status.'));
       }
     } finally {
       if (isMountedRef.current) {
@@ -123,7 +161,7 @@ export default function RoomDashboard({ user }) {
         }
       }
     } catch (err) {
-      // Non-critical background lookup handled silently
+      // Handled silently
     } finally {
       if (isMountedRef.current) {
         setLoadingReviews((prev) => ({ ...prev, [roomId]: false }));
@@ -143,7 +181,7 @@ export default function RoomDashboard({ user }) {
     }
   };
 
-  // Continuous background synchronization (polls every 15s to keep live time & status fresh)
+  // Continuous background sync (every 15s)
   useEffect(() => {
     fetchData();
     const interval = setInterval(() => {
@@ -153,7 +191,7 @@ export default function RoomDashboard({ user }) {
     return () => clearInterval(interval);
   }, [user?.department]);
 
-  // Real-time Socket.IO Listeners (Instant triggers for all actions + Real-time Reviews)
+  // Real-time Socket.IO Listeners
   useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
@@ -164,7 +202,6 @@ export default function RoomDashboard({ user }) {
       }
     };
 
-    // Live Socket listener for newly submitted reviews
     const handleReviewCreated = ({ roomId, review }) => {
       if (!isMountedRef.current || !roomId || !review) return;
       const targetId = String(roomId);
@@ -205,72 +242,177 @@ export default function RoomDashboard({ user }) {
     return availableRoomIds.includes(id);
   };
 
-  // Extract unique floors
+  const getAvgRating = (roomId) => {
+    const raw = reviews[roomId] || [];
+    const list = Array.isArray(raw) ? raw : raw.reviews || [];
+    if (list.length === 0) return 0;
+    return Number((list.reduce((acc, r) => acc + (r.rating || 0), 0) / list.length).toFixed(1));
+  };
+
   const floors = ['ALL', ...new Set(rooms.map((r) => r.floor).filter(Boolean))];
+  const roomTypes = ['ALL', ...new Set(rooms.map((r) => r.type).filter(Boolean))];
 
-  // Filtered rooms
-  const filteredRooms = rooms.filter((room) => {
-    const matchesSearch =
-      searchTerm === '' ||
-      room.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      room.roomNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      room.building.toLowerCase().includes(searchTerm.toLowerCase());
+  const handleResetFilters = () => {
+    setSearchTerm('');
+    setStatusFilter('ALL');
+    setSelectedFloor('ALL');
+    setSelectedType('ALL');
+    setMinCapacity('ALL');
+    setSortBy('DEFAULT');
+    setFilterProjector(false);
+    setFilterAC(false);
+    setFilterSmartBoard(false);
+    setFilterWiFi(false);
+  };
 
-    const matchesFloor = selectedFloor === 'ALL' || room.floor === selectedFloor;
-    const matchesProjector = !filterProjector || room.hasProjector;
-    const matchesAC = !filterAC || room.hasAC;
-    const matchesSmartBoard = !filterSmartBoard || room.hasSmartBoard;
+  const hasActiveFilters =
+    searchTerm !== '' ||
+    statusFilter !== 'ALL' ||
+    selectedFloor !== 'ALL' ||
+    selectedType !== 'ALL' ||
+    minCapacity !== 'ALL' ||
+    sortBy !== 'DEFAULT' ||
+    filterProjector ||
+    filterAC ||
+    filterSmartBoard ||
+    filterWiFi;
 
-    return matchesSearch && matchesFloor && matchesProjector && matchesAC && matchesSmartBoard;
-  });
+  // Filtered & Sorted Rooms Logic
+  const filteredRooms = rooms
+    .filter((room) => {
+      const isAvail = isRoomAvailable(room);
+
+      if (statusFilter === 'AVAILABLE' && !isAvail) return false;
+      if (statusFilter === 'OCCUPIED' && isAvail) return false;
+
+      if (!roomMatchesSearchQuery(room, searchTerm)) return false;
+
+      if (selectedFloor !== 'ALL' && room.floor !== selectedFloor) return false;
+      if (selectedType !== 'ALL' && room.type !== selectedType) return false;
+
+      if (minCapacity !== 'ALL') {
+        const minCapNum = Number(minCapacity);
+        if ((room.capacity || 0) < minCapNum) return false;
+      }
+
+      if (filterProjector && !room.hasProjector) return false;
+      if (filterAC && !room.hasAC) return false;
+      if (filterSmartBoard && !room.hasSmartBoard) return false;
+      if (filterWiFi && !room.hasWiFi) return false;
+
+      return true;
+    })
+    .sort((a, b) => {
+      const aId = a.id || a._id;
+      const bId = b.id || b._id;
+
+      if (sortBy === 'CAPACITY_DESC') {
+        return (b.capacity || 0) - (a.capacity || 0);
+      }
+      if (sortBy === 'RATING_DESC') {
+        return getAvgRating(bId) - getAvgRating(aId);
+      }
+      if (sortBy === 'NAME_ASC') {
+        return (a.name || '').localeCompare(b.name || '');
+      }
+      return (a.floor || '').localeCompare(b.floor || '') || (a.roomNumber || '').localeCompare(b.roomNumber || '');
+    });
+
+  const totalRoomsCount = rooms.length;
+  const availableCount = rooms.filter((r) => isRoomAvailable(r)).length;
+  const occupiedCount = totalRoomsCount - availableCount;
 
   return (
     <div className="space-y-6 font-sans">
-      {/* Header Controls Bar */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
-              <Building2 className="w-4 h-4" />
+      {/* Search & Filter Header Container */}
+      <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-5">
+        {/* Top Title & Status Filter Tabs */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+              <Building2 className="w-5 h-5" />
             </div>
             <div>
               <h2 className="text-base font-bold text-slate-900 leading-tight">
-                Live Department Room Occupancy
+                Live Room Status & Search
               </h2>
-              <p className="text-xs text-slate-400">
-                Real-time occupancy status for {user?.department}
+              <p className="text-xs text-slate-400 mt-0.5">
+                Real-time occupancy for {user?.department || 'Department'}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-slate-500 flex items-center gap-1 font-mono">
-              <Clock className="w-3.5 h-3.5 text-slate-400" />
-              <span>{currentTime.toLocaleTimeString()}</span>
-            </span>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Status Pills */}
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setStatusFilter('ALL')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  statusFilter === 'ALL'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                All ({totalRoomsCount})
+              </button>
 
-            <button
-              type="button"
-              onClick={() => fetchData(true)}
-              disabled={refreshing}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-              <span>Refresh</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('AVAILABLE')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  statusFilter === 'AVAILABLE'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-emerald-700 hover:text-emerald-900'
+                }`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${statusFilter === 'AVAILABLE' ? 'bg-white' : 'bg-emerald-500'}`} />
+                <span>Free ({availableCount})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setStatusFilter('OCCUPIED')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  statusFilter === 'OCCUPIED'
+                    ? 'bg-rose-600 text-white shadow-sm'
+                    : 'text-rose-700 hover:text-rose-900'
+                }`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${statusFilter === 'OCCUPIED' ? 'bg-white' : 'bg-rose-500'}`} />
+                <span>Occupied ({occupiedCount})</span>
+              </button>
+            </div>
+
+            {/* Time & Refresh Button */}
+            <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
+              <span className="text-xs text-slate-400 font-mono hidden sm:inline">
+                {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </span>
+              <button
+                type="button"
+                onClick={() => fetchData(true)}
+                disabled={refreshing}
+                className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all disabled:opacity-50"
+                title="Refresh Status"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Search & Filter Controls */}
+        {/* Search Bar & Dropdown Selects */}
         <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-          <div className="sm:col-span-6 relative">
+          {/* Universal Search Input */}
+          <div className="sm:col-span-4 relative">
             <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search by room name, number, or building..."
-              className="w-full pl-10 pr-3.5 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs sm:text-sm outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all"
+              placeholder="Search by room name, #, building, floor, or amenity..."
+              className="w-full pl-10 pr-8 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs sm:text-sm outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all placeholder:text-slate-400"
             />
             {searchTerm && (
               <button
@@ -283,11 +425,12 @@ export default function RoomDashboard({ user }) {
             )}
           </div>
 
-          <div className="sm:col-span-6 flex flex-wrap items-center gap-2">
+          {/* Floor Dropdown */}
+          <div className="sm:col-span-2">
             <select
               value={selectedFloor}
               onChange={(e) => setSelectedFloor(e.target.value)}
-              className="border border-slate-200 bg-slate-50/50 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all"
+              className="w-full border border-slate-200 bg-slate-50/50 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all"
             >
               {floors.map((fl) => (
                 <option key={fl} value={fl}>
@@ -295,42 +438,122 @@ export default function RoomDashboard({ user }) {
                 </option>
               ))}
             </select>
+          </div>
 
+          {/* Room Type Dropdown */}
+          <div className="sm:col-span-2">
+            <select
+              value={selectedType}
+              onChange={(e) => setSelectedType(e.target.value)}
+              className="w-full border border-slate-200 bg-slate-50/50 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all"
+            >
+              {roomTypes.map((t) => (
+                <option key={t} value={t}>
+                  {t === 'ALL' ? 'All Types' : t}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Minimum Capacity Dropdown */}
+          <div className="sm:col-span-2">
+            <select
+              value={minCapacity}
+              onChange={(e) => setMinCapacity(e.target.value)}
+              className="w-full border border-slate-200 bg-slate-50/50 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all"
+            >
+              <option value="ALL">Any Capacity</option>
+              <option value="30">30+ Seats</option>
+              <option value="60">60+ Seats</option>
+              <option value="100">100+ Seats</option>
+            </select>
+          </div>
+
+          {/* Sorting Dropdown */}
+          <div className="sm:col-span-2">
+            <div className="relative">
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="w-full border border-slate-200 bg-slate-50/50 rounded-xl pl-3 pr-7 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all appearance-none"
+              >
+                <option value="DEFAULT">Sort: Default</option>
+                <option value="CAPACITY_DESC">Capacity (High to Low)</option>
+                <option value="RATING_DESC">Rating (Highest)</option>
+                <option value="NAME_ASC">Name (A-Z)</option>
+              </select>
+              <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
+            </div>
+          </div>
+        </div>
+
+        {/* Amenity Filter Toggle Chips */}
+        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">
+            Amenities:
+          </span>
+
+          <button
+            type="button"
+            onClick={() => setFilterProjector(!filterProjector)}
+            className={`px-3 py-1 text-xs font-bold rounded-xl border transition-all ${
+              filterProjector
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+            }`}
+          >
+            Projector
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setFilterAC(!filterAC)}
+            className={`px-3 py-1 text-xs font-bold rounded-xl border transition-all ${
+              filterAC
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+            }`}
+          >
+            AC
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setFilterSmartBoard(!filterSmartBoard)}
+            className={`px-3 py-1 text-xs font-bold rounded-xl border transition-all ${
+              filterSmartBoard
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+            }`}
+          >
+            SmartBoard
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setFilterWiFi(!filterWiFi)}
+            className={`px-3 py-1 text-xs font-bold rounded-xl border transition-all ${
+              filterWiFi
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+            }`}
+          >
+            WiFi
+          </button>
+
+          {hasActiveFilters && (
             <button
               type="button"
-              onClick={() => setFilterProjector(!filterProjector)}
-              className={`px-3 py-2 text-xs font-bold rounded-xl border transition-all ${
-                filterProjector
-                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
-              }`}
+              onClick={handleResetFilters}
+              className="text-xs font-semibold text-rose-600 hover:text-rose-800 hover:underline flex items-center gap-1 ml-2"
             >
-              Projector
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset Filters</span>
             </button>
+          )}
 
-            <button
-              type="button"
-              onClick={() => setFilterAC(!filterAC)}
-              className={`px-3 py-2 text-xs font-bold rounded-xl border transition-all ${
-                filterAC
-                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
-              }`}
-            >
-              AC
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setFilterSmartBoard(!filterSmartBoard)}
-              className={`px-3 py-2 text-xs font-bold rounded-xl border transition-all ${
-                filterSmartBoard
-                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
-              }`}
-            >
-              SmartBoard
-            </button>
+          <div className="ml-auto text-xs text-slate-500 font-medium">
+            Showing <strong className="text-slate-800">{filteredRooms.length}</strong> of {totalRoomsCount} rooms
           </div>
         </div>
       </div>
@@ -352,10 +575,19 @@ export default function RoomDashboard({ user }) {
           <span>Loading live room availability...</span>
         </div>
       ) : filteredRooms.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center text-slate-400">
+        <div className="bg-white border border-slate-200 rounded-3xl p-12 text-center text-slate-400">
           <Building2 className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-          <p className="font-semibold text-slate-700 text-sm">No rooms match your filter criteria.</p>
-          <p className="text-xs text-slate-400 mt-1">Try clearing some search filters.</p>
+          <p className="font-semibold text-slate-700 text-sm">No classrooms match your search criteria.</p>
+          <p className="text-xs text-slate-400 mt-1">Try adjusting your filters or clearing search text.</p>
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              className="mt-4 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors inline-block"
+            >
+              Reset All Filters
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -375,34 +607,41 @@ export default function RoomDashboard({ user }) {
             return (
               <div
                 key={roomId}
-                className={`bg-white border rounded-2xl p-5 shadow-sm flex flex-col justify-between transition-all duration-200 ${
+                className={`bg-white border rounded-3xl p-5 shadow-sm flex flex-col justify-between transition-all duration-200 ${
                   available
                     ? 'border-slate-200 hover:border-indigo-300 hover:shadow-md'
                     : 'border-slate-200/70 bg-slate-50/50'
                 }`}
               >
                 <div>
+                  {/* Clean Status Header */}
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-bold text-base text-slate-900 leading-tight">
                         {room.name}
                       </h3>
                       <div className="text-xs font-mono text-slate-500 mt-0.5">
-                        {room.roomNumber}
+                        {room.roomNumber} {room.type ? `• ${room.type}` : ''}
                       </div>
                     </div>
 
                     <span
-                      className={`px-2.5 py-1 text-xs font-bold rounded-full ${
+                      className={`px-2.5 py-1 text-xs font-bold rounded-full flex items-center gap-1.5 ${
                         available
                           ? 'bg-emerald-100 text-emerald-800'
                           : 'bg-rose-100 text-rose-800'
                       }`}
                     >
-                      {available ? 'Free Now' : 'Class / Booked'}
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          available ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
+                        }`}
+                      />
+                      <span>{available ? 'Free Now' : 'In-Class'}</span>
                     </span>
                   </div>
 
+                  {/* Room Details */}
                   <div className="text-xs text-slate-600 flex items-center gap-2 mt-2">
                     <span className="flex items-center gap-1 font-medium">
                       <Users className="w-3.5 h-3.5 text-slate-400" />
@@ -438,34 +677,24 @@ export default function RoomDashboard({ user }) {
                       </span>
                     )}
                   </div>
-
-                  {/* Live Star Rating Summary */}
-                  <div className="mt-3.5 flex items-center justify-between pt-2 border-t border-slate-100">
-                    <div className="flex items-center gap-1">
-                      <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                      <span className="text-xs font-bold text-slate-700">
-                        {avgRating ? `${avgRating} ★` : 'No reviews'}
-                      </span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleViewReviews(room)}
-                      className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
-                    >
-                      {reviewCount > 0 ? `(${reviewCount} reviews)` : 'Reviews'}
-                    </button>
-                  </div>
                 </div>
 
-                <div className="mt-4 pt-2 border-t border-slate-100 text-center">
-                  <span
-                    className={`text-xs font-bold ${
-                      available ? 'text-emerald-700' : 'text-slate-400'
-                    }`}
+                {/* Star Ratings & Reviews Trigger */}
+                <div className="mt-4 pt-3 flex items-center justify-between border-t border-slate-100">
+                  <div className="flex items-center gap-1">
+                    <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                    <span className="text-xs font-bold text-slate-700">
+                      {avgRating ? `${avgRating} ★` : 'No reviews'}
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleViewReviews(room)}
+                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
                   >
-                    {available ? '● Available for reservation' : '○ Currently Occupied'}
-                  </span>
+                    {reviewCount > 0 ? `(${reviewCount} reviews)` : 'Reviews'}
+                  </button>
                 </div>
               </div>
             );

@@ -1,16 +1,9 @@
 const Room = require('../models/Room');
 const Booking = require('../models/Booking');
 const Timetable = require('../models/Timetable');
+const { getTodayDateString, getCurrentTimeHHMM } = require('../utils/helpers');
 
-const getTodayDateString = () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-// ---------- GET DEPARTMENT STATS ----------
+// ---------- GET DEPARTMENT STATS (With Atomic Auto-Completion) ----------
 exports.getDepartmentStats = async (req, res) => {
   try {
     let { department } = req.params;
@@ -29,19 +22,49 @@ exports.getDepartmentStats = async (req, res) => {
     }
 
     const todayStr = getTodayDateString();
+    const currentHHMM = getCurrentTimeHHMM();
 
+    // 1. Auto-complete any past active bookings across the department
+    await Booking.updateMany(
+      {
+        department,
+        status: 'active',
+        purpose: { $ne: 'TEMPORARY_LOCK' },
+        $or: [
+          { date: { $lt: todayStr } },
+          { date: todayStr, endTime: { $lte: currentHHMM } },
+        ],
+      },
+      { $set: { status: 'completed' } }
+    );
+
+    // 2. Execute parallel aggregations for true active/upcoming bookings
     const [
       totalRooms,
       availableRooms,
       activeBookings,
       todayBookings,
-      totalTimetableEntries
+      totalTimetableEntries,
     ] = await Promise.all([
       Room.countDocuments({ department, isActive: true }),
       Room.countDocuments({ department, isActive: true, isAvailable: true }),
-      Booking.countDocuments({ department, status: 'active' }),
-      Booking.countDocuments({ department, date: todayStr, status: 'active' }),
-      Timetable.countDocuments({ department, isActive: true })
+      Booking.countDocuments({
+        department,
+        status: 'active',
+        purpose: { $ne: 'TEMPORARY_LOCK' },
+        $or: [
+          { date: { $gt: todayStr } },
+          { date: todayStr, endTime: { $gt: currentHHMM } },
+        ],
+      }),
+      Booking.countDocuments({
+        department,
+        date: todayStr,
+        status: 'active',
+        purpose: { $ne: 'TEMPORARY_LOCK' },
+        endTime: { $gt: currentHHMM },
+      }),
+      Timetable.countDocuments({ department, isActive: true }),
     ]);
 
     res.json({

@@ -53,9 +53,14 @@ const getCurrentTimeHHMM = () => {
 };
 
 const getDefaultEndHHMM = (startStr) => {
-  if (!startStr) return '10:00';
+  if (!startStr) return '23:59';
   const [h, m] = startStr.split(':').map(Number);
-  const nextH = (h + 1) % 24;
+
+  if (h >= 23) {
+    return '23:59';
+  }
+
+  const nextH = h + 1;
   return `${String(nextH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 };
 
@@ -102,7 +107,7 @@ export default function BookingView({ user }) {
     }
   }, [user?.department]);
 
-  // Query room availability whenever date or times change
+  // Query room availability
   useEffect(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -117,7 +122,7 @@ export default function BookingView({ user }) {
     };
   }, [bookingData.date, bookingData.startTime, bookingData.endTime, user?.department]);
 
-  // Real-Time Socket.IO Synchronization (Bookings + Live Reviews)
+  // Real-Time Socket.IO Synchronization
   useEffect(() => {
     const handleBookingCancelled = (data) => {
       fetchAvailableRooms(abortControllerRef.current?.signal);
@@ -134,7 +139,6 @@ export default function BookingView({ user }) {
     onBookingCancelled(handleBookingCancelled);
     onBookingCreated(handleBookingCreated);
 
-    // Live Socket.IO Listener for real-time review updates
     const socket = getSocket();
     const handleReviewCreated = ({ roomId, review }) => {
       if (!roomId || !review) return;
@@ -168,7 +172,7 @@ export default function BookingView({ user }) {
     };
   }, [selectedReviewRoom]);
 
-  // Cleanup room lock if component unmounts while booking modal is open
+  // Cleanup room lock on unmount
   useEffect(() => {
     return () => {
       if (activeLockId) {
@@ -184,7 +188,6 @@ export default function BookingView({ user }) {
       const roomList = data?.data || [];
       setRooms(roomList);
 
-      // Pre-fetch reviews for all rooms to show stars immediately on cards
       roomList.forEach((r) => {
         const rId = r.id || r._id;
         fetchReviewsForRoom(rId);
@@ -204,6 +207,12 @@ export default function BookingView({ user }) {
       }
 
       if (!date || !startTime || !end || startTime >= end) {
+        setAvailableRoomIds([]);
+        return;
+      }
+
+      const nowTime = getCurrentTimeHHMM();
+      if (date === todayStr && startTime < nowTime) {
         setAvailableRoomIds([]);
         return;
       }
@@ -228,7 +237,7 @@ export default function BookingView({ user }) {
       const data = await getMyBookings();
       setMyBookings(data?.data || []);
     } catch (err) {
-      // Non-critical fallback
+      // Handled silently
     }
   };
 
@@ -240,7 +249,7 @@ export default function BookingView({ user }) {
       const reviewsArray = data?.data?.reviews || (Array.isArray(data?.data) ? data.data : []);
       setReviews((prev) => ({ ...prev, [roomId]: reviewsArray }));
     } catch (err) {
-      // Non-critical fallback
+      // Handled silently
     } finally {
       setLoadingReviews((prev) => ({ ...prev, [roomId]: false }));
     }
@@ -265,23 +274,54 @@ export default function BookingView({ user }) {
     }
   }, [reviews, selectedReviewRoom]);
 
+  // ---------- INPUT HANDLER ----------
   const handleBookingInput = (e) => {
     const { name, value } = e.target;
+    setError('');
+
     setBookingData((prev) => {
       const updated = { ...prev, [name]: value };
-      if (name === 'startTime' && value) {
-        if (!prev.endTime || prev.endTime <= value) {
-          updated.endTime = getDefaultEndHHMM(value);
+      const currentNow = getCurrentTimeHHMM();
+
+      if (name === 'date') {
+        if (value === todayStr && prev.startTime < currentNow) {
+          updated.startTime = currentNow;
+          updated.endTime = getDefaultEndHHMM(currentNow);
         }
       }
+
+      if (name === 'startTime') {
+        if (prev.date === todayStr && value < currentNow) {
+          setError(`Selected start time (${value}) has already passed.`);
+        }
+        updated.endTime = getDefaultEndHHMM(value);
+      }
+
+      if (name === 'endTime') {
+        if (value <= prev.startTime) {
+          setError('End time must be strictly after start time.');
+        }
+      }
+
       return updated;
     });
-    setError('');
   };
 
-  // Select a room & initiate temporary lock
+  // Select a room & initiate lock
   const handleSelectRoom = async (room) => {
     const roomId = room.id || room._id;
+    const currentNow = getCurrentTimeHHMM();
+
+    if (bookingData.date === todayStr && bookingData.startTime < currentNow) {
+      setError(`Cannot book past hours for today.`);
+      return;
+    }
+
+    if (bookingData.startTime >= bookingData.endTime) {
+      setError('End time must be strictly after start time.');
+      return;
+    }
+
     setSelectedRoom(room);
     setError('');
 
@@ -312,10 +352,10 @@ export default function BookingView({ user }) {
   const handleConfirmBooking = async () => {
     if (!selectedRoom) return;
     const roomId = selectedRoom.id || selectedRoom._id;
+    const currentNow = getCurrentTimeHHMM();
 
     let { date, startTime, endTime, purpose, comment } = bookingData;
 
-    // Validate inputs
     if (!date || !startTime || !endTime || !purpose.trim()) {
       setError('Please provide Date, Start Time, End Time, and Purpose.');
       return;
@@ -326,9 +366,8 @@ export default function BookingView({ user }) {
       return;
     }
 
-    // Past-time check for today
-    if (date === todayStr && startTime < currentHHMM) {
-      setError(`Cannot book past hours for today (Current local time: ${currentHHMM}).`);
+    if (date === todayStr && startTime < currentNow) {
+      setError(`Cannot book past hours for today.`);
       return;
     }
 
@@ -347,7 +386,7 @@ export default function BookingView({ user }) {
         lockId: activeLockId,
       });
 
-      setSuccess(`Room "${selectedRoom.name}" booked successfully! Confirmation details sent.`);
+      setSuccess(`Room "${selectedRoom.name}" reserved successfully! Confirmation details dispatched.`);
       setBookingData((prev) => ({ ...prev, purpose: '', comment: '' }));
       setSelectedRoom(null);
       setActiveLockId(null);
@@ -389,8 +428,11 @@ export default function BookingView({ user }) {
     return availableRoomIds.includes(id);
   };
 
+  const minStartTime = bookingData.date === todayStr ? currentHHMM : '00:00';
+  const minEndTime = bookingData.startTime || '00:00';
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 font-sans">
       {/* Alert Banners */}
       {error && (
         <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
@@ -412,52 +454,50 @@ export default function BookingView({ user }) {
         </div>
       )}
 
-      {/* Date & Time Selection Filter Bar */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-        <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <Clock className="w-4 h-4 text-indigo-600" />
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-              Select Desired Booking Slot
-            </h3>
-          </div>
-          <span className="text-xs text-slate-400 font-mono font-medium">
-            Local Time: {currentHHMM}
-          </span>
+      {/* Clean Date & Time Selection Filter Bar */}
+      <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
+        <div className="flex items-center gap-2 pb-3 mb-4 border-b border-slate-100">
+          <Clock className="w-4 h-4 text-indigo-600" />
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+            Select Reservation Slot
+          </h3>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Date *</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Date *</label>
             <input
               type="date"
               name="date"
               min={todayStr}
               value={bookingData.date}
               onChange={handleBookingInput}
-              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+              className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Start Time *</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Start Time *</label>
             <input
               type="time"
               name="startTime"
+              min={minStartTime}
               value={bookingData.startTime}
               onChange={handleBookingInput}
-              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+              className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">End Time *</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">End Time *</label>
             <input
               type="time"
               name="endTime"
+              min={minEndTime}
+              max="23:59"
               value={bookingData.endTime}
               onChange={handleBookingInput}
-              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+              className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
             />
           </div>
         </div>
@@ -469,21 +509,21 @@ export default function BookingView({ user }) {
           <div>
             <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
               <Building2 className="w-5 h-5 text-indigo-600" />
-              <span>Room Availability for {bookingData.date} ({bookingData.startTime} - {bookingData.endTime})</span>
+              <span>Available Rooms ({bookingData.date}, {bookingData.startTime} - {bookingData.endTime})</span>
             </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Green rooms are free during your selected time window.
+            <p className="text-xs text-slate-400 mt-0.5">
+              Select any free room to submit your booking.
             </p>
           </div>
           <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg">
-            {availableRoomIds.length} of {rooms.length} Free
+            {availableRoomIds.length} of {rooms.length} Available
           </span>
         </div>
 
         {initialLoading ? (
           <div className="p-12 text-center text-slate-400 text-sm">Loading available rooms...</div>
         ) : rooms.length === 0 ? (
-          <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center text-slate-500">
+          <div className="bg-white border border-slate-200 rounded-3xl p-12 text-center text-slate-500">
             <Building2 className="w-12 h-12 text-slate-300 mx-auto mb-3" />
             <p className="font-semibold text-sm">No rooms found in your department.</p>
           </div>
@@ -504,7 +544,7 @@ export default function BookingView({ user }) {
               return (
                 <div
                   key={roomId}
-                  className={`bg-white border rounded-2xl p-5 shadow-sm flex flex-col justify-between transition-all duration-200 ${
+                  className={`bg-white border rounded-3xl p-5 shadow-sm flex flex-col justify-between transition-all duration-200 ${
                     available
                       ? 'border-slate-200 hover:border-indigo-400 hover:shadow-md'
                       : 'border-slate-200/60 opacity-60 bg-slate-50/50'
@@ -528,7 +568,7 @@ export default function BookingView({ user }) {
                             : 'bg-rose-100 text-rose-800'
                         }`}
                       >
-                        {available ? 'Free for Slot' : 'Occupied / Class'}
+                        {available ? 'Free' : 'Occupied'}
                       </span>
                     </div>
 
@@ -568,7 +608,7 @@ export default function BookingView({ user }) {
                       )}
                     </div>
 
-                    {/* Live Star Ratings on Room Card */}
+                    {/* Live Star Ratings */}
                     <div className="mt-3.5 flex items-center justify-between pt-2 border-t border-slate-100">
                       <div className="flex items-center gap-1">
                         <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
@@ -591,17 +631,17 @@ export default function BookingView({ user }) {
                       <button
                         type="button"
                         onClick={() => handleSelectRoom(room)}
-                        className="w-full bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-800 transition-colors shadow-sm"
+                        className="w-full bg-slate-900 text-white px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-slate-800 transition-colors shadow-sm"
                       >
-                        Reserve This Room
+                        Reserve Room
                       </button>
                     ) : (
                       <button
                         type="button"
                         disabled
-                        className="w-full bg-slate-100 text-slate-400 px-4 py-2 rounded-xl text-xs font-semibold cursor-not-allowed"
+                        className="w-full bg-slate-100 text-slate-400 px-4 py-2.5 rounded-xl text-xs font-semibold cursor-not-allowed"
                       >
-                        Unavailable for this slot
+                        Unavailable
                       </button>
                     )}
                   </div>
@@ -612,11 +652,11 @@ export default function BookingView({ user }) {
         )}
       </div>
 
-      {/* Booking Confirmation Drawer / Form */}
+      {/* Booking Confirmation Drawer */}
       {selectedRoom && (
-        <div className="bg-white border-2 border-indigo-200 rounded-2xl p-6 shadow-xl animate-fadeIn">
+        <div className="bg-white border-2 border-indigo-200 rounded-3xl p-6 shadow-xl animate-fadeIn">
           <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
                 <Sparkles className="w-4 h-4" />
               </div>
@@ -625,7 +665,7 @@ export default function BookingView({ user }) {
                   Confirm Reservation: {selectedRoom.name} ({selectedRoom.roomNumber})
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Date: {bookingData.date} | Time: {bookingData.startTime} - {bookingData.endTime}
+                  {bookingData.date} • {bookingData.startTime} to {bookingData.endTime}
                 </p>
               </div>
             </div>
@@ -640,7 +680,7 @@ export default function BookingView({ user }) {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                 Purpose of Reservation *
               </label>
               <input
@@ -655,7 +695,7 @@ export default function BookingView({ user }) {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                 Additional Comments / Requests
               </label>
               <input
@@ -700,7 +740,7 @@ export default function BookingView({ user }) {
       )}
 
       {/* User's Active Bookings Table */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
         <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
           <div className="flex items-center gap-2">
             <Calendar className="w-5 h-5 text-slate-600" />

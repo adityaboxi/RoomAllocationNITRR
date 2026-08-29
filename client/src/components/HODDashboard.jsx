@@ -116,7 +116,7 @@ export default function HODDashboard({ user }) {
         </div>
       </div>
 
-      {/* Metric Summary Cards */}
+      {/* Metric Summary Cards (Clear & Intuitive) */}
       {stats && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 animate-fadeIn">
           <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
@@ -124,20 +124,20 @@ export default function HODDashboard({ user }) {
               <span className="text-xs font-semibold uppercase tracking-wider">Total Rooms</span>
               <Building2 className="w-4 h-4 text-indigo-500" />
             </div>
-            <div className="text-2xl font-black text-slate-900">{stats.totalRooms || 0}</div>
+            <div className="text-2xl font-black text-slate-900 font-mono">{stats.totalRooms || 0}</div>
             <div className="text-[11px] text-slate-400 mt-0.5">
-              {stats.availableRooms || 0} currently available
+              {stats.availableRooms || 0} currently free
             </div>
           </div>
 
           <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
             <div className="flex items-center justify-between text-slate-400 mb-1">
-              <span className="text-xs font-semibold uppercase tracking-wider">Active Bookings</span>
+              <span className="text-xs font-semibold uppercase tracking-wider">Upcoming Bookings</span>
               <Clock className="w-4 h-4 text-emerald-500" />
             </div>
-            <div className="text-2xl font-black text-slate-900">{stats.activeBookings || 0}</div>
-            <div className="text-[11px] text-slate-400 mt-0.5">
-              {stats.todayBookings || 0} scheduled today
+            <div className="text-2xl font-black text-slate-900 font-mono">{stats.activeBookings || 0}</div>
+            <div className="text-[11px] text-emerald-600 font-medium mt-0.5">
+              {stats.todayBookings || 0} remaining today
             </div>
           </div>
 
@@ -146,8 +146,8 @@ export default function HODDashboard({ user }) {
               <span className="text-xs font-semibold uppercase tracking-wider">Timetable Slots</span>
               <Calendar className="w-4 h-4 text-amber-500" />
             </div>
-            <div className="text-2xl font-black text-slate-900">{stats.totalTimetable || 0}</div>
-            <div className="text-[11px] text-slate-400 mt-0.5">Active semester classes</div>
+            <div className="text-2xl font-black text-slate-900 font-mono">{stats.totalTimetable || 0}</div>
+            <div className="text-[11px] text-slate-400 mt-0.5">Weekly semester classes</div>
           </div>
 
           <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
@@ -159,14 +159,14 @@ export default function HODDashboard({ user }) {
               {user?.department}
             </div>
             <div className="text-[11px] text-emerald-600 font-semibold mt-1 flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3" /> System Synchronized
+              <CheckCircle2 className="w-3 h-3" /> Live Sync Active
             </div>
           </div>
         </div>
       )}
 
-      {/* Active Tab View */}
-      <div className="transition-all duration-300">
+      {/* Main Tab Panels */}
+      <div className="transition-all duration-200">
         {activeTab === 'live' && <RoomDashboard user={user} />}
         {activeTab === 'rooms' && <RoomManager user={user} />}
         {activeTab === 'timetable' && <TimetableManager user={user} />}

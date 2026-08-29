@@ -2,20 +2,34 @@ const mongoose = require('mongoose');
 const Booking = require('../models/Booking');
 const Room = require('../models/Room');
 const Timetable = require('../models/Timetable');
-const { getDayOfWeek, generateLockId } = require('../utils/helpers');
+const { getDayOfWeek, generateLockId, getTodayDateString, getCurrentTimeHHMM } = require('../utils/helpers');
 const { sendBookingConfirmationEmail, sendBookingCancellationEmail } = require('../utils/email');
 const { getIO } = require('../utils/socket');
 
 // Helper to validate HH:mm format
 const isValidTimeFormat = (time) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(time);
 
-// Helper to get normalized current date string YYYY-MM-DD
-const getTodayDateString = () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+// ---------- ATOMIC AUTO-COMPLETE HELPER (O(1) Indexed Sweep) ----------
+const autoCompletePastBookings = async (extraQuery = {}) => {
+  const todayStr = getTodayDateString();
+  const currentHHMM = getCurrentTimeHHMM();
+
+  try {
+    await Booking.updateMany(
+      {
+        ...extraQuery,
+        status: 'active',
+        purpose: { $ne: 'TEMPORARY_LOCK' },
+        $or: [
+          { date: { $lt: todayStr } },
+          { date: todayStr, endTime: { $lte: currentHHMM } },
+        ],
+      },
+      { $set: { status: 'completed' } }
+    );
+  } catch (error) {
+    // console.error('Auto-complete past bookings error:', error);
+  }
 };
 
 // ---------- GET ALL / FILTERED BOOKINGS ----------
@@ -24,9 +38,7 @@ exports.getBookings = async (req, res) => {
     const { status, department, date, facultyEmail } = req.query;
     const query = {};
 
-    if (status) query.status = status;
     if (department) query.department = department.trim();
-    if (date) query.date = date.trim();
     if (facultyEmail) query.facultyEmail = facultyEmail.trim().toLowerCase();
 
     if (req.user.role === 'HOD') {
@@ -34,6 +46,13 @@ exports.getBookings = async (req, res) => {
     } else {
       query.facultyEmail = req.user.email;
     }
+
+    // 1. Auto-transition past bookings to 'completed'
+    await autoCompletePastBookings(query);
+
+    // 2. Apply status and date filters
+    if (status) query.status = status;
+    if (date) query.date = date.trim();
 
     const bookings = await Booking.find(query)
       .populate('roomId', 'name roomNumber floor building department capacity type')
@@ -55,7 +74,13 @@ exports.getBookings = async (req, res) => {
 // ---------- GET LOGGED-IN USER BOOKINGS ----------
 exports.getMyBookings = async (req, res) => {
   try {
-    const bookings = await Booking.find({ facultyEmail: req.user.email })
+    // 1. Auto-transition past bookings for this faculty to 'completed'
+    await autoCompletePastBookings({ facultyEmail: req.user.email });
+
+    const bookings = await Booking.find({
+      facultyEmail: req.user.email,
+      purpose: { $ne: 'TEMPORARY_LOCK' },
+    })
       .populate('roomId', 'name roomNumber floor building department capacity type')
       .sort({ date: -1, startTime: -1 })
       .lean();
@@ -80,6 +105,8 @@ exports.getBooking = async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, message: 'Invalid booking ID format' });
     }
+
+    await autoCompletePastBookings({ _id: id });
 
     const booking = await Booking.findById(id).populate(
       'roomId',
@@ -111,6 +138,8 @@ exports.getBookingsByRoom = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid room ID format' });
     }
 
+    await autoCompletePastBookings({ roomId });
+
     const query = { roomId, status: 'active' };
     if (date) query.date = date.trim();
 
@@ -140,6 +169,8 @@ exports.getBookingsByFaculty = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Not authorized to view bookings of other faculty members' });
     }
 
+    await autoCompletePastBookings({ facultyEmail });
+
     const bookings = await Booking.find({ facultyEmail })
       .populate('roomId', 'name roomNumber floor building department')
       .sort({ date: -1, startTime: -1 })
@@ -157,7 +188,7 @@ exports.getBookingsByFaculty = async (req, res) => {
   }
 };
 
-// ---------- CREATE BOOKING (Sunday Fully Enabled) ----------
+// ---------- CREATE BOOKING ----------
 exports.createBooking = async (req, res) => {
   try {
     let { roomId, date, startTime, endTime, purpose, comment, lockId } = req.body;
@@ -194,8 +225,10 @@ exports.createBooking = async (req, res) => {
     }
 
     const todayStr = getTodayDateString();
-    if (date < todayStr) {
-      return res.status(400).json({ success: false, message: 'Cannot book a past date' });
+    const currentHHMM = getCurrentTimeHHMM();
+
+    if (date < todayStr || (date === todayStr && startTime < currentHHMM)) {
+      return res.status(400).json({ success: false, message: 'Cannot book past hours or dates' });
     }
 
     const maxDaysAdvance = parseInt(process.env.MAX_BOOKING_DAYS_ADVANCE, 10) || 7;
@@ -319,12 +352,10 @@ exports.createBooking = async (req, res) => {
       'name roomNumber floor building department'
     );
 
-    // Asynchronous confirmation email dispatch
     sendBookingConfirmationEmail(populated)
       .then(() => Booking.findByIdAndUpdate(booking._id, { notified: true }))
       .catch((err) => {});
 
-    // Emit Socket.IO event for live UI update
     const io = getIO();
     if (io) {
       io.emit('booking-created', {
@@ -382,13 +413,13 @@ exports.cancelBooking = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Booking is already cancelled' });
     }
 
-    if (booking.status === 'completed') {
-      return res.status(400).json({ success: false, message: 'Completed bookings cannot be cancelled' });
-    }
-
     const todayStr = getTodayDateString();
-    if (booking.date < todayStr) {
-      return res.status(400).json({ success: false, message: 'Cannot cancel past bookings' });
+    const currentHHMM = getCurrentTimeHHMM();
+
+    if (booking.date < todayStr || (booking.date === todayStr && booking.endTime <= currentHHMM)) {
+      booking.status = 'completed';
+      await booking.save();
+      return res.status(400).json({ success: false, message: 'Concluded bookings cannot be cancelled' });
     }
 
     booking.status = 'cancelled';
@@ -396,12 +427,10 @@ exports.cancelBooking = async (req, res) => {
       req.user.role === 'HOD' ? 'Cancelled by Department HOD' : 'Cancelled by user';
     await booking.save();
 
-    // Send cancellation email asynchronously
     sendBookingCancellationEmail(booking, booking.conflictMessage)
       .then(() => Booking.findByIdAndUpdate(booking._id, { notified: true }))
       .catch((err) => {});
 
-    // Emit Socket.IO event safely
     const io = getIO();
     if (io) {
       io.emit('booking-cancelled', {
