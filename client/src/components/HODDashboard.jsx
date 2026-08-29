@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import RoomManager from './hod/RoomManager';
 import TimetableManager from './hod/TimetableManager';
+import HolidayManager from './hod/HolidayManager';
 import BookingView from './BookingView';
 import RoomDashboard from './RoomDashboard';
 import { getDepartmentStats } from '../services/api';
@@ -12,12 +13,12 @@ import {
   LayoutDashboard,
   Clock,
   CheckCircle2,
+  Palmtree,
 } from 'lucide-react';
 
 export default function HODDashboard({ user }) {
   const [stats, setStats] = useState(null);
-  const [activeTab, setActiveTab] = useState('live'); // 'live' | 'rooms' | 'timetable' | 'book'
-  const [loadingStats, setLoadingStats] = useState(true);
+  const [activeTab, setActiveTab] = useState('live'); // 'live' | 'rooms' | 'timetable' | 'holidays' | 'book'
 
   useEffect(() => {
     if (user?.department) {
@@ -26,14 +27,11 @@ export default function HODDashboard({ user }) {
   }, [user?.department]);
 
   const fetchStats = async () => {
-    setLoadingStats(true);
     try {
       const data = await getDepartmentStats(user.department);
       setStats(data?.data || null);
     } catch (err) {
       // Handled silently
-    } finally {
-      setLoadingStats(false);
     }
   };
 
@@ -61,7 +59,7 @@ export default function HODDashboard({ user }) {
         </div>
 
         {/* Tab Navigation Controls */}
-        <div className="flex items-center bg-slate-100 p-1 rounded-xl flex-wrap self-start sm:self-auto">
+        <div className="flex items-center bg-slate-100 p-1 rounded-xl flex-wrap self-start sm:self-auto gap-1">
           <button
             type="button"
             onClick={() => setActiveTab('live')}
@@ -85,7 +83,7 @@ export default function HODDashboard({ user }) {
             }`}
           >
             <Building2 className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Manage Rooms</span>
+            <span>Rooms</span>
           </button>
 
           <button
@@ -98,7 +96,20 @@ export default function HODDashboard({ user }) {
             }`}
           >
             <Calendar className="w-3.5 h-3.5 text-indigo-600" />
-            <span>Master Timetable</span>
+            <span>Timetable</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('holidays')}
+            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-all ${
+              activeTab === 'holidays'
+                ? 'bg-white text-slate-900 shadow-sm'
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <Palmtree className="w-3.5 h-3.5 text-teal-600" />
+            <span>Holidays</span>
           </button>
 
           <button
@@ -116,7 +127,7 @@ export default function HODDashboard({ user }) {
         </div>
       </div>
 
-      {/* Metric Summary Cards (Clear & Intuitive) */}
+      {/* Metric Summary Cards */}
       {stats && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 animate-fadeIn">
           <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
@@ -170,6 +181,7 @@ export default function HODDashboard({ user }) {
         {activeTab === 'live' && <RoomDashboard user={user} />}
         {activeTab === 'rooms' && <RoomManager user={user} />}
         {activeTab === 'timetable' && <TimetableManager user={user} />}
+        {activeTab === 'holidays' && <HolidayManager user={user} />}
         {activeTab === 'book' && <BookingView user={user} />}
       </div>
     </div>

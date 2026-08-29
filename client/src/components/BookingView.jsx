@@ -29,6 +29,7 @@ import {
   X,
   Sparkles,
   Loader2,
+  Palmtree,
 } from 'lucide-react';
 
 const extractErrorMessage = (err, fallback) => {
@@ -75,6 +76,8 @@ export default function BookingView({ user }) {
   const [initialLoading, setInitialLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [cancellingBookingId, setCancellingBookingId] = useState(null);
+  const [isHolidayDate, setIsHolidayDate] = useState(false);
+  const [holidayDateTitle, setHolidayDateTitle] = useState('');
 
   const [bookingData, setBookingData] = useState({
     date: todayStr,
@@ -98,7 +101,6 @@ export default function BookingView({ user }) {
 
   const abortControllerRef = useRef(null);
 
-  // Initial Load
   useEffect(() => {
     if (user?.department) {
       Promise.all([fetchRooms(), fetchMyBookings()]).finally(() => {
@@ -107,7 +109,6 @@ export default function BookingView({ user }) {
     }
   }, [user?.department]);
 
-  // Query room availability
   useEffect(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -122,7 +123,6 @@ export default function BookingView({ user }) {
     };
   }, [bookingData.date, bookingData.startTime, bookingData.endTime, user?.department]);
 
-  // Real-Time Socket.IO Synchronization
   useEffect(() => {
     const handleBookingCancelled = (data) => {
       fetchAvailableRooms(abortControllerRef.current?.signal);
@@ -161,6 +161,8 @@ export default function BookingView({ user }) {
 
     if (socket) {
       socket.on('review-created', handleReviewCreated);
+      socket.on('holiday-added', handleBookingCreated);
+      socket.on('holiday-deleted', handleBookingCreated);
     }
 
     return () => {
@@ -168,11 +170,12 @@ export default function BookingView({ user }) {
       offBookingCreated(handleBookingCreated);
       if (socket) {
         socket.off('review-created', handleReviewCreated);
+        socket.off('holiday-added', handleBookingCreated);
+        socket.off('holiday-deleted', handleBookingCreated);
       }
     };
   }, [selectedReviewRoom]);
 
-  // Cleanup room lock on unmount
   useEffect(() => {
     return () => {
       if (activeLockId) {
@@ -181,7 +184,6 @@ export default function BookingView({ user }) {
     };
   }, [activeLockId]);
 
-  // ---------- API HANDLERS ----------
   const fetchRooms = async () => {
     try {
       const data = await getRooms({ department: user?.department });
@@ -225,8 +227,16 @@ export default function BookingView({ user }) {
         { signal }
       );
 
-      const ids = (data?.data || []).map((r) => r.id || r._id);
-      setAvailableRoomIds(ids);
+      if (data?.isHoliday) {
+        setIsHolidayDate(true);
+        setHolidayDateTitle(data.holidayTitle || 'Declared Department Holiday');
+        setAvailableRoomIds([]);
+      } else {
+        setIsHolidayDate(false);
+        setHolidayDateTitle('');
+        const ids = (data?.data || []).map((r) => r.id || r._id);
+        setAvailableRoomIds(ids);
+      }
     } catch (err) {
       if (err.name === 'AbortError') return;
     }
@@ -274,7 +284,6 @@ export default function BookingView({ user }) {
     }
   }, [reviews, selectedReviewRoom]);
 
-  // ---------- INPUT HANDLER ----------
   const handleBookingInput = (e) => {
     const { name, value } = e.target;
     setError('');
@@ -307,8 +316,12 @@ export default function BookingView({ user }) {
     });
   };
 
-  // Select a room & initiate lock
   const handleSelectRoom = async (room) => {
+    if (isHolidayDate) {
+      setError(`Cannot book: ${bookingData.date} is a declared holiday ("${holidayDateTitle}").`);
+      return;
+    }
+
     const roomId = room.id || room._id;
     const currentNow = getCurrentTimeHHMM();
 
@@ -348,7 +361,6 @@ export default function BookingView({ user }) {
     setSelectedRoom(null);
   };
 
-  // Submit confirmed booking
   const handleConfirmBooking = async () => {
     if (!selectedRoom) return;
     const roomId = selectedRoom.id || selectedRoom._id;
@@ -424,6 +436,7 @@ export default function BookingView({ user }) {
   };
 
   const isRoomAvailable = (room) => {
+    if (isHolidayDate) return false;
     const id = room.id || room._id;
     return availableRoomIds.includes(id);
   };
@@ -433,7 +446,6 @@ export default function BookingView({ user }) {
 
   return (
     <div className="space-y-6 font-sans">
-      {/* Alert Banners */}
       {error && (
         <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
           <AlertCircle className="w-5 h-5 mr-2.5 text-rose-600 flex-shrink-0 mt-0.5" />
@@ -454,7 +466,7 @@ export default function BookingView({ user }) {
         </div>
       )}
 
-      {/* Clean Date & Time Selection Filter Bar */}
+      {/* Date & Time Selection Filter Bar */}
       <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
         <div className="flex items-center gap-2 pb-3 mb-4 border-b border-slate-100">
           <Clock className="w-4 h-4 text-indigo-600" />
@@ -503,6 +515,21 @@ export default function BookingView({ user }) {
         </div>
       </div>
 
+      {/* Holiday Warning Notice if Selected Date is a Holiday */}
+      {isHolidayDate && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-3xl flex items-center gap-3 text-amber-900 shadow-sm animate-fadeIn">
+          <div className="w-10 h-10 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-700 flex-shrink-0">
+            <Palmtree className="w-5 h-5" />
+          </div>
+          <div>
+            <h4 className="text-sm font-bold">🏖️ {bookingData.date} is a Declared Holiday: {holidayDateTitle}</h4>
+            <p className="text-xs text-amber-700 mt-0.5">
+              Department is closed. Classroom reservations are unavailable for this date.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Available Department Rooms Grid */}
       <div>
         <div className="flex items-center justify-between mb-4">
@@ -512,7 +539,7 @@ export default function BookingView({ user }) {
               <span>Available Rooms ({bookingData.date}, {bookingData.startTime} - {bookingData.endTime})</span>
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              Select any free room to submit your booking.
+              {isHolidayDate ? 'Campus closed for holiday.' : 'Select any free room to submit your booking.'}
             </p>
           </div>
           <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg">
@@ -563,12 +590,14 @@ export default function BookingView({ user }) {
 
                       <span
                         className={`px-2.5 py-1 text-xs font-bold rounded-full ${
-                          available
+                          isHolidayDate
+                            ? 'bg-amber-100 text-amber-800'
+                            : available
                             ? 'bg-emerald-100 text-emerald-800'
                             : 'bg-rose-100 text-rose-800'
                         }`}
                       >
-                        {available ? 'Free' : 'Occupied'}
+                        {isHolidayDate ? 'Holiday' : available ? 'Free' : 'Occupied'}
                       </span>
                     </div>
 
@@ -584,7 +613,6 @@ export default function BookingView({ user }) {
                       </span>
                     </div>
 
-                    {/* Amenities Badges */}
                     <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
                       {room.hasProjector && (
                         <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md font-medium">
@@ -608,7 +636,6 @@ export default function BookingView({ user }) {
                       )}
                     </div>
 
-                    {/* Live Star Ratings */}
                     <div className="mt-3.5 flex items-center justify-between pt-2 border-t border-slate-100">
                       <div className="flex items-center gap-1">
                         <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
@@ -641,7 +668,7 @@ export default function BookingView({ user }) {
                         disabled
                         className="w-full bg-slate-100 text-slate-400 px-4 py-2.5 rounded-xl text-xs font-semibold cursor-not-allowed"
                       >
-                        Unavailable
+                        {isHolidayDate ? 'Holiday' : 'Unavailable'}
                       </button>
                     )}
                   </div>
@@ -846,7 +873,6 @@ export default function BookingView({ user }) {
         )}
       </div>
 
-      {/* Reviews Modal */}
       {selectedReviewRoom && selectedRoomReviews !== null && (
         <ReviewsModal
           room={selectedReviewRoom}

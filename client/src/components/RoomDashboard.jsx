@@ -15,6 +15,7 @@ import {
   Loader2,
   ArrowUpDown,
   RotateCcw,
+  Palmtree,
 } from 'lucide-react';
 
 const extractErrorMessage = (err, fallback) => {
@@ -38,7 +39,20 @@ const getCurrentTimeString = () => {
   return `${h}:${m}`;
 };
 
-// ---------- UNIVERSAL SEARCH ENGINE (Matches any room property) ----------
+const STANDARD_ROOM_TYPES = [
+  'ALL',
+  'Classroom',
+  'Lecture Hall',
+  'Lab',
+  'Computer Lab',
+  'Seminar Hall',
+  'Auditorium',
+  'Conference Room',
+  'Tutorial Room',
+  'Workshop',
+  'Meeting Room',
+];
+
 const roomMatchesSearchQuery = (room, query) => {
   if (!query || !query.trim()) return true;
 
@@ -75,10 +89,12 @@ export default function RoomDashboard({ user }) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [isHoliday, setIsHoliday] = useState(false);
+  const [holidayTitle, setHolidayTitle] = useState('');
 
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'AVAILABLE' | 'OCCUPIED'
+  const [statusFilter, setStatusFilter] = useState('ALL');
   const [selectedFloor, setSelectedFloor] = useState('ALL');
   const [selectedType, setSelectedType] = useState('ALL');
   const [minCapacity, setMinCapacity] = useState('ALL');
@@ -126,8 +142,18 @@ export default function RoomDashboard({ user }) {
       if (isMountedRef.current) {
         const fetchedRooms = roomsRes?.data || [];
         setRooms(fetchedRooms);
-        const ids = (availRes?.data || []).map((r) => r.id || r._id);
-        setAvailableRoomIds(ids);
+
+        if (availRes?.isHoliday) {
+          setIsHoliday(true);
+          setHolidayTitle(availRes.holidayTitle || 'Declared Department Holiday');
+          setAvailableRoomIds([]);
+        } else {
+          setIsHoliday(false);
+          setHolidayTitle('');
+          const ids = (availRes?.data || []).map((r) => r.id || r._id);
+          setAvailableRoomIds(ids);
+        }
+
         setCurrentTime(new Date());
 
         fetchedRooms.forEach((r) => {
@@ -181,7 +207,6 @@ export default function RoomDashboard({ user }) {
     }
   };
 
-  // Continuous background sync (every 15s)
   useEffect(() => {
     fetchData();
     const interval = setInterval(() => {
@@ -225,6 +250,8 @@ export default function RoomDashboard({ user }) {
     socket.on('room-locked', handleUpdate);
     socket.on('room-unlocked', handleUpdate);
     socket.on('timetable-updated', handleUpdate);
+    socket.on('holiday-added', handleUpdate);
+    socket.on('holiday-deleted', handleUpdate);
     socket.on('review-created', handleReviewCreated);
 
     return () => {
@@ -233,11 +260,14 @@ export default function RoomDashboard({ user }) {
       socket.off('room-locked', handleUpdate);
       socket.off('room-unlocked', handleUpdate);
       socket.off('timetable-updated', handleUpdate);
+      socket.off('holiday-added', handleUpdate);
+      socket.off('holiday-deleted', handleUpdate);
       socket.off('review-created', handleReviewCreated);
     };
   }, [selectedRoom]);
 
   const isRoomAvailable = (room) => {
+    if (isHoliday) return false;
     const id = room.id || room._id;
     return availableRoomIds.includes(id);
   };
@@ -250,7 +280,14 @@ export default function RoomDashboard({ user }) {
   };
 
   const floors = ['ALL', ...new Set(rooms.map((r) => r.floor).filter(Boolean))];
-  const roomTypes = ['ALL', ...new Set(rooms.map((r) => r.type).filter(Boolean))];
+
+  const roomTypes = [
+    'ALL',
+    ...new Set([
+      ...STANDARD_ROOM_TYPES.filter((t) => t !== 'ALL'),
+      ...rooms.map((r) => r.type).filter(Boolean),
+    ]),
+  ];
 
   const handleResetFilters = () => {
     setSearchTerm('');
@@ -277,7 +314,6 @@ export default function RoomDashboard({ user }) {
     filterSmartBoard ||
     filterWiFi;
 
-  // Filtered & Sorted Rooms Logic
   const filteredRooms = rooms
     .filter((room) => {
       const isAvail = isRoomAvailable(room);
@@ -319,11 +355,26 @@ export default function RoomDashboard({ user }) {
     });
 
   const totalRoomsCount = rooms.length;
-  const availableCount = rooms.filter((r) => isRoomAvailable(r)).length;
+  const availableCount = isHoliday ? 0 : rooms.filter((r) => isRoomAvailable(r)).length;
   const occupiedCount = totalRoomsCount - availableCount;
 
   return (
     <div className="space-y-6 font-sans">
+      {/* Live Holiday Notice Banner */}
+      {isHoliday && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-3xl flex items-center gap-3 text-amber-900 shadow-sm animate-fadeIn">
+          <div className="w-10 h-10 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-700 flex-shrink-0">
+            <Palmtree className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold">🏖️ Department Holiday: {holidayTitle}</h3>
+            <p className="text-xs text-amber-700 mt-0.5">
+              All departmental classrooms are closed and master timetables are suspended for today.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Search & Filter Header Container */}
       <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-5">
         {/* Top Title & Status Filter Tabs */}
@@ -404,7 +455,6 @@ export default function RoomDashboard({ user }) {
 
         {/* Search Bar & Dropdown Selects */}
         <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-          {/* Universal Search Input */}
           <div className="sm:col-span-4 relative">
             <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
             <input
@@ -425,7 +475,6 @@ export default function RoomDashboard({ user }) {
             )}
           </div>
 
-          {/* Floor Dropdown */}
           <div className="sm:col-span-2">
             <select
               value={selectedFloor}
@@ -440,7 +489,6 @@ export default function RoomDashboard({ user }) {
             </select>
           </div>
 
-          {/* Room Type Dropdown */}
           <div className="sm:col-span-2">
             <select
               value={selectedType}
@@ -449,13 +497,12 @@ export default function RoomDashboard({ user }) {
             >
               {roomTypes.map((t) => (
                 <option key={t} value={t}>
-                  {t === 'ALL' ? 'All Types' : t}
+                  {t === 'ALL' ? 'All Room Types' : t}
                 </option>
               ))}
             </select>
           </div>
 
-          {/* Minimum Capacity Dropdown */}
           <div className="sm:col-span-2">
             <select
               value={minCapacity}
@@ -469,7 +516,6 @@ export default function RoomDashboard({ user }) {
             </select>
           </div>
 
-          {/* Sorting Dropdown */}
           <div className="sm:col-span-2">
             <div className="relative">
               <select
@@ -614,7 +660,6 @@ export default function RoomDashboard({ user }) {
                 }`}
               >
                 <div>
-                  {/* Clean Status Header */}
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-bold text-base text-slate-900 leading-tight">
@@ -627,21 +672,26 @@ export default function RoomDashboard({ user }) {
 
                     <span
                       className={`px-2.5 py-1 text-xs font-bold rounded-full flex items-center gap-1.5 ${
-                        available
+                        isHoliday
+                          ? 'bg-amber-100 text-amber-800'
+                          : available
                           ? 'bg-emerald-100 text-emerald-800'
                           : 'bg-rose-100 text-rose-800'
                       }`}
                     >
                       <span
                         className={`w-1.5 h-1.5 rounded-full ${
-                          available ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
+                          isHoliday
+                            ? 'bg-amber-500'
+                            : available
+                            ? 'bg-emerald-500 animate-pulse'
+                            : 'bg-rose-500'
                         }`}
                       />
-                      <span>{available ? 'Free Now' : 'In-Class'}</span>
+                      <span>{isHoliday ? 'Holiday / Closed' : available ? 'Free Now' : 'In-Class'}</span>
                     </span>
                   </div>
 
-                  {/* Room Details */}
                   <div className="text-xs text-slate-600 flex items-center gap-2 mt-2">
                     <span className="flex items-center gap-1 font-medium">
                       <Users className="w-3.5 h-3.5 text-slate-400" />
@@ -654,7 +704,6 @@ export default function RoomDashboard({ user }) {
                     </span>
                   </div>
 
-                  {/* Amenities Badges */}
                   <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
                     {room.hasProjector && (
                       <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md font-medium">
@@ -679,7 +728,6 @@ export default function RoomDashboard({ user }) {
                   </div>
                 </div>
 
-                {/* Star Ratings & Reviews Trigger */}
                 <div className="mt-4 pt-3 flex items-center justify-between border-t border-slate-100">
                   <div className="flex items-center gap-1">
                     <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
@@ -702,7 +750,6 @@ export default function RoomDashboard({ user }) {
         </div>
       )}
 
-      {/* Real-Time Reviews Modal */}
       {selectedRoom && selectedRoomReviews !== null && (
         <ReviewsModal
           room={selectedRoom}

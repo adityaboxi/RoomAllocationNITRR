@@ -121,6 +121,12 @@ export const unlockRoom = (lockId) => api.post('/api/bookings/unlock', { lockId 
 export const getBookingsByRoom = (roomId) => api.get(`/api/bookings/room/${roomId}`);
 export const getBookingsByFaculty = (facultyEmail) => api.get(`/api/bookings/faculty/${facultyEmail}`);
 
+// Holiday Endpoints
+export const getHolidays = (params = {}) => api.get('/api/holidays', { params });
+export const createHoliday = (data) => api.post('/api/holidays', data);
+export const updateHoliday = (id, data) => api.put(`/api/holidays/${id}`, data);
+export const deleteHoliday = (id) => api.delete(`/api/holidays/${id}`);
+
 // Department Stats
 export const getDepartmentStats = (department) => api.get(`/api/stats/department/${department}`);
 
