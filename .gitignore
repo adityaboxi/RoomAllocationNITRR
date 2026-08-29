@@ -1,51 +1,73 @@
-
-# ============================================
-# DEPENDENCIES
-# ============================================
-node_modules/
-server/node_modules/
-client/node_modules/
-
-# Lock files
-package-lock.json
 server/package-lock.json
 client/package-lock.json
-yarn.lock
-server/yarn.lock
-client/yarn.lock
-pnpm-lock.yaml
-server/pnpm-lock.yaml
-client/pnpm-lock.yaml
 
-# ============================================
-# ENVIRONMENT VARIABLES
-# ============================================
+# =================================================================
+# 🔐 1. ENVIRONMENT VARIABLES & SECRETS (NEVER COMMIT)
+# =================================================================
 .env
 .env.*
 server/.env
 server/.env.*
 client/.env
 client/.env.*
+RoomAllocationNITRR_ios/.env
+RoomAllocationNITRR_ios/.env.*
 !.env.example
+!server/.env.example
+!client/.env.example
 
-# ============================================
-# BUILD OUTPUTS
-# ============================================
+# =================================================================
+# 📦 2. DEPENDENCIES & PACKAGE CACHES
+# =================================================================
+node_modules/
+server/node_modules/
+client/node_modules/
+RoomAllocationNITRR_ios/node_modules/
+
+# =================================================================
+# 🏗️ 3. WEB & REACT BUILD OUTPUTS
+# =================================================================
 dist/
 build/
-.next/
-out/
 server/dist/
 server/build/
-server/.next/
 client/dist/
 client/build/
-client/.next/
-.esbuild/
+RoomAllocationNITRR_ios/dist/
+.vite/
+.cache/
+.temp/
+.tmp/
+*.tmp
+*.temp
 
-# ============================================
-# LOGS
-# ============================================
+# =================================================================
+# 📱 4. IOS & XCODE HEAVY BUILD ARTIFACTS (RoomAllocationNITRR_ios)
+# =================================================================
+# CocoaPods & Derived Data (Gigabytes of temporary build files)
+RoomAllocationNITRR_ios/ios/App/Pods/
+RoomAllocationNITRR_ios/ios/App/build/
+RoomAllocationNITRR_ios/ios/App/DerivedData/
+RoomAllocationNITRR_ios/ios/DerivedData/
+
+# Personal Developer Signing & Local Xcode User State
+*.xcuserstate
+*.xcbkptlist
+*.xcscheme
+xcuserdata/
+RoomAllocationNITRR_ios/ios/App/App.xcworkspace/xcuserdata/
+RoomAllocationNITRR_ios/ios/App/App.xcodeproj/xcuserdata/
+RoomAllocationNITRR_ios/ios/App/App.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Compiled Native Binaries & Archives
+*.ipa
+*.app
+*.dSYM
+*.dSYM.zip
+
+# =================================================================
+# 📋 5. LOGS & RUNTIME DATA
+# =================================================================
 logs/
 *.log
 npm-debug.log*
@@ -54,18 +76,16 @@ yarn-error.log*
 server/logs/
 client/logs/
 
-# ============================================
-# OS FILES
-# ============================================
+# =================================================================
+# 🍎 6. OS & IDE SYSTEM FILES
+# =================================================================
 .DS_Store
+.DS_Store?
+._*
 Thumbs.db
-*.pid
-*.seed
-*.pid.lock
-
-# ============================================
-# IDE & EDITOR
-# ============================================
+ehthumbs.db
+.Spotlight-V100
+.Trashes
 .vscode/
 .idea/
 *.swp
@@ -74,133 +94,15 @@ Thumbs.db
 *.iml
 *.iws
 *.ipr
-*.sublime-project
-*.sublime-workspace
 
-# ============================================
-# DATABASE
-# ============================================
-*.db
-*.sqlite
-*.sqlite3
-*.db-journal
-
-# ============================================
-# TESTING & COVERAGE
-# ============================================
-coverage/
-.nyc_output/
-*.lcov
-.istanbul.yml
-.junit/
-
-# ============================================
-# CACHE & TEMP
-# ============================================
-.cache/
-.temp/
-.tmp/
-*.tmp
-*.temp
-.vite/
-
-# ============================================
-# SECURITY
-# ============================================
+# =================================================================
+# 🔑 7. CERTIFICATES & KEYS
+# =================================================================
 *.pem
 *.key
 *.crt
 *.p12
 *.pfx
 *.p8
-.ssh/
-.aws/
-.kube/
-.gcloud/
-
-# ============================================
-# DEPLOYMENT
-# ============================================
-.vercel/
-.netlify/
-.heroku/
-.deploy/
-.terraform/
-*.tfstate
-*.tfstate.*
-
-# Docker
-docker-compose.override.yml
-Dockerfile.local
-
-# ============================================
-# UPLOADS & MEDIA
-# ============================================
-uploads/
-public/uploads/
-files/
-media/
-
-# ============================================
-# CACHE
-# ============================================
-.eslintcache
-.parcel-cache/
-*.tsbuildinfo
-
-# ============================================
-# GIT
-# ============================================
-*.orig
-*.rej
-*.patch
-*~
-.gitignore
-.gitattributes
-.gitmodules
-
-# ============================================
-# GENERATED
-# ============================================
-generated/
-*.generated.*
-
-# ============================================
-# COMPRESSED
-# ============================================
-*.zip
-*.tar.gz
-*.rar
-*.7z
-*.iso
-
-# ============================================
-# MISC
-# ============================================
-*.bak
-*.old
-*.orig
-*.save
-*.backup
-*.bkp
-
-# ============================================
-# APPLICATION SPECIFIC
-# ============================================
-dump/
-reports/
-secrets/
 credentials.json
 service-account.json
-.sentryclirc
-.dev.vars
-.pnpm-store/
-.yarn-integrity
-
-# ============================================
-# MONOREPO TOOLS
-# ======================================
-.turbo/
-.nx/
-turbo.json
-nx.json

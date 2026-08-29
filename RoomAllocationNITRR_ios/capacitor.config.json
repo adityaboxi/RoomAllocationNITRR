@@ -1,0 +1,11 @@
+{
+  "appId": "com.nitrr.roomallocation",
+  "appName": "NITRR Rooms",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "ios": {
+    "contentInset": "automatic"
+  }
+}
