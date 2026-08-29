@@ -1,6 +1,7 @@
-server/package-lock.json
-client/package-lock.json
+cd /Users/adityaboxi/Desktop/WebDev/project/RoomAllocationNITRR
 
+# Write the complete unified .gitignore
+cat << 'EOF' > .gitignore
 # =================================================================
 # 🔐 1. ENVIRONMENT VARIABLES & SECRETS (NEVER COMMIT)
 # =================================================================
@@ -15,6 +16,7 @@ RoomAllocationNITRR_ios/.env.*
 !.env.example
 !server/.env.example
 !client/.env.example
+!RoomAllocationNITRR_ios/.env.example
 
 # =================================================================
 # 📦 2. DEPENDENCIES & PACKAGE CACHES
@@ -25,7 +27,23 @@ client/node_modules/
 RoomAllocationNITRR_ios/node_modules/
 
 # =================================================================
-# 🏗️ 3. WEB & REACT BUILD OUTPUTS
+# 🔒 3. LOCK FILES
+# =================================================================
+package-lock.json
+server/package-lock.json
+client/package-lock.json
+RoomAllocationNITRR_ios/package-lock.json
+yarn.lock
+server/yarn.lock
+client/yarn.lock
+RoomAllocationNITRR_ios/yarn.lock
+pnpm-lock.yaml
+server/pnpm-lock.yaml
+client/pnpm-lock.yaml
+RoomAllocationNITRR_ios/pnpm-lock.yaml
+
+# =================================================================
+# 🏗️ 4. WEB & REACT BUILD OUTPUTS
 # =================================================================
 dist/
 build/
@@ -42,31 +60,23 @@ RoomAllocationNITRR_ios/dist/
 *.temp
 
 # =================================================================
-# 📱 4. IOS & XCODE HEAVY BUILD ARTIFACTS (RoomAllocationNITRR_ios)
+# 📱 5. IOS & XCODE GENERATED NATIVE FOLDERS (RoomAllocationNITRR_ios)
 # =================================================================
-# CocoaPods & Derived Data (Gigabytes of temporary build files)
+RoomAllocationNITRR_ios/ios/
 RoomAllocationNITRR_ios/ios/App/Pods/
 RoomAllocationNITRR_ios/ios/App/build/
 RoomAllocationNITRR_ios/ios/App/DerivedData/
-RoomAllocationNITRR_ios/ios/DerivedData/
-
-# Personal Developer Signing & Local Xcode User State
 *.xcuserstate
 *.xcbkptlist
 *.xcscheme
 xcuserdata/
-RoomAllocationNITRR_ios/ios/App/App.xcworkspace/xcuserdata/
-RoomAllocationNITRR_ios/ios/App/App.xcodeproj/xcuserdata/
-RoomAllocationNITRR_ios/ios/App/App.xcodeproj/project.xcworkspace/xcuserdata/
-
-# Compiled Native Binaries & Archives
 *.ipa
 *.app
 *.dSYM
 *.dSYM.zip
 
 # =================================================================
-# 📋 5. LOGS & RUNTIME DATA
+# 📋 6. LOGS & RUNTIME DATA
 # =================================================================
 logs/
 *.log
@@ -75,9 +85,10 @@ yarn-debug.log*
 yarn-error.log*
 server/logs/
 client/logs/
+RoomAllocationNITRR_ios/logs/
 
 # =================================================================
-# 🍎 6. OS & IDE SYSTEM FILES
+# 🍎 7. OS & IDE SYSTEM FILES
 # =================================================================
 .DS_Store
 .DS_Store?
@@ -96,7 +107,7 @@ ehthumbs.db
 *.ipr
 
 # =================================================================
-# 🔑 7. CERTIFICATES & KEYS
+# 🔑 8. CERTIFICATES & KEYS
 # =================================================================
 *.pem
 *.key
@@ -106,3 +117,7 @@ ehthumbs.db
 *.p8
 credentials.json
 service-account.json
+EOF
+
+# Refresh git index so ignored files are immediately untracked
+git rm -r --cached . 2>/dev/null || true
