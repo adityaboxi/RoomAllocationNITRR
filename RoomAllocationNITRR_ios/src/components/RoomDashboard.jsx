@@ -359,127 +359,107 @@ export default function RoomDashboard({ user }) {
   const occupiedCount = totalRoomsCount - availableCount;
 
   return (
-    <div className="space-y-6 font-sans">
+    <div className="space-y-4 font-sans">
       {/* Live Holiday Notice Banner */}
       {isHoliday && (
-        <div className="p-4 bg-amber-50 border border-amber-200 rounded-3xl flex items-center gap-3 text-amber-900 shadow-sm animate-fadeIn">
-          <div className="w-10 h-10 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-700 flex-shrink-0">
-            <Palmtree className="w-5 h-5" />
+        <div className="p-3.5 bg-amber-50 border border-amber-200/90 rounded-2xl flex items-center gap-2.5 text-amber-900 shadow-sm animate-fadeIn">
+          <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center text-amber-700 flex-shrink-0">
+            <Palmtree className="w-4 h-4" />
           </div>
           <div>
-            <h3 className="text-sm font-bold">🏖️ Department Holiday: {holidayTitle}</h3>
-            <p className="text-xs text-amber-700 mt-0.5">
-              All departmental classrooms are closed and master timetables are suspended for today.
+            <h3 className="text-xs font-bold">🏖️ Department Holiday: {holidayTitle}</h3>
+            <p className="text-[11px] text-amber-700 mt-0.5">
+              Classrooms are closed and timetables are suspended today.
             </p>
           </div>
         </div>
       )}
 
       {/* Search & Filter Header Container */}
-      <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-5">
-        {/* Top Title & Status Filter Tabs */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
-              <Building2 className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-slate-900 leading-tight">
-                Live Room Status & Search
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Real-time occupancy for {user?.department || 'Department'}
-              </p>
-            </div>
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-sm space-y-3.5">
+        {/* Top Status Pill Bar & Refresh Button */}
+        <div className="flex items-center justify-between gap-2">
+          {/* Status Pills */}
+          <div className="flex items-center bg-slate-100 p-1 rounded-xl w-full sm:w-auto">
+            <button
+              type="button"
+              onClick={() => setStatusFilter('ALL')}
+              className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 ${
+                statusFilter === 'ALL'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              All ({totalRoomsCount})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setStatusFilter('AVAILABLE')}
+              className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 ${
+                statusFilter === 'AVAILABLE'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-emerald-700 hover:text-emerald-900'
+              }`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${statusFilter === 'AVAILABLE' ? 'bg-white' : 'bg-emerald-500'}`} />
+              <span>Free ({availableCount})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setStatusFilter('OCCUPIED')}
+              className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1.5 ${
+                statusFilter === 'OCCUPIED'
+                  ? 'bg-rose-600 text-white shadow-sm'
+                  : 'text-rose-700 hover:text-rose-900'
+              }`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${statusFilter === 'OCCUPIED' ? 'bg-white' : 'bg-rose-500'}`} />
+              <span>In-Use ({occupiedCount})</span>
+            </button>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Status Pills */}
-            <div className="flex items-center bg-slate-100 p-1 rounded-xl">
-              <button
-                type="button"
-                onClick={() => setStatusFilter('ALL')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  statusFilter === 'ALL'
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                All ({totalRoomsCount})
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setStatusFilter('AVAILABLE')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  statusFilter === 'AVAILABLE'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-emerald-700 hover:text-emerald-900'
-                }`}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${statusFilter === 'AVAILABLE' ? 'bg-white' : 'bg-emerald-500'}`} />
-                <span>Free ({availableCount})</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setStatusFilter('OCCUPIED')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  statusFilter === 'OCCUPIED'
-                    ? 'bg-rose-600 text-white shadow-sm'
-                    : 'text-rose-700 hover:text-rose-900'
-                }`}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${statusFilter === 'OCCUPIED' ? 'bg-white' : 'bg-rose-500'}`} />
-                <span>Occupied ({occupiedCount})</span>
-              </button>
-            </div>
-
-            {/* Time & Refresh Button */}
-            <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
-              <span className="text-xs text-slate-400 font-mono hidden sm:inline">
-                {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-              </span>
-              <button
-                type="button"
-                onClick={() => fetchData(true)}
-                disabled={refreshing}
-                className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all disabled:opacity-50"
-                title="Refresh Status"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-              </button>
-            </div>
-          </div>
+          {/* Quick Refresh */}
+          <button
+            type="button"
+            onClick={() => fetchData(true)}
+            disabled={refreshing}
+            className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all disabled:opacity-50 active:scale-95 flex-shrink-0"
+            title="Refresh Live Status"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+          </button>
         </div>
 
-        {/* Search Bar & Dropdown Selects */}
-        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-          <div className="sm:col-span-4 relative">
-            <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search by room name, #, building, floor, or amenity..."
-              className="w-full pl-10 pr-8 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs sm:text-sm outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all placeholder:text-slate-400"
-            />
-            {searchTerm && (
-              <button
-                type="button"
-                onClick={() => setSearchTerm('')}
-                className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
-          </div>
+        {/* Universal Search Bar */}
+        <div className="relative">
+          <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search room name, #, floor, or amenity..."
+            className="w-full pl-9 pr-8 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all placeholder:text-slate-400"
+          />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => setSearchTerm('')}
+              className="absolute right-3 top-3 text-slate-400 hover:text-slate-600"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
 
-          <div className="sm:col-span-2">
+        {/* Filter Dropdowns Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div>
             <select
               value={selectedFloor}
               onChange={(e) => setSelectedFloor(e.target.value)}
-              className="w-full border border-slate-200 bg-slate-50/50 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all"
+              className="w-full border border-slate-200 bg-slate-50 rounded-xl px-2.5 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white transition-all"
             >
               {floors.map((fl) => (
                 <option key={fl} value={fl}>
@@ -489,25 +469,25 @@ export default function RoomDashboard({ user }) {
             </select>
           </div>
 
-          <div className="sm:col-span-2">
+          <div>
             <select
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
-              className="w-full border border-slate-200 bg-slate-50/50 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all"
+              className="w-full border border-slate-200 bg-slate-50 rounded-xl px-2.5 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white transition-all"
             >
               {roomTypes.map((t) => (
                 <option key={t} value={t}>
-                  {t === 'ALL' ? 'All Room Types' : t}
+                  {t === 'ALL' ? 'All Types' : t}
                 </option>
               ))}
             </select>
           </div>
 
-          <div className="sm:col-span-2">
+          <div>
             <select
               value={minCapacity}
               onChange={(e) => setMinCapacity(e.target.value)}
-              className="w-full border border-slate-200 bg-slate-50/50 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all"
+              className="w-full border border-slate-200 bg-slate-50 rounded-xl px-2.5 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white transition-all"
             >
               <option value="ALL">Any Capacity</option>
               <option value="30">30+ Seats</option>
@@ -516,36 +496,29 @@ export default function RoomDashboard({ user }) {
             </select>
           </div>
 
-          <div className="sm:col-span-2">
-            <div className="relative">
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                className="w-full border border-slate-200 bg-slate-50/50 rounded-xl pl-3 pr-7 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all appearance-none"
-              >
-                <option value="DEFAULT">Sort: Default</option>
-                <option value="CAPACITY_DESC">Capacity (High to Low)</option>
-                <option value="RATING_DESC">Rating (Highest)</option>
-                <option value="NAME_ASC">Name (A-Z)</option>
-              </select>
-              <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none" />
-            </div>
+          <div>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="w-full border border-slate-200 bg-slate-50 rounded-xl px-2.5 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white transition-all"
+            >
+              <option value="DEFAULT">Sort: Default</option>
+              <option value="CAPACITY_DESC">Capacity (High-Low)</option>
+              <option value="RATING_DESC">Rating (Highest)</option>
+              <option value="NAME_ASC">Name (A-Z)</option>
+            </select>
           </div>
         </div>
 
-        {/* Amenity Filter Toggle Chips */}
-        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">
-            Amenities:
-          </span>
-
+        {/* Amenity Chips (Horizontal Scrollable on iPhone) */}
+        <div className="overflow-x-auto pb-0.5 -mx-4 px-4 flex items-center gap-1.5 pt-1 border-t border-slate-100">
           <button
             type="button"
             onClick={() => setFilterProjector(!filterProjector)}
-            className={`px-3 py-1 text-xs font-bold rounded-xl border transition-all ${
+            className={`px-2.5 py-1 text-xs font-bold rounded-lg border transition-all active:scale-95 flex-shrink-0 ${
               filterProjector
                 ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                : 'bg-white text-slate-600 border-slate-200'
             }`}
           >
             Projector
@@ -554,10 +527,10 @@ export default function RoomDashboard({ user }) {
           <button
             type="button"
             onClick={() => setFilterAC(!filterAC)}
-            className={`px-3 py-1 text-xs font-bold rounded-xl border transition-all ${
+            className={`px-2.5 py-1 text-xs font-bold rounded-lg border transition-all active:scale-95 flex-shrink-0 ${
               filterAC
                 ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                : 'bg-white text-slate-600 border-slate-200'
             }`}
           >
             AC
@@ -566,10 +539,10 @@ export default function RoomDashboard({ user }) {
           <button
             type="button"
             onClick={() => setFilterSmartBoard(!filterSmartBoard)}
-            className={`px-3 py-1 text-xs font-bold rounded-xl border transition-all ${
+            className={`px-2.5 py-1 text-xs font-bold rounded-lg border transition-all active:scale-95 flex-shrink-0 ${
               filterSmartBoard
                 ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                : 'bg-white text-slate-600 border-slate-200'
             }`}
           >
             SmartBoard
@@ -578,10 +551,10 @@ export default function RoomDashboard({ user }) {
           <button
             type="button"
             onClick={() => setFilterWiFi(!filterWiFi)}
-            className={`px-3 py-1 text-xs font-bold rounded-xl border transition-all ${
+            className={`px-2.5 py-1 text-xs font-bold rounded-lg border transition-all active:scale-95 flex-shrink-0 ${
               filterWiFi
                 ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                : 'bg-white text-slate-600 border-slate-200'
             }`}
           >
             WiFi
@@ -591,52 +564,49 @@ export default function RoomDashboard({ user }) {
             <button
               type="button"
               onClick={handleResetFilters}
-              className="text-xs font-semibold text-rose-600 hover:text-rose-800 hover:underline flex items-center gap-1 ml-2"
+              className="text-xs font-semibold text-rose-600 hover:text-rose-800 flex items-center gap-1 ml-1 flex-shrink-0 active:scale-95"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Reset Filters</span>
+              <RotateCcw className="w-3 h-3" />
+              <span>Reset</span>
             </button>
           )}
 
-          <div className="ml-auto text-xs text-slate-500 font-medium">
-            Showing <strong className="text-slate-800">{filteredRooms.length}</strong> of {totalRoomsCount} rooms
+          <div className="ml-auto text-[11px] text-slate-400 font-medium flex-shrink-0">
+            {filteredRooms.length} of {totalRoomsCount}
           </div>
         </div>
       </div>
 
       {error && (
-        <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
-          <AlertCircle className="w-5 h-5 mr-2.5 text-rose-600 flex-shrink-0 mt-0.5" />
+        <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start text-rose-800 text-xs font-medium">
+          <AlertCircle className="w-4 h-4 mr-2 text-rose-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1 whitespace-pre-line">{error}</div>
-          <button type="button" onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
-            <X className="w-4 h-4" />
-          </button>
         </div>
       )}
 
-      {/* Room Status Cards Grid */}
+      {/* Room Status Cards Grid (1-Col on iPhone, 2-3 Col on iPad/Mac) */}
       {loading && rooms.length === 0 ? (
-        <div className="p-16 text-center text-slate-400 text-sm flex items-center justify-center gap-2">
-          <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+        <div className="p-12 text-center text-slate-400 text-xs flex items-center justify-center gap-2">
+          <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
           <span>Loading live room availability...</span>
         </div>
       ) : filteredRooms.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-3xl p-12 text-center text-slate-400">
-          <Building2 className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-          <p className="font-semibold text-slate-700 text-sm">No classrooms match your search criteria.</p>
-          <p className="text-xs text-slate-400 mt-1">Try adjusting your filters or clearing search text.</p>
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-8 text-center text-slate-400 text-xs">
+          <Building2 className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+          <p className="font-semibold text-slate-700 text-sm">No matching classrooms found.</p>
+          <p className="text-[11px] text-slate-400 mt-1">Try adjusting your filters.</p>
           {hasActiveFilters && (
             <button
               type="button"
               onClick={handleResetFilters}
-              className="mt-4 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors inline-block"
+              className="mt-3 px-3.5 py-1.5 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold active:scale-95 inline-block"
             >
-              Reset All Filters
+              Reset Filters
             </button>
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
           {filteredRooms.map((room) => {
             const roomId = room.id || room._id;
             const available = isRoomAvailable(room);
@@ -653,25 +623,25 @@ export default function RoomDashboard({ user }) {
             return (
               <div
                 key={roomId}
-                className={`bg-white border rounded-3xl p-5 shadow-sm flex flex-col justify-between transition-all duration-200 ${
+                className={`bg-white border rounded-2xl p-4 shadow-sm flex flex-col justify-between transition-all active:scale-[0.98] ${
                   available
-                    ? 'border-slate-200 hover:border-indigo-300 hover:shadow-md'
-                    : 'border-slate-200/70 bg-slate-50/50'
+                    ? 'border-slate-200/90'
+                    : 'border-slate-200/70 bg-slate-50/60'
                 }`}
               >
                 <div>
-                  <div className="flex justify-between items-start mb-2">
+                  <div className="flex justify-between items-start mb-1.5">
                     <div>
-                      <h3 className="font-bold text-base text-slate-900 leading-tight">
+                      <h3 className="font-bold text-sm sm:text-base text-slate-900 leading-tight">
                         {room.name}
                       </h3>
-                      <div className="text-xs font-mono text-slate-500 mt-0.5">
+                      <div className="text-[11px] font-mono text-slate-500 mt-0.5">
                         {room.roomNumber} {room.type ? `• ${room.type}` : ''}
                       </div>
                     </div>
 
                     <span
-                      className={`px-2.5 py-1 text-xs font-bold rounded-full flex items-center gap-1.5 ${
+                      className={`px-2 py-0.5 text-[11px] font-bold rounded-full flex items-center gap-1 ${
                         isHoliday
                           ? 'bg-amber-100 text-amber-800'
                           : available
@@ -688,47 +658,47 @@ export default function RoomDashboard({ user }) {
                             : 'bg-rose-500'
                         }`}
                       />
-                      <span>{isHoliday ? 'Holiday / Closed' : available ? 'Free Now' : 'In-Class'}</span>
+                      <span>{isHoliday ? 'Holiday' : available ? 'Free Now' : 'In-Class'}</span>
                     </span>
                   </div>
 
-                  <div className="text-xs text-slate-600 flex items-center gap-2 mt-2">
+                  <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-1.5">
                     <span className="flex items-center gap-1 font-medium">
-                      <Users className="w-3.5 h-3.5 text-slate-400" />
+                      <Users className="w-3 h-3 text-slate-400" />
                       Cap: {room.capacity}
                     </span>
                     <span>•</span>
                     <span className="flex items-center gap-1">
-                      <Layers className="w-3.5 h-3.5 text-slate-400" />
+                      <Layers className="w-3 h-3 text-slate-400" />
                       {room.floor}, {room.building}
                     </span>
                   </div>
 
-                  <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+                  <div className="mt-2.5 flex flex-wrap gap-1 text-[10px]">
                     {room.hasProjector && (
-                      <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md font-medium">
+                      <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-medium">
                         Projector
                       </span>
                     )}
                     {room.hasAC && (
-                      <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md font-medium">
+                      <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-medium">
                         AC
                       </span>
                     )}
                     {room.hasSmartBoard && (
-                      <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md font-medium">
+                      <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-medium">
                         SmartBoard
                       </span>
                     )}
                     {room.hasWiFi && (
-                      <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md font-medium">
+                      <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-medium">
                         WiFi
                       </span>
                     )}
                   </div>
                 </div>
 
-                <div className="mt-4 pt-3 flex items-center justify-between border-t border-slate-100">
+                <div className="mt-3.5 pt-2.5 flex items-center justify-between border-t border-slate-100">
                   <div className="flex items-center gap-1">
                     <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
                     <span className="text-xs font-bold text-slate-700">
@@ -739,7 +709,7 @@ export default function RoomDashboard({ user }) {
                   <button
                     type="button"
                     onClick={() => handleViewReviews(room)}
-                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 active:scale-95"
                   >
                     {reviewCount > 0 ? `(${reviewCount} reviews)` : 'Reviews'}
                   </button>

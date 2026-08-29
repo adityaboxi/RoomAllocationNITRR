@@ -1,1 +1,47 @@
 @import "tailwindcss";
+
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+
+html, body {
+  -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+  overscroll-behavior-y: none;
+  background-color: #f8fafc;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+}
+
+/* iOS Smooth Momentum Scrolling */
+* {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Hide web scrollbars for native app feel */
+::-webkit-scrollbar {
+  display: none;
+}
+
+/* Apple Spring Tap Interaction */
+.ios-tap {
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.15s ease;
+}
+.ios-tap:active {
+  transform: scale(0.96);
+  opacity: 0.85;
+}
+
+/* iOS Continuous Squircle Card */
+.ios-card {
+  border-radius: 1.25rem;
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.04);
+}

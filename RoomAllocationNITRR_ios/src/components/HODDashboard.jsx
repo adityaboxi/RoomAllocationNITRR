@@ -36,50 +36,52 @@ export default function HODDashboard({ user }) {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 font-sans">
-      {/* Top Header Card */}
-      <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shadow-sm">
-            <ShieldCheck className="w-6 h-6" />
+    <div className="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 py-3.5 sm:py-6 space-y-3.5 sm:space-y-6 font-sans">
+      {/* Top Header Profile Card */}
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-4 sm:p-6 shadow-sm flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shadow-sm flex-shrink-0">
+            <ShieldCheck className="w-5 h-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-slate-900 leading-none">
-                HOD Portal — {user?.name}
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-base sm:text-xl font-bold text-slate-900 leading-tight">
+                {user?.name}
               </h1>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 uppercase tracking-wide">
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 uppercase tracking-wide">
                 HOD
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-1">
-              Department of {user?.department} — NIT Raipur
+            <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
+              Dept. of {user?.department} — NIT Raipur
             </p>
           </div>
         </div>
+      </div>
 
-        {/* Tab Navigation Controls */}
-        <div className="flex items-center bg-slate-100 p-1 rounded-xl flex-wrap self-start sm:self-auto gap-1">
+      {/* iOS Segmented Pill Tab Bar (Smooth Thumb-Scrollable on iPhone) */}
+      <div className="overflow-x-auto pb-1 -mx-3.5 px-3.5">
+        <div className="flex items-center bg-slate-200/80 p-1 rounded-2xl gap-1 min-w-max">
           <button
             type="button"
             onClick={() => setActiveTab('live')}
-            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-all ${
+            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl transition-all active:scale-95 ${
               activeTab === 'live'
                 ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-900'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <LayoutDashboard className="w-3.5 h-3.5" />
+            <LayoutDashboard className="w-3.5 h-3.5 text-indigo-600" />
             <span>Live Status</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('rooms')}
-            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-all ${
+            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl transition-all active:scale-95 ${
               activeTab === 'rooms'
                 ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-900'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <Building2 className="w-3.5 h-3.5 text-emerald-600" />
@@ -89,10 +91,10 @@ export default function HODDashboard({ user }) {
           <button
             type="button"
             onClick={() => setActiveTab('timetable')}
-            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-all ${
+            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl transition-all active:scale-95 ${
               activeTab === 'timetable'
                 ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-900'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <Calendar className="w-3.5 h-3.5 text-indigo-600" />
@@ -102,10 +104,10 @@ export default function HODDashboard({ user }) {
           <button
             type="button"
             onClick={() => setActiveTab('holidays')}
-            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-all ${
+            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl transition-all active:scale-95 ${
               activeTab === 'holidays'
                 ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-900'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <Palmtree className="w-3.5 h-3.5 text-teal-600" />
@@ -115,63 +117,56 @@ export default function HODDashboard({ user }) {
           <button
             type="button"
             onClick={() => setActiveTab('book')}
-            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-all ${
+            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl transition-all active:scale-95 ${
               activeTab === 'book'
                 ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-900'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <CalendarPlus className="w-3.5 h-3.5 text-amber-600" />
-            <span>Ad-hoc Booking</span>
+            <span>Booking</span>
           </button>
         </div>
       </div>
 
-      {/* Metric Summary Cards */}
+      {/* Metric Summary Cards (Responsive for iPhone screens) */}
       {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 animate-fadeIn">
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+        <div className="grid grid-cols-3 gap-2.5 sm:gap-4 animate-fadeIn">
+          <div className="bg-white border border-slate-200/90 rounded-2xl p-3 sm:p-4 shadow-sm text-center sm:text-left">
             <div className="flex items-center justify-between text-slate-400 mb-1">
-              <span className="text-xs font-semibold uppercase tracking-wider">Total Rooms</span>
-              <Building2 className="w-4 h-4 text-indigo-500" />
+              <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider">Rooms</span>
+              <Building2 className="w-3.5 h-3.5 text-indigo-500 hidden sm:inline" />
             </div>
-            <div className="text-2xl font-black text-slate-900 font-mono">{stats.totalRooms || 0}</div>
-            <div className="text-[11px] text-slate-400 mt-0.5">
-              {stats.availableRooms || 0} currently free
+            <div className="text-lg sm:text-2xl font-black text-slate-900 font-mono">
+              {stats.totalRooms || 0}
+            </div>
+            <div className="text-[10px] text-slate-400 mt-0.5">
+              {stats.availableRooms || 0} free now
             </div>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+          <div className="bg-white border border-slate-200/90 rounded-2xl p-3 sm:p-4 shadow-sm text-center sm:text-left">
             <div className="flex items-center justify-between text-slate-400 mb-1">
-              <span className="text-xs font-semibold uppercase tracking-wider">Upcoming Bookings</span>
-              <Clock className="w-4 h-4 text-emerald-500" />
+              <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider">Bookings</span>
+              <Clock className="w-3.5 h-3.5 text-emerald-500 hidden sm:inline" />
             </div>
-            <div className="text-2xl font-black text-slate-900 font-mono">{stats.activeBookings || 0}</div>
-            <div className="text-[11px] text-emerald-600 font-medium mt-0.5">
-              {stats.todayBookings || 0} remaining today
+            <div className="text-lg sm:text-2xl font-black text-slate-900 font-mono">
+              {stats.activeBookings || 0}
+            </div>
+            <div className="text-[10px] text-emerald-600 font-medium mt-0.5">
+              {stats.todayBookings || 0} today
             </div>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+          <div className="bg-white border border-slate-200/90 rounded-2xl p-3 sm:p-4 shadow-sm text-center sm:text-left">
             <div className="flex items-center justify-between text-slate-400 mb-1">
-              <span className="text-xs font-semibold uppercase tracking-wider">Timetable Slots</span>
-              <Calendar className="w-4 h-4 text-amber-500" />
+              <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider">Timetable</span>
+              <Calendar className="w-3.5 h-3.5 text-amber-500 hidden sm:inline" />
             </div>
-            <div className="text-2xl font-black text-slate-900 font-mono">{stats.totalTimetable || 0}</div>
-            <div className="text-[11px] text-slate-400 mt-0.5">Weekly semester classes</div>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
-            <div className="flex items-center justify-between text-slate-400 mb-1">
-              <span className="text-xs font-semibold uppercase tracking-wider">Department</span>
-              <ShieldCheck className="w-4 h-4 text-indigo-500" />
+            <div className="text-lg sm:text-2xl font-black text-slate-900 font-mono">
+              {stats.totalTimetable || 0}
             </div>
-            <div className="text-base font-bold text-slate-900 truncate">
-              {user?.department}
-            </div>
-            <div className="text-[11px] text-emerald-600 font-semibold mt-1 flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3" /> Live Sync Active
-            </div>
+            <div className="text-[10px] text-slate-400 mt-0.5">Weekly slots</div>
           </div>
         </div>
       )}
@@ -179,8 +174,8 @@ export default function HODDashboard({ user }) {
       {/* Main Tab Panels */}
       <div className="transition-all duration-200">
         {activeTab === 'live' && <RoomDashboard user={user} />}
-        {activeTab === 'rooms' && <RoomManager user={user} />}
-        {activeTab === 'timetable' && <TimetableManager user={user} />}
+        {activeTab === 'rooms' && <RoomManager user={user} onUpdate={fetchStats} />}
+        {activeTab === 'timetable' && <TimetableManager user={user} onUpdate={fetchStats} />}
         {activeTab === 'holidays' && <HolidayManager user={user} />}
         {activeTab === 'book' && <BookingView user={user} />}
       </div>
