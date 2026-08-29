@@ -3,10 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- 👈 viewport-fit=cover tells iOS to accurately compute Dynamic Island insets -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>NIT Raipur - Room Allocation</title>
   </head>
-  <body>
+  <body class="bg-slate-50 text-slate-900 antialiased select-none overscroll-none">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

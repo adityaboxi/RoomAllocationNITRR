@@ -17,8 +17,12 @@ import { getPendingReviews, getNotifications } from './services/api';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(() => {
-    const saved = localStorage.getItem('currentUser');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('currentUser');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
   });
 
   const [notifications, setNotifications] = useState([]);
@@ -80,15 +84,6 @@ export default function App() {
     }
   };
 
-  // Safe Browser Notification Request
-  const requestNotificationPermission = () => {
-    try {
-      if (typeof window !== 'undefined' && 'Notification' in window && typeof Notification.requestPermission === 'function') {
-        Notification.requestPermission().catch(() => {});
-      }
-    } catch (e) {}
-  };
-
   // Socket Connection & Real-Time Events
   useEffect(() => {
     if (currentUser) {
@@ -98,7 +93,7 @@ export default function App() {
           socketRef.current = initSocket(token);
         }
 
-        const handleCancelled = (data) => {
+        const handleCancelled = () => {
           fetchUserNotifications();
         };
 
@@ -125,7 +120,6 @@ export default function App() {
   const handleLoginSuccess = (user) => {
     localStorage.setItem('currentUser', JSON.stringify(user));
     setCurrentUser(user);
-    requestNotificationPermission();
   };
 
   const handleLogout = () => {
@@ -140,7 +134,6 @@ export default function App() {
     setCurrentPending(null);
   };
 
-  // Review popup handlers
   const handleReviewSubmit = () => {
     const nextList = pendingReviews.filter(
       (p) => (p.id || p._id) !== (currentPending.id || currentPending._id)
@@ -177,7 +170,13 @@ export default function App() {
           onClearNotifications={() => setNotifications([])}
         />
 
-        <main className="flex-1">
+        {/* Main Content with Bottom Safe-Area Inset for iPhone Home Swipe Indicator */}
+        <main
+          className="flex-1"
+          style={{
+            paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 24px)',
+          }}
+        >
           {!currentUser ? (
             <AuthPage onLoginSuccess={handleLoginSuccess} />
           ) : (
@@ -199,7 +198,7 @@ export default function App() {
           )}
         </main>
 
-        {/* Global Completed Class Review Popup */}
+        {/* Global Review Popup */}
         {showReviewPopup && currentPending && (
           <ReviewPopup
             booking={currentPending}
