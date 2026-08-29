@@ -53,3 +53,36 @@
 ---
 
 ## 💻 Local Setup & Development (After `git pull`)
+
+
+
+### 1️⃣ Backend Server Setup (`server/`)
+
+1. Navigate to the server folder and install dependencies:
+   ```bash
+   cd server
+   npm install
+
+
+
+   cd RoomAllocationNITRR_ios
+npm install
+
+
+
+# For iPhone Simulator:
+VITE_API_URL=http://localhost:3000
+
+# For Physical iPhone (Replace with your Mac's Local WiFi IP):
+# VITE_API_URL=http://192.168.0.58:3000
+
+
+npm run build
+npx cap sync ios
+npx cap open ios
+
+
+In Xcode:
+
+Select iPhone 15 (under iOS Simulators) or your connected physical iPhone.
+Press Cmd + R (or click ▶ Play) to run the app.
