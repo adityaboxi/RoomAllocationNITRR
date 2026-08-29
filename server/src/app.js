@@ -9,6 +9,7 @@ const bookingRoutes = require('./routes/bookingRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const statsRoutes = require('./routes/statsRoutes');
+const holidayRoutes = require('./routes/holidayRoutes');
 
 // Middleware Imports
 const { errorHandler } = require('./middleware/errorHandler');
@@ -53,6 +54,7 @@ app.use('/api/bookings', bookingRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/stats', statsRoutes);
+app.use('/api/holidays', holidayRoutes);
 
 // ---------- HEALTH CHECK & ROOT DIRECTORY ----------
 app.get('/health', (req, res) => {

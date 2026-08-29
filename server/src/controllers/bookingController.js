@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Booking = require('../models/Booking');
 const Room = require('../models/Room');
 const Timetable = require('../models/Timetable');
+const Holiday = require('../models/Holiday');
 const { getDayOfWeek, generateLockId, getTodayDateString, getCurrentTimeHHMM } = require('../utils/helpers');
 const { sendBookingConfirmationEmail, sendBookingCancellationEmail } = require('../utils/email');
 const { getIO } = require('../utils/socket');
@@ -9,7 +10,7 @@ const { getIO } = require('../utils/socket');
 // Helper to validate HH:mm format
 const isValidTimeFormat = (time) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(time);
 
-// ---------- ATOMIC AUTO-COMPLETE HELPER (O(1) Indexed Sweep) ----------
+// ---------- ATOMIC AUTO-COMPLETE HELPER ----------
 const autoCompletePastBookings = async (extraQuery = {}) => {
   const todayStr = getTodayDateString();
   const currentHHMM = getCurrentTimeHHMM();
@@ -47,10 +48,8 @@ exports.getBookings = async (req, res) => {
       query.facultyEmail = req.user.email;
     }
 
-    // 1. Auto-transition past bookings to 'completed'
     await autoCompletePastBookings(query);
 
-    // 2. Apply status and date filters
     if (status) query.status = status;
     if (date) query.date = date.trim();
 
@@ -74,7 +73,6 @@ exports.getBookings = async (req, res) => {
 // ---------- GET LOGGED-IN USER BOOKINGS ----------
 exports.getMyBookings = async (req, res) => {
   try {
-    // 1. Auto-transition past bookings for this faculty to 'completed'
     await autoCompletePastBookings({ facultyEmail: req.user.email });
 
     const bookings = await Booking.find({
@@ -188,7 +186,7 @@ exports.getBookingsByFaculty = async (req, res) => {
   }
 };
 
-// ---------- CREATE BOOKING ----------
+// ---------- CREATE BOOKING (WITH HOLIDAY GUARD) ----------
 exports.createBooking = async (req, res) => {
   try {
     let { roomId, date, startTime, endTime, purpose, comment, lockId } = req.body;
@@ -239,6 +237,20 @@ exports.createBooking = async (req, res) => {
 
     if (date > maxDateStr) {
       return res.status(400).json({ success: false, message: `Cannot book more than ${maxDaysAdvance} days in advance` });
+    }
+
+    // 🔒 0. HOLIDAY CHECK
+    const holiday = await Holiday.findOne({
+      date,
+      $or: [{ department: req.user.department }, { department: 'ALL' }],
+    });
+
+    if (holiday) {
+      return res.status(400).json({
+        success: false,
+        message: `🚫 Cannot reserve room: ${date} is a declared holiday ("${holiday.title}").`,
+        isHoliday: true,
+      });
     }
 
     const day = getDayOfWeek(date);
@@ -455,7 +467,7 @@ exports.cancelBooking = async (req, res) => {
   }
 };
 
-// ---------- LOCK ROOM ----------
+// ---------- LOCK ROOM (WITH HOLIDAY GUARD) ----------
 exports.lockRoom = async (req, res) => {
   try {
     let { roomId, date, startTime, endTime } = req.body;
@@ -481,6 +493,20 @@ exports.lockRoom = async (req, res) => {
 
     if (startTime >= endTime) {
       return res.status(400).json({ success: false, message: 'End time must be after start time' });
+    }
+
+    // 🔒 0. HOLIDAY CHECK
+    const holiday = await Holiday.findOne({
+      date,
+      $or: [{ department: req.user.department }, { department: 'ALL' }],
+    });
+
+    if (holiday) {
+      return res.status(400).json({
+        success: false,
+        message: `🚫 Cannot lock room: ${date} is a declared holiday ("${holiday.title}").`,
+        isHoliday: true,
+      });
     }
 
     const day = getDayOfWeek(date);

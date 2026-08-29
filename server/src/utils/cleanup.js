@@ -4,6 +4,7 @@ const Booking = require('../models/Booking');
 const Notification = require('../models/Notification');
 const Timetable = require('../models/Timetable');
 const Review = require('../models/Review');
+const Holiday = require('../models/Holiday');
 const { getTodayDateString, getCurrentTimeHHMM } = require('./helpers');
 
 let cleanupTimer = null;
@@ -13,10 +14,9 @@ const runDatabaseCleanup = async () => {
   const todayStr = getTodayDateString();
   const currentHHMM = getCurrentTimeHHMM();
 
-  // Read configurable thresholds from .env (defaults to 90 days for completed bookings & reviews)
   const cancelledDays = parseInt(process.env.PRUNE_CANCELLED_BOOKINGS_DAYS, 10) || 7;
-  const completedDays = parseInt(process.env.PRUNE_COMPLETED_BOOKINGS_DAYS, 10) || 90; // 90 days (1 quarter)
-  const reviewDays = parseInt(process.env.PRUNE_REVIEWS_DAYS, 10) || 90;             // 90 days (1 quarter)
+  const completedDays = parseInt(process.env.PRUNE_COMPLETED_BOOKINGS_DAYS, 10) || 90;
+  const reviewDays = parseInt(process.env.PRUNE_REVIEWS_DAYS, 10) || 90;
   const readNotifDays = parseInt(process.env.PRUNE_READ_NOTIFICATIONS_DAYS, 10) || 7;
   const unreadNotifDays = parseInt(process.env.PRUNE_UNREAD_NOTIFICATIONS_DAYS, 10) || 30;
   const otpHours = parseInt(process.env.PRUNE_OTP_HOURS, 10) || 24;
@@ -32,11 +32,9 @@ const runDatabaseCleanup = async () => {
   const cancelledCutoffStr = cancelledCutoff.toISOString().split('T')[0];
   const completedCutoffStr = completedCutoff.toISOString().split('T')[0];
 
-  // console.log(`\n🧹 [CRON] Starting Database Auto-Pruning & Status Sync at ${now.toISOString()}...`);
-
   try {
-    // 0. Auto-complete concluded active bookings
-    const completedResult = await Booking.updateMany(
+    // 0. Auto-complete past active bookings
+    await Booking.updateMany(
       {
         status: 'active',
         purpose: { $ne: 'TEMPORARY_LOCK' },
@@ -49,11 +47,11 @@ const runDatabaseCleanup = async () => {
     );
 
     // 1. Delete Old Reviews (> 90 days)
-    const reviewsResult = await Review.deleteMany({
+    await Review.deleteMany({
       createdAt: { $lt: reviewCutoff },
     });
 
-    // 2. Protect bookings that still have active reviews attached
+    // 2. Protected booking IDs
     const activeReviewedBookingIds = await Review.distinct('bookingId');
     const recentNotifBookingIds = await Notification.distinct('metadata.bookingId', {
       createdAt: { $gte: cancelledCutoff },
@@ -69,15 +67,7 @@ const runDatabaseCleanup = async () => {
       .filter((id) => mongoose.Types.ObjectId.isValid(id))
       .map((id) => new mongoose.Types.ObjectId(id));
 
-    const [
-      otpResult,
-      locksResult,
-      readNotifsResult,
-      staleUnreadNotifsResult,
-      cancelledBookingsResult,
-      completedBookingsResult,
-      inactiveTimetableResult,
-    ] = await Promise.all([
+    await Promise.all([
       // 3. Delete verified / expired OTPs (> 24h)
       OTP.deleteMany({
         createdAt: { $lt: otpCutoff },
@@ -121,17 +111,15 @@ const runDatabaseCleanup = async () => {
         isActive: false,
         updatedAt: { $lt: cancelledCutoff },
       }),
-    ]);
 
-    // console.log(`   ├─ 🔄 Concluded bookings transitioned: ${completedResult.modifiedCount}`);
-    // console.log(`   ├─ 🗑️  Old reviews pruned (> 90 days): ${reviewsResult.deletedCount}`);
-    // console.log(`   ├─ 🗑️  Old completed bookings pruned (> 90 days): ${completedBookingsResult.deletedCount}`);
-    // console.log(`   ├─ 🗑️  Archived cancelled bookings pruned (> 7 days): ${cancelledBookingsResult.deletedCount}`);
-    // console.log(`   ├─ 🗑️  Old read notifications purged: ${readNotifsResult.deletedCount}`);
-    // console.log(`   ├─ 🗑️  Stale unread notifications purged: ${staleUnreadNotifsResult.deletedCount}`);
-    // console.log(`   ├─ 🗑️  Expired OTPs deleted: ${otpResult.deletedCount}`);
-    // console.log(`   └─ 🗑️  Abandoned checkout locks cleared: ${locksResult.deletedCount}`);
-    // console.log(`✅ [CRON] Database Pruning Finished Successfully.\n`);
+      // 10. 🛡️ Delete ONLY Emergency/One-time holidays older than 90 days.
+      // (National / Recurring holidays with isRecurring: true are NEVER deleted!)
+      Holiday.deleteMany({
+        isRecurring: false,
+        type: 'EMERGENCY',
+        date: { $lt: completedCutoffStr },
+      }),
+    ]);
   } catch (error) {
     // console.error('❌ [CRON] Database Pruning Error:', error.message);
   }
@@ -148,15 +136,12 @@ const startCleanupScheduler = () => {
   cleanupTimer = setInterval(() => {
     runDatabaseCleanup();
   }, intervalMs);
-
-  // console.log(`⏰ Database auto-pruning scheduler registered (Interval: ${intervalHours}h)`);
 };
 
 const stopCleanupScheduler = () => {
   if (cleanupTimer) {
     clearInterval(cleanupTimer);
     cleanupTimer = null;
-    // console.log('🛑 Database auto-pruning scheduler stopped.');
   }
 };
 

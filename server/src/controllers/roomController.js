@@ -4,8 +4,10 @@ const Booking = require('../models/Booking');
 const Timetable = require('../models/Timetable');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
+const Holiday = require('../models/Holiday');
 const { sendBookingCancellationEmail } = require('../utils/email');
 const { getIO, emitToUser } = require('../utils/socket');
+const { getDayOfWeek } = require('../utils/helpers');
 
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -17,7 +19,7 @@ const getTodayDateString = () => {
   return `${year}-${month}-${day}`;
 };
 
-// ---------- GET ROOMS (Department Isolated) ----------
+// ---------- GET ROOMS (Department Isolated & Search Filtered) ----------
 exports.getRooms = async (req, res) => {
   try {
     const {
@@ -100,7 +102,7 @@ exports.getRoom = async (req, res) => {
   }
 };
 
-// ---------- GET AVAILABLE ROOMS ----------
+// ---------- GET AVAILABLE ROOMS (WITH HOLIDAY GUARD) ----------
 exports.getAvailableRooms = async (req, res) => {
   try {
     let {
@@ -125,14 +127,37 @@ exports.getAvailableRooms = async (req, res) => {
     startTime = startTime.trim();
     endTime = endTime.trim();
 
-    const { getDayOfWeek } = require('../utils/helpers');
+    if (startTime >= endTime) {
+      return res.status(400).json({ success: false, message: 'startTime must be strictly before endTime' });
+    }
+
     const day = getDayOfWeek(date);
     const baseQuery = { isAvailable: true, isActive: true };
 
-    if (req.user && req.user.role === 'HOD') {
-      baseQuery.department = req.user.department;
-    } else if (department) {
-      baseQuery.department = department.trim();
+    const targetDept = req.user && req.user.role === 'HOD' ? req.user.department : department ? department.trim() : req.user?.department;
+    if (targetDept) {
+      baseQuery.department = targetDept;
+    }
+
+    // 🔒 1. HOLIDAY CHECK: If date is a declared holiday, all rooms are closed
+    const holiday = await Holiday.findOne({
+      date,
+      $or: [{ department: targetDept }, { department: 'ALL' }],
+    });
+
+    const totalActiveRoomsCount = await Room.countDocuments(baseQuery);
+
+    if (holiday) {
+      return res.json({
+        success: true,
+        data: [],
+        total: 0,
+        unavailable: totalActiveRoomsCount,
+        isHoliday: true,
+        holidayTitle: holiday.title,
+        message: `Department is closed on ${date} due to "${holiday.title}".`,
+        filters: { department: targetDept, floor, building, roomType, hasProjector, hasAC, hasSmartBoard, hasWiFi },
+      });
     }
 
     if (floor) baseQuery.floor = floor.trim();
@@ -143,7 +168,7 @@ exports.getAvailableRooms = async (req, res) => {
     if (hasSmartBoard === 'true') baseQuery.hasSmartBoard = true;
     if (hasWiFi === 'true') baseQuery.hasWiFi = true;
 
-    const [bookedRoomIds, timetableRoomIds, totalActiveRoomsCount] = await Promise.all([
+    const [bookedRoomIds, timetableRoomIds] = await Promise.all([
       Booking.distinct('roomId', {
         date,
         status: 'active',
@@ -156,7 +181,6 @@ exports.getAvailableRooms = async (req, res) => {
         startTime: { $lt: endTime },
         endTime: { $gt: startTime },
       }),
-      Room.countDocuments(baseQuery),
     ]);
 
     const unavailableIds = [
@@ -183,7 +207,8 @@ exports.getAvailableRooms = async (req, res) => {
       data: formatted,
       total: formatted.length,
       unavailable: totalActiveRoomsCount - formatted.length,
-      filters: { department, floor, building, roomType, hasProjector, hasAC, hasSmartBoard, hasWiFi },
+      isHoliday: false,
+      filters: { department: targetDept, floor, building, roomType, hasProjector, hasAC, hasSmartBoard, hasWiFi },
     });
   } catch (error) {
     // console.error('Get available rooms error:', error);
@@ -209,7 +234,7 @@ exports.createRoom = async (req, res) => {
     roomNumber = roomNumber.trim().toUpperCase();
     const department = req.user.department;
 
-    // Check across the entire institute if this room is already registered
+    // Check across entire institute
     const existing = await Room.findOne({
       isActive: true,
       $or: [
@@ -305,7 +330,6 @@ exports.updateRoom = async (req, res) => {
       req.body.capacity = Number(req.body.capacity);
     }
 
-    // Check duplicate room number against ALL OTHER active rooms
     if (req.body.name || req.body.roomNumber) {
       const duplicateQuery = {
         isActive: true,
@@ -565,7 +589,7 @@ exports.getRoomsByDepartment = async (req, res) => {
   }
 };
 
-// ---------- GET REAL-TIME ROOM AVAILABILITY ----------
+// ---------- GET REAL-TIME ROOM AVAILABILITY (WITH HOLIDAY CHECK) ----------
 exports.getRoomAvailability = async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -580,6 +604,31 @@ exports.getRoomAvailability = async (req, res) => {
     }
 
     const targetDate = date ? date.trim() : getTodayDateString();
+
+    const room = await Room.findById(roomId).lean();
+    if (!room || !room.isActive) {
+      return res.status(404).json({ success: false, message: 'Room not found' });
+    }
+
+    // 🔒 Holiday Check
+    const holiday = await Holiday.findOne({
+      date: targetDate,
+      $or: [{ department: room.department }, { department: 'ALL' }],
+    });
+
+    if (holiday) {
+      return res.json({
+        success: true,
+        available: false,
+        isHoliday: true,
+        reason: 'Department Holiday',
+        details: {
+          title: holiday.title,
+          description: holiday.description,
+          until: 'End of Day',
+        },
+      });
+    }
 
     const ttClash = await Timetable.findOne({
       roomId,
