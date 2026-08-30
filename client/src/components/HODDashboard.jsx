@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import RoomManager from './hod/RoomManager';
 import TimetableManager from './hod/TimetableManager';
 import HolidayManager from './hod/HolidayManager';
@@ -14,24 +14,47 @@ import {
   LayoutDashboard,
   Clock,
   Palmtree,
+  RefreshCw,
 } from 'lucide-react';
 
 export default function HODDashboard({ user }) {
   const [stats, setStats] = useState(null);
   const [activeTab, setActiveTab] = useState('live');
+  const [refreshing, setRefreshing] = useState(false);
+  const isMountedRef = useRef(true);
 
-  const fetchStats = async () => {
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const fetchStats = async (isManual = false) => {
+    if (isManual) setRefreshing(true);
     try {
       if (!user?.department) return;
       const data = await getDepartmentStats(user.department);
-      setStats(data?.data || null);
+      if (isMountedRef.current) {
+        setStats(data?.data || null);
+      }
     } catch (err) {
       // Handled silently
+    } finally {
+      if (isMountedRef.current && isManual) {
+        setRefreshing(false);
+      }
     }
   };
 
+  // Initial fetch and 15-second live background refresh fallback
   useEffect(() => {
     fetchStats();
+    const interval = setInterval(() => {
+      fetchStats();
+    }, 15000);
+
+    return () => clearInterval(interval);
   }, [user?.department]);
 
   // Real-Time Socket Synchronization across entire HOD Dashboard
@@ -40,7 +63,9 @@ export default function HODDashboard({ user }) {
     if (!socket) return;
 
     const handleSync = () => {
-      fetchStats();
+      if (isMountedRef.current) {
+        fetchStats();
+      }
     };
 
     socket.on('booking-created', handleSync);
@@ -49,7 +74,10 @@ export default function HODDashboard({ user }) {
     socket.on('room-unlocked', handleSync);
     socket.on('holiday-added', handleSync);
     socket.on('holiday-deleted', handleSync);
+    socket.on('holiday-updated', handleSync);
     socket.on('timetable-updated', handleSync);
+    socket.on('room-created', handleSync);
+    socket.on('room-updated', handleSync);
 
     return () => {
       socket.off('booking-created', handleSync);
@@ -58,7 +86,10 @@ export default function HODDashboard({ user }) {
       socket.off('room-unlocked', handleSync);
       socket.off('holiday-added', handleSync);
       socket.off('holiday-deleted', handleSync);
+      socket.off('holiday-updated', handleSync);
       socket.off('timetable-updated', handleSync);
+      socket.off('room-created', handleSync);
+      socket.off('room-updated', handleSync);
     };
   }, []);
 
@@ -157,6 +188,7 @@ export default function HODDashboard({ user }) {
       {/* Clean 3-Metric Summary Cards */}
       {stats && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 animate-fadeIn">
+          {/* Card 1: Total Rooms & Live Availability */}
           <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
             <div className="flex items-center justify-between text-slate-400 mb-1">
               <span className="text-xs font-semibold uppercase tracking-wider">Total Rooms</span>
@@ -164,10 +196,11 @@ export default function HODDashboard({ user }) {
             </div>
             <div className="text-2xl font-black text-slate-900 font-mono">{stats.totalRooms || 0}</div>
             <div className="text-[11px] text-slate-500 mt-0.5 font-medium">
-              {stats.availableRooms || 0} free • {stats.occupiedRooms || 0} occupied
+              <span className="text-emerald-600 font-semibold">{stats.availableRooms || 0} free</span> • <span className="text-rose-600 font-semibold">{stats.occupiedRooms || 0} occupied</span>
             </div>
           </div>
 
+          {/* Card 2: Upcoming Bookings */}
           <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
             <div className="flex items-center justify-between text-slate-400 mb-1">
               <span className="text-xs font-semibold uppercase tracking-wider">Upcoming Bookings</span>
@@ -179,6 +212,7 @@ export default function HODDashboard({ user }) {
             </div>
           </div>
 
+          {/* Card 3: Semester Timetable Classes */}
           <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
             <div className="flex items-center justify-between text-slate-400 mb-1">
               <span className="text-xs font-semibold uppercase tracking-wider">Timetable Slots</span>

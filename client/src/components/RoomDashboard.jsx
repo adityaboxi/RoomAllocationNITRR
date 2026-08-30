@@ -210,6 +210,7 @@ export default function RoomDashboard({ user }) {
     }
   };
 
+  // 1. Initial fetch & 15-second Clock Ticker (rolls statuses when time boundaries pass)
   useEffect(() => {
     fetchData();
     const interval = setInterval(() => {
@@ -219,7 +220,24 @@ export default function RoomDashboard({ user }) {
     return () => clearInterval(interval);
   }, [user?.department]);
 
-  // Real-time Socket.IO Listeners
+  // 2. Tab Visibility Focus & Socket Reconnection Recovery
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && isMountedRef.current) {
+        fetchData();
+      }
+    };
+
+    window.addEventListener('focus', handleVisibilityChange);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', handleVisibilityChange);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [user?.department]);
+
+  // 3. Real-time Socket.IO Listeners
   useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
@@ -255,6 +273,9 @@ export default function RoomDashboard({ user }) {
     socket.on('timetable-updated', handleUpdate);
     socket.on('holiday-added', handleUpdate);
     socket.on('holiday-deleted', handleUpdate);
+    socket.on('holiday-updated', handleUpdate);
+    socket.on('room-created', handleUpdate);
+    socket.on('room-updated', handleUpdate);
     socket.on('review-created', handleReviewCreated);
 
     return () => {
@@ -265,6 +286,9 @@ export default function RoomDashboard({ user }) {
       socket.off('timetable-updated', handleUpdate);
       socket.off('holiday-added', handleUpdate);
       socket.off('holiday-deleted', handleUpdate);
+      socket.off('holiday-updated', handleUpdate);
+      socket.off('room-created', handleUpdate);
+      socket.off('room-updated', handleUpdate);
       socket.off('review-created', handleReviewCreated);
     };
   }, [selectedRoom]);
