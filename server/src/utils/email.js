@@ -64,10 +64,8 @@ exports.sendOTPEmail = async (email, otp, purpose = 'forgot') => {
       subject,
       html,
     });
-    // console.log(`✅ [EMAIL DISPATCHED] OTP successfully sent to: ${email}`);
   } catch (error) {
     // console.error(`❌ [EMAIL ERROR] Failed sending to ${email}:`, error.message);
-    // console.log(`📧 [FALLBACK OTP LOG] For: ${email} -> ${otp}`);
   }
 };
 
@@ -101,7 +99,6 @@ exports.sendBookingConfirmationEmail = async (booking) => {
   </div>`;
 
   if (!transporter || isLoggingOnly) {
-    // console.log(`\n📧 [EMAIL SIMULATION] Booking Confirmation to ${booking.facultyEmail} for ${roomName} on ${booking.date}`);
     return;
   }
 
@@ -112,10 +109,7 @@ exports.sendBookingConfirmationEmail = async (booking) => {
       subject: `✅ Booking Confirmed: ${roomName} (${booking.date})`,
       html,
     });
-    // console.log(`✅ Confirmation email sent to ${booking.facultyEmail}`);
-  } catch (error) {
-    // console.error(`❌ Failed to send confirmation email to ${booking.facultyEmail}:`, error.message);
-  }
+  } catch (error) {}
 };
 
 // ---------- SEND BOOKING CANCELLATION EMAIL ----------
@@ -144,7 +138,6 @@ exports.sendBookingCancellationEmail = async (booking, reason) => {
   </div>`;
 
   if (!transporter || isLoggingOnly) {
-    // console.log(`\n📧 [EMAIL SIMULATION] Cancellation Notice to ${booking.facultyEmail} for ${roomName}: ${reason}`);
     return;
   }
 
@@ -155,8 +148,53 @@ exports.sendBookingCancellationEmail = async (booking, reason) => {
       subject: `❌ Booking Cancelled: ${roomName} on ${booking.date}`,
       html,
     });
-    // console.log(`✅ Cancellation email sent to ${booking.facultyEmail}`);
-  } catch (error) {
-    // console.error(`❌ Failed to send cancellation email:`, error.message);
+  } catch (error) {}
+};
+
+// ---------- SEND BOOKING RESTORATION EMAIL (HOD Mistake Revocation) ----------
+exports.sendBookingRestorationEmail = async (booking, holidayTitle) => {
+  if (!booking?.facultyEmail) return;
+
+  const roomName = booking.roomId?.name || 'Classroom';
+  const roomNumber = booking.roomId?.roomNumber || '';
+  const building = booking.roomId?.building || 'Main Campus';
+  const floor = booking.roomId?.floor || 'Ground Floor';
+
+  const html = `
+  <div style="font-family:Arial, sans-serif;max-width:540px;margin:30px auto;background:#ffffff;padding:30px;border-radius:16px;border:1px solid #e2e8f0;box-shadow:0 4px 12px rgba(0,0,0,0.05)">
+    <div style="text-align:center;margin-bottom:20px;">
+      <h2 style="color:#059669;margin:0;font-size:22px;font-weight:800;">🎉 Reservation Reinstated</h2>
+      <p style="color:#64748b;font-size:13px;margin-top:4px;">NIT Raipur Room Allocation</p>
+    </div>
+    <p style="color:#1e293b;font-size:14px;line-height:1.5;">Dear <strong>${booking.facultyName}</strong>,</p>
+    <p style="color:#475569;font-size:13px;margin-top:0;">
+      The department holiday ("<strong>${holidayTitle}</strong>") on <strong>${booking.date}</strong> was revoked / removed by the Department HOD.
+    </p>
+    <p style="color:#475569;font-size:13px;">
+      Your previously cancelled classroom reservation has been <strong>automatically restored and is now active</strong>.
+    </p>
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;padding:18px;border-radius:12px;margin:18px 0;font-size:13px;color:#166534;line-height:1.7;">
+      <div><strong>Room:</strong> ${roomName} (${roomNumber})</div>
+      <div><strong>Location:</strong> ${building}, ${floor}</div>
+      <div><strong>Date:</strong> ${booking.date} (${booking.day})</div>
+      <div><strong>Time Slot:</strong> ${booking.startTime} - ${booking.endTime}</div>
+      <div><strong>Purpose:</strong> ${booking.purpose}</div>
+      <div><strong>Status:</strong> <span style="background:#22c55e;color:#fff;padding:2px 8px;border-radius:6px;font-weight:bold;font-size:11px;">ACTIVE</span></div>
+    </div>
+    <hr style="border:none;border-top:1px solid #f1f5f9;margin:24px 0 16px 0;" />
+    <p style="text-align:center;color:#94a3b8;font-size:11px;margin:0;">National Institute of Technology Raipur — Academic Scheduling</p>
+  </div>`;
+
+  if (!transporter || isLoggingOnly) {
+    return;
   }
+
+  try {
+    await transporter.sendMail({
+      from: getSenderAddress(),
+      to: booking.facultyEmail,
+      subject: `🎉 Booking Restored: ${roomName} on ${booking.date}`,
+      html,
+    });
+  } catch (error) {}
 };

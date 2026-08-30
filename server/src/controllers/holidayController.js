@@ -5,7 +5,9 @@ const User = require('../models/User');
 const Notification = require('../models/Notification');
 const { getTodayDateString } = require('../utils/helpers');
 const { getIO, emitToUser } = require('../utils/socket');
-const { sendBookingCancellationEmail } = require('../utils/email');
+const { sendBookingCancellationEmail, sendBookingRestorationEmail } = require('../utils/email');
+
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // Helper to check holiday for a specific date (handles both single date and multi-year recurring)
 const findHolidayForDate = async (date, department) => {
@@ -62,7 +64,7 @@ exports.createHoliday = async (req, res) => {
     title = title.trim();
     date = date.trim();
     type = type === 'EMERGENCY' ? 'EMERGENCY' : 'NATIONAL';
-    const isRecurring = type === 'NATIONAL';
+    const isRecurring = type === 'NATIONAL'; // Emergency holidays NEVER recur in future years
     const monthDay = date.slice(5); // 'MM-DD'
     description = (description || '').trim() || (isRecurring ? 'National / Annual Holiday' : 'Emergency / Local Holiday');
 
@@ -173,7 +175,7 @@ exports.createHoliday = async (req, res) => {
   }
 };
 
-// ---------- UPDATE HOLIDAY ----------
+// ---------- UPDATE HOLIDAY (WITH MISTAKE RESTORATION) ----------
 exports.updateHoliday = async (req, res) => {
   try {
     const { id } = req.params;
@@ -192,6 +194,9 @@ exports.updateHoliday = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Not authorized to update holidays for another department' });
     }
 
+    const oldDate = holiday.date;
+    const oldTitle = holiday.title;
+
     if (title) holiday.title = title.trim();
     if (description !== undefined) holiday.description = description.trim();
     if (type) {
@@ -199,14 +204,14 @@ exports.updateHoliday = async (req, res) => {
       holiday.isRecurring = holiday.type === 'NATIONAL';
     }
 
-    if (date && date.trim() !== holiday.date) {
+    if (date && date.trim() !== oldDate) {
       date = date.trim();
       const todayStr = getTodayDateString();
       if (date < todayStr) {
         return res.status(400).json({ success: false, message: 'Cannot move holiday to a past date' });
       }
 
-      // Check collision with other holidays on new date
+      // Check collision on new date
       const collision = await Holiday.findOne({
         _id: { $ne: id },
         department: holiday.department,
@@ -222,22 +227,65 @@ exports.updateHoliday = async (req, res) => {
       holiday.date = date;
       holiday.monthDay = date.slice(5);
 
-      // Auto-cancel bookings on new date
-      const existingBookings = await Booking.find({
+      // 1. Restore bookings on oldDate (since holiday was moved away)
+      const oldCancelledBookings = await Booking.find({
+        department: holiday.department,
+        date: oldDate,
+        status: 'cancelled',
+        purpose: { $ne: 'TEMPORARY_LOCK' },
+      }).populate('roomId', 'name roomNumber building floor');
+
+      for (const booking of oldCancelledBookings) {
+        booking.status = 'active';
+        booking.conflictMessage = undefined;
+        await booking.save();
+
+        sendBookingRestorationEmail(booking, oldTitle).catch(() => {});
+
+        (async () => {
+          const facultyUser = await User.findOne({ email: booking.facultyEmail });
+          if (facultyUser) {
+            await Notification.create({
+              userId: facultyUser._id,
+              message: `🎉 Booking Restored: The holiday on ${oldDate} was rescheduled. Your reservation for Room "${booking.roomId?.name || 'Classroom'}" (${booking.startTime} - ${booking.endTime}) is now active.`,
+              type: 'booking-created',
+              metadata: {
+                roomId: booking.roomId?._id || booking.roomId,
+                roomName: booking.roomId?.name || 'Classroom',
+                date: booking.date,
+                startTime: booking.startTime,
+                endTime: booking.endTime,
+                bookingId: booking.id || booking._id,
+              },
+            });
+
+            emitToUser(facultyUser._id.toString(), 'booking-created', {
+              bookingId: booking.id || booking._id,
+              roomName: booking.roomId?.name || 'Classroom',
+              date: booking.date,
+              startTime: booking.startTime,
+              endTime: booking.endTime,
+            });
+          }
+        })().catch(() => {});
+      }
+
+      // 2. Auto-cancel bookings on new date
+      const newExistingBookings = await Booking.find({
         department: holiday.department,
         date,
         status: 'active',
         purpose: { $ne: 'TEMPORARY_LOCK' },
       }).populate('roomId', 'name roomNumber');
 
-      if (existingBookings.length > 0) {
+      if (newExistingBookings.length > 0) {
         const cancelReason = `Cancelled: Holiday rescheduled to ${date} (${holiday.title})`;
         await Booking.updateMany(
-          { _id: { $in: existingBookings.map((b) => b._id) } },
+          { _id: { $in: newExistingBookings.map((b) => b._id) } },
           { $set: { status: 'cancelled', conflictMessage: cancelReason } }
         );
 
-        existingBookings.forEach((b) => {
+        newExistingBookings.forEach((b) => {
           sendBookingCancellationEmail(b, cancelReason).catch(() => {});
         });
       }
@@ -268,7 +316,7 @@ exports.updateHoliday = async (req, res) => {
   }
 };
 
-// ---------- DELETE HOLIDAY ----------
+// ---------- DELETE HOLIDAY (WITH AUTOMATIC RESTORATION & EMAIL/NOTIFICATION) ----------
 exports.deleteHoliday = async (req, res) => {
   try {
     const { id } = req.params;
@@ -286,6 +334,54 @@ exports.deleteHoliday = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Not authorized to delete holidays for another department' });
     }
 
+    // 🔒 1. Find all bookings cancelled due to this holiday mistake
+    const cancelledBookings = await Booking.find({
+      department: holiday.department,
+      date: holiday.date,
+      status: 'cancelled',
+      purpose: { $ne: 'TEMPORARY_LOCK' },
+    }).populate('roomId', 'name roomNumber building floor');
+
+    let restoredCount = 0;
+
+    // 🔒 2. Restore each booking and notify faculty
+    for (const booking of cancelledBookings) {
+      booking.status = 'active';
+      booking.conflictMessage = undefined;
+      await booking.save();
+      restoredCount++;
+
+      sendBookingRestorationEmail(booking, holiday.title).catch(() => {});
+
+      (async () => {
+        const facultyUser = await User.findOne({ email: booking.facultyEmail });
+        if (facultyUser) {
+          await Notification.create({
+            userId: facultyUser._id,
+            message: `🎉 Booking Restored: The holiday on ${holiday.date} ("${holiday.title}") was revoked by the Department HOD. Your reservation for Room "${booking.roomId?.name || 'Classroom'}" (${booking.startTime} - ${booking.endTime}) is now confirmed and active.`,
+            type: 'booking-created',
+            metadata: {
+              roomId: booking.roomId?._id || booking.roomId,
+              roomName: booking.roomId?.name || 'Classroom',
+              date: booking.date,
+              startTime: booking.startTime,
+              endTime: booking.endTime,
+              bookingId: booking.id || booking._id,
+            },
+          });
+
+          emitToUser(facultyUser._id.toString(), 'booking-created', {
+            bookingId: booking.id || booking._id,
+            roomName: booking.roomId?.name || 'Classroom',
+            date: booking.date,
+            startTime: booking.startTime,
+            endTime: booking.endTime,
+          });
+        }
+      })().catch(() => {});
+    }
+
+    // 🔒 3. Delete the holiday record
     await Holiday.deleteOne({ _id: id });
 
     const io = getIO();
@@ -295,11 +391,16 @@ exports.deleteHoliday = async (req, res) => {
         date: holiday.date,
         department: holiday.department,
       });
+      io.emit('timetable-updated', {
+        department: holiday.department,
+        reason: 'holiday-deleted',
+      });
     }
 
     res.json({
       success: true,
-      message: `Holiday "${holiday.title}" removed. Classrooms and timetables restored.`,
+      message: `Holiday "${holiday.title}" revoked. Successfully restored ${restoredCount} cancelled reservation(s) and dispatched restoration notices to professors.`,
+      restoredCount,
     });
   } catch (error) {
     // console.error('Delete holiday error:', error);

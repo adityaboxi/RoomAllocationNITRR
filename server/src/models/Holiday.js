@@ -28,7 +28,7 @@ const HolidaySchema = new mongoose.Schema(
     },
     isRecurring: {
       type: Boolean,
-      default: true, // true = repeats every year; false = single day only
+      default: true, // true = repeats every year (National); false = one-time only (Emergency)
       index: true,
     },
     department: {
@@ -58,7 +58,20 @@ const HolidaySchema = new mongoose.Schema(
   }
 );
 
-// Atomic unique index: One holiday per date per department
+// Automatic hook: Enforce recurring rule based on holiday type
+HolidaySchema.pre('save', function (next) {
+  if (this.date) {
+    this.monthDay = this.date.slice(5);
+  }
+  if (this.type === 'EMERGENCY') {
+    this.isRecurring = false; // Emergency holidays NEVER recur in future years
+  } else if (this.type === 'NATIONAL') {
+    this.isRecurring = true; // National holidays ALWAYS recur every year
+  }
+  next();
+});
+
+// Indexes
 HolidaySchema.index({ department: 1, date: 1 }, { unique: true });
 HolidaySchema.index({ department: 1, isRecurring: 1, monthDay: 1 });
 
