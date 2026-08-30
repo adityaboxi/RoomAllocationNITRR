@@ -1,9 +1,10 @@
 const Room = require('../models/Room');
 const Booking = require('../models/Booking');
 const Timetable = require('../models/Timetable');
-const { getTodayDateString, getCurrentTimeHHMM } = require('../utils/helpers');
+const Holiday = require('../models/Holiday');
+const { getTodayDateString, getCurrentTimeHHMM, getDayOfWeek } = require('../utils/helpers');
 
-// ---------- GET DEPARTMENT STATS (With Atomic Auto-Completion) ----------
+// ---------- GET DEPARTMENT STATS (With Real-Time Live Occupancy) ----------
 exports.getDepartmentStats = async (req, res) => {
   try {
     let { department } = req.params;
@@ -23,8 +24,9 @@ exports.getDepartmentStats = async (req, res) => {
 
     const todayStr = getTodayDateString();
     const currentHHMM = getCurrentTimeHHMM();
+    const currentDay = getDayOfWeek(todayStr);
 
-    // 1. Auto-complete any past active bookings across the department
+    // 1. Auto-complete past active bookings
     await Booking.updateMany(
       {
         department,
@@ -38,16 +40,37 @@ exports.getDepartmentStats = async (req, res) => {
       { $set: { status: 'completed' } }
     );
 
-    // 2. Execute parallel aggregations for true active/upcoming bookings
+    // 2. Check if today is a declared department or national holiday
+    const holiday = await Holiday.findOne({
+      date: todayStr,
+      $or: [{ department }, { department: 'ALL' }],
+    });
+
+    // 3. Find rooms currently occupied right now by active bookings or timetable classes
     const [
       totalRooms,
-      availableRooms,
+      bookedRoomIds,
+      timetableRoomIds,
       activeBookings,
       todayBookings,
       totalTimetableEntries,
     ] = await Promise.all([
       Room.countDocuments({ department, isActive: true }),
-      Room.countDocuments({ department, isActive: true, isAvailable: true }),
+      Booking.distinct('roomId', {
+        department,
+        date: todayStr,
+        status: 'active',
+        purpose: { $ne: 'TEMPORARY_LOCK' },
+        startTime: { $lte: currentHHMM },
+        endTime: { $gt: currentHHMM },
+      }),
+      Timetable.distinct('roomId', {
+        department,
+        day: currentDay,
+        isActive: true,
+        startTime: { $lte: currentHHMM },
+        endTime: { $gt: currentHHMM },
+      }),
       Booking.countDocuments({
         department,
         status: 'active',
@@ -67,15 +90,26 @@ exports.getDepartmentStats = async (req, res) => {
       Timetable.countDocuments({ department, isActive: true }),
     ]);
 
+    const occupiedRoomIds = new Set([
+      ...bookedRoomIds.map((id) => id.toString()),
+      ...timetableRoomIds.map((id) => id.toString()),
+    ]);
+
+    // If today is holiday, 0 rooms are free. Otherwise: totalRooms - occupied right now
+    const availableRooms = holiday ? 0 : Math.max(0, totalRooms - occupiedRoomIds.size);
+
     res.json({
       success: true,
       data: {
         department,
         totalRooms,
-        availableRooms,
+        availableRooms, // Now reflects true real-time availability!
+        occupiedRooms: occupiedRoomIds.size,
         activeBookings,
         todayBookings,
         totalTimetable: totalTimetableEntries,
+        isHoliday: !!holiday,
+        holidayTitle: holiday?.title || null,
       },
     });
   } catch (error) {
