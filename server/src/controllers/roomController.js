@@ -103,7 +103,7 @@ exports.getRoom = async (req, res) => {
   }
 };
 
-// ---------- GET AVAILABLE ROOMS (WITH BRANCH FILTER & HOLIDAY GUARD) ----------
+// ---------- GET AVAILABLE ROOMS (WITH OCCUPANCY DETAILS & HOLIDAY GUARD) ----------
 exports.getAvailableRooms = async (req, res) => {
   try {
     let {
@@ -161,6 +161,7 @@ exports.getAvailableRooms = async (req, res) => {
       return res.json({
         success: true,
         data: [],
+        occupancyMap: {},
         total: 0,
         unavailable: totalActiveRoomsCount,
         isHoliday: true,
@@ -178,27 +179,48 @@ exports.getAvailableRooms = async (req, res) => {
     if (hasSmartBoard === 'true') baseQuery.hasSmartBoard = true;
     if (hasWiFi === 'true') baseQuery.hasWiFi = true;
 
-    const [bookedRoomIds, timetableRoomIds] = await Promise.all([
-      Booking.distinct('roomId', {
+    // Fetch active bookings and timetables colliding in this window
+    const [activeBookings, activeTimetables] = await Promise.all([
+      Booking.find({
         date,
         status: 'active',
+        purpose: { $ne: 'TEMPORARY_LOCK' },
         startTime: { $lt: endTime },
         endTime: { $gt: startTime },
-      }),
-      Timetable.distinct('roomId', {
+      }).lean(),
+      Timetable.find({
         day,
         isActive: true,
         startTime: { $lt: endTime },
         endTime: { $gt: startTime },
-      }),
+      }).lean(),
     ]);
 
-    const unavailableIds = [
-      ...new Set([
-        ...bookedRoomIds.map((id) => id.toString()),
-        ...timetableRoomIds.map((id) => id.toString()),
-      ]),
-    ];
+    const occupancyMap = {};
+    for (const b of activeBookings) {
+      occupancyMap[b.roomId.toString()] = {
+        type: 'BOOKING',
+        facultyEmail: b.facultyEmail,
+        facultyName: b.facultyName,
+        purpose: b.purpose,
+        startTime: b.startTime,
+        endTime: b.endTime,
+      };
+    }
+    for (const tt of activeTimetables) {
+      if (!occupancyMap[tt.roomId.toString()]) {
+        occupancyMap[tt.roomId.toString()] = {
+          type: 'TIMETABLE',
+          facultyName: tt.faculty,
+          facultyEmail: '',
+          purpose: `${tt.subject} (${tt.classGroup})`,
+          startTime: tt.startTime,
+          endTime: tt.endTime,
+        };
+      }
+    }
+
+    const unavailableIds = Object.keys(occupancyMap);
 
     const availableRooms = await Room.find({
       ...baseQuery,
@@ -215,6 +237,7 @@ exports.getAvailableRooms = async (req, res) => {
     res.json({
       success: true,
       data: formatted,
+      occupancyMap, // Full occupant details passed to frontend
       total: formatted.length,
       unavailable: totalActiveRoomsCount - formatted.length,
       isHoliday: false,

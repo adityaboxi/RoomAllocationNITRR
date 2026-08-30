@@ -5,6 +5,7 @@ import HolidayManager from './hod/HolidayManager';
 import BookingView from './BookingView';
 import RoomDashboard from './RoomDashboard';
 import { getDepartmentStats } from '../services/api';
+import { getSocket } from '../services/socket';
 import {
   ShieldCheck,
   Building2,
@@ -12,28 +13,54 @@ import {
   CalendarPlus,
   LayoutDashboard,
   Clock,
-  CheckCircle2,
   Palmtree,
 } from 'lucide-react';
 
 export default function HODDashboard({ user }) {
   const [stats, setStats] = useState(null);
-  const [activeTab, setActiveTab] = useState('live'); // 'live' | 'rooms' | 'timetable' | 'holidays' | 'book'
-
-  useEffect(() => {
-    if (user?.department) {
-      fetchStats();
-    }
-  }, [user?.department]);
+  const [activeTab, setActiveTab] = useState('live');
 
   const fetchStats = async () => {
     try {
+      if (!user?.department) return;
       const data = await getDepartmentStats(user.department);
       setStats(data?.data || null);
     } catch (err) {
       // Handled silently
     }
   };
+
+  useEffect(() => {
+    fetchStats();
+  }, [user?.department]);
+
+  // Real-Time Socket Synchronization across entire HOD Dashboard
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const handleSync = () => {
+      fetchStats();
+    };
+
+    socket.on('booking-created', handleSync);
+    socket.on('booking-cancelled', handleSync);
+    socket.on('room-locked', handleSync);
+    socket.on('room-unlocked', handleSync);
+    socket.on('holiday-added', handleSync);
+    socket.on('holiday-deleted', handleSync);
+    socket.on('timetable-updated', handleSync);
+
+    return () => {
+      socket.off('booking-created', handleSync);
+      socket.off('booking-cancelled', handleSync);
+      socket.off('room-locked', handleSync);
+      socket.off('room-unlocked', handleSync);
+      socket.off('holiday-added', handleSync);
+      socket.off('holiday-deleted', handleSync);
+      socket.off('timetable-updated', handleSync);
+    };
+  }, []);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 font-sans">
@@ -127,17 +154,17 @@ export default function HODDashboard({ user }) {
         </div>
       </div>
 
-      {/* Metric Summary Cards */}
+      {/* Clean 3-Metric Summary Cards */}
       {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 animate-fadeIn">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 animate-fadeIn">
           <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
             <div className="flex items-center justify-between text-slate-400 mb-1">
               <span className="text-xs font-semibold uppercase tracking-wider">Total Rooms</span>
               <Building2 className="w-4 h-4 text-indigo-500" />
             </div>
             <div className="text-2xl font-black text-slate-900 font-mono">{stats.totalRooms || 0}</div>
-            <div className="text-[11px] text-slate-400 mt-0.5">
-              {stats.availableRooms || 0} currently free
+            <div className="text-[11px] text-slate-500 mt-0.5 font-medium">
+              {stats.availableRooms || 0} free • {stats.occupiedRooms || 0} occupied
             </div>
           </div>
 
@@ -159,19 +186,6 @@ export default function HODDashboard({ user }) {
             </div>
             <div className="text-2xl font-black text-slate-900 font-mono">{stats.totalTimetable || 0}</div>
             <div className="text-[11px] text-slate-400 mt-0.5">Weekly semester classes</div>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
-            <div className="flex items-center justify-between text-slate-400 mb-1">
-              <span className="text-xs font-semibold uppercase tracking-wider">Department</span>
-              <ShieldCheck className="w-4 h-4 text-indigo-500" />
-            </div>
-            <div className="text-base font-bold text-slate-900 truncate">
-              {user?.department}
-            </div>
-            <div className="text-[11px] text-emerald-600 font-semibold mt-1 flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3" /> Live Sync Active
-            </div>
           </div>
         </div>
       )}

@@ -16,6 +16,7 @@ import {
   ArrowUpDown,
   RotateCcw,
   Palmtree,
+  GraduationCap,
 } from 'lucide-react';
 
 const extractErrorMessage = (err, fallback) => {
@@ -85,6 +86,7 @@ const roomMatchesSearchQuery = (room, query) => {
 export default function RoomDashboard({ user }) {
   const [rooms, setRooms] = useState([]);
   const [availableRoomIds, setAvailableRoomIds] = useState([]);
+  const [occupancyMap, setOccupancyMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -129,8 +131,7 @@ export default function RoomDashboard({ user }) {
       const date = getTodayDateString();
       const startTime = getCurrentTimeString();
       const [h, m] = startTime.split(':').map(Number);
-      const endH = (h + 1) % 24;
-      const endTime = `${String(endH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      const endTime = h >= 23 ? '23:59' : `${String(h + 1).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
       const dept = user?.department;
 
@@ -147,11 +148,13 @@ export default function RoomDashboard({ user }) {
           setIsHoliday(true);
           setHolidayTitle(availRes.holidayTitle || 'Declared Department Holiday');
           setAvailableRoomIds([]);
+          setOccupancyMap({});
         } else {
           setIsHoliday(false);
           setHolidayTitle('');
           const ids = (availRes?.data || []).map((r) => r.id || r._id);
           setAvailableRoomIds(ids);
+          setOccupancyMap(availRes?.occupancyMap || {});
         }
 
         setCurrentTime(new Date());
@@ -640,6 +643,13 @@ export default function RoomDashboard({ user }) {
           {filteredRooms.map((room) => {
             const roomId = room.id || room._id;
             const available = isRoomAvailable(room);
+            const occupancy = occupancyMap[roomId];
+
+            const isMyOngoingClass =
+              occupancy &&
+              ((user?.email && occupancy.facultyEmail?.toLowerCase() === user.email.toLowerCase()) ||
+                (user?.name && occupancy.facultyName?.toLowerCase() === user.name.toLowerCase()));
+
             const rawReviews = reviews[roomId] || [];
             const roomReviews = Array.isArray(rawReviews) ? rawReviews : rawReviews.reviews || [];
             const avgRating =
@@ -654,7 +664,9 @@ export default function RoomDashboard({ user }) {
               <div
                 key={roomId}
                 className={`bg-white border rounded-3xl p-5 shadow-sm flex flex-col justify-between transition-all duration-200 ${
-                  available
+                  isMyOngoingClass
+                    ? 'border-indigo-500 ring-2 ring-indigo-200 shadow-md bg-indigo-50/20'
+                    : available
                     ? 'border-slate-200 hover:border-indigo-300 hover:shadow-md'
                     : 'border-slate-200/70 bg-slate-50/50'
                 }`}
@@ -670,29 +682,52 @@ export default function RoomDashboard({ user }) {
                       </div>
                     </div>
 
-                    <span
-                      className={`px-2.5 py-1 text-xs font-bold rounded-full flex items-center gap-1.5 ${
-                        isHoliday
-                          ? 'bg-amber-100 text-amber-800'
-                          : available
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-rose-100 text-rose-800'
-                      }`}
-                    >
-                      <span
-                        className={`w-1.5 h-1.5 rounded-full ${
-                          isHoliday
-                            ? 'bg-amber-500'
-                            : available
-                            ? 'bg-emerald-500 animate-pulse'
-                            : 'bg-rose-500'
-                        }`}
-                      />
-                      <span>{isHoliday ? 'Holiday / Closed' : available ? 'Free Now' : 'In-Class'}</span>
-                    </span>
+                    {/* Dynamic Status Badge */}
+                    {isHoliday ? (
+                      <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-amber-100 text-amber-800">
+                        Holiday / Closed
+                      </span>
+                    ) : available ? (
+                      <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-emerald-100 text-emerald-800 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        <span>Free Now</span>
+                      </span>
+                    ) : isMyOngoingClass ? (
+                      <span className="px-3 py-1 text-xs font-extrabold rounded-full bg-indigo-600 text-white shadow-sm flex items-center gap-1.5 animate-pulse">
+                        <GraduationCap className="w-3.5 h-3.5" />
+                        <span>In Class</span>
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-rose-100 text-rose-800 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                        <span>Currently Class Running</span>
+                      </span>
+                    )}
                   </div>
 
-                  <div className="text-xs text-slate-600 flex items-center gap-2 mt-2">
+                  {/* Occupancy Detail Subtext */}
+                  {!available && occupancy && (
+                    <div
+                      className={`mt-2 p-2.5 rounded-xl text-xs font-medium border ${
+                        isMyOngoingClass
+                          ? 'bg-indigo-50 border-indigo-100 text-indigo-900'
+                          : 'bg-rose-50 border-rose-100 text-rose-900'
+                      }`}
+                    >
+                      {isMyOngoingClass ? (
+                        <div>
+                          <strong>Your Class:</strong> {occupancy.purpose} ({occupancy.startTime} - {occupancy.endTime})
+                        </div>
+                      ) : (
+                        <div>
+                          <strong>Class:</strong> {occupancy.purpose}{' '}
+                          {occupancy.facultyName ? `• Prof. ${occupancy.facultyName}` : ''} ({occupancy.startTime} - {occupancy.endTime})
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="text-xs text-slate-600 flex items-center gap-2 mt-2.5">
                     <span className="flex items-center gap-1 font-medium">
                       <Users className="w-3.5 h-3.5 text-slate-400" />
                       Cap: {room.capacity}

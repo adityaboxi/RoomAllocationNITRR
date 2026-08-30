@@ -1,45 +1,84 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import RoomDashboard from './RoomDashboard';
 import BookingView from './BookingView';
 import ReviewPopup from './ReviewPopup';
 import { getPendingReviews } from '../services/api';
+import { getSocket } from '../services/socket';
 import {
   LayoutDashboard,
   CalendarPlus,
   GraduationCap,
   Star,
+  CheckCircle2,
+  BellRing,
 } from 'lucide-react';
 
 export default function FacultyDashboard({ user }) {
   const [view, setView] = useState('dashboard'); // 'dashboard' | 'book'
   const [pendingReviews, setPendingReviews] = useState([]);
   const [activeReviewBooking, setActiveReviewBooking] = useState(null);
+  const isMountedRef = useRef(true);
 
-  // Check on mount and run a 20-second live background check for completed slots
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const checkPendingReviews = async () => {
+    try {
+      const res = await getPendingReviews();
+      const list = res?.data || [];
+      if (isMountedRef.current) {
+        setPendingReviews(list);
+        if (list.length > 0 && !activeReviewBooking) {
+          setActiveReviewBooking(list[0]);
+        }
+      }
+    } catch (err) {
+      // Handled silently
+    }
+  };
+
   useEffect(() => {
     if (user) {
       checkPendingReviews();
       const interval = setInterval(() => {
-        checkPendingReviews();
+        if (isMountedRef.current) {
+          checkPendingReviews();
+        }
       }, 20000);
 
       return () => clearInterval(interval);
     }
   }, [user]);
 
-  const checkPendingReviews = async () => {
-    try {
-      const res = await getPendingReviews();
-      const list = res?.data || [];
-      setPendingReviews(list);
-      // Auto-open review popup if pending reviews exist and none is currently open
-      if (list.length > 0 && !activeReviewBooking) {
-        setActiveReviewBooking(list[0]);
+  // Real-Time Socket Listeners for Professor
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const handleRealtimeSync = () => {
+      if (isMountedRef.current) {
+        checkPendingReviews();
       }
-    } catch (err) {
-      // Non-critical background lookup handled silently
-    }
-  };
+    };
+
+    socket.on('booking-created', handleRealtimeSync);
+    socket.on('booking-cancelled', handleRealtimeSync);
+    socket.on('holiday-added', handleRealtimeSync);
+    socket.on('holiday-deleted', handleRealtimeSync);
+    socket.on('timetable-updated', handleRealtimeSync);
+
+    return () => {
+      socket.off('booking-created', handleRealtimeSync);
+      socket.off('booking-cancelled', handleRealtimeSync);
+      socket.off('holiday-added', handleRealtimeSync);
+      socket.off('holiday-deleted', handleRealtimeSync);
+      socket.off('timetable-updated', handleRealtimeSync);
+    };
+  }, []);
 
   const handleReviewSubmitted = () => {
     setActiveReviewBooking(null);
@@ -67,9 +106,14 @@ export default function FacultyDashboard({ user }) {
                 Faculty
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-1">
-              Department of {user?.department} — NIT Raipur
-            </p>
+            <div className="flex items-center gap-2 mt-1">
+              <p className="text-xs text-slate-500">
+                Department of {user?.department} — NIT Raipur
+              </p>
+              <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3" /> Live Socket Active
+              </span>
+            </div>
           </div>
         </div>
 
@@ -103,13 +147,13 @@ export default function FacultyDashboard({ user }) {
         </div>
       </div>
 
-      {/* Pending Reviews Banner Reminder */}
+      {/* Pending Reviews Banner */}
       {pendingReviews.length > 0 && !activeReviewBooking && (
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center justify-between shadow-sm animate-fadeIn">
           <div className="flex items-center gap-2.5">
             <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
             <span className="text-xs font-bold text-amber-900">
-              You have {pendingReviews.length} completed class slot{pendingReviews.length > 1 ? 's' : ''} awaiting your feedback.
+              You have {pendingReviews.length} completed class slot{pendingReviews.length > 1 ? 's' : ''} awaiting your review.
             </span>
           </div>
           <button
