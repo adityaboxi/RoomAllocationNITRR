@@ -3,6 +3,10 @@
   "appName": "NITRR Rooms",
   "webDir": "dist",
   "server": {
-    "cleartext": true
+    "cleartext": true,
+    "allowNavigation": [
+      "roomallocationnitrr.onrender.com",
+      "*.onrender.com"
+    ]
   }
 }

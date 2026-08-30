@@ -16,29 +16,44 @@ const { errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
 
-// ---------- GLOBAL CORS CONFIGURATION (Dynamic from .env) ----------
-const allowedOrigins = (
-  process.env.CORS_ORIGIN ||
-  process.env.CLIENT_URL 
-)
-  .split(',')
-  .map((url) => url.trim());
+// Enable Trust Proxy for Render / Cloudflare deployments
+app.set('trust proxy', 1);
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow requests with valid origins, server-to-server, or mobile WebView
-      if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
-        callback(null, true);
-      } else {
-        callback(null, true);
-      }
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  })
-);
+// ---------- GLOBAL CORS CONFIGURATION (iOS WKWebView & Web Support) ----------
+const rawOrigins = process.env.CORS_ORIGIN || process.env.CLIENT_URL || '';
+const allowedOrigins = rawOrigins
+  ? rawOrigins.split(',').map((url) => url.trim()).filter(Boolean)
+  : [];
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    // 1. Allow mobile requests with no origin (native iOS/Android HTTP) or capacitor/ionic
+    if (
+      !origin ||
+      origin.startsWith('capacitor://') ||
+      origin.startsWith('ionic://') ||
+      origin.includes('localhost')
+    ) {
+      return callback(null, true);
+    }
+
+    // 2. Check allowed origins list from environment variables
+    if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+      return callback(null, true);
+    }
+
+    // 3. Fallback allow for mobile webview
+    return callback(null, true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  exposedHeaders: ['Authorization'],
+  optionsSuccessStatus: 200,
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // Explicitly handle preflight OPTIONS for iOS
 
 // Body Parsing Middlewares
 const bodyLimit = process.env.BODY_LIMIT || '10mb';

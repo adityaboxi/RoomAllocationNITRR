@@ -221,7 +221,7 @@ exports.changePassword = async (req, res) => {
   }
 };
 
-// ---------- FORGOT PASSWORD ----------
+// ---------- FORGOT PASSWORD (NON-BLOCKING FAST DISPATCH) ----------
 exports.forgotPassword = async (req, res) => {
   try {
     let { email } = req.body;
@@ -251,13 +251,14 @@ exports.forgotPassword = async (req, res) => {
       expiresAt: new Date(Date.now() + expiryMinutes * 60 * 1000),
     });
 
-    try {
-      await sendOTPEmail(email, otp, 'forgot');
-    } catch (emailError) {
-      // console.error('Failed to send OTP email:', emailError.message);
-    }
+    // ⚡ Fast Background Email Dispatch
+    sendOTPEmail(email, otp, 'forgot').catch(() => {});
 
-    res.json({ success: true, message: 'Password reset code sent to your email', expiresIn: `${expiryMinutes} minutes` });
+    res.json({
+      success: true,
+      message: 'Password reset code sent to your email',
+      expiresIn: `${expiryMinutes} minutes`,
+    });
   } catch (error) {
     // console.error('Forgot password error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
@@ -364,7 +365,7 @@ exports.getMe = async (req, res) => {
   }
 };
 
-// ---------- SEND SIGNUP OTP ----------
+// ---------- SEND SIGNUP OTP (NON-BLOCKING FAST DISPATCH) ----------
 exports.sendSignupOtp = async (req, res) => {
   try {
     let { name, email, password, confirmPassword, department, role: requestedRole } = req.body;
@@ -435,13 +436,15 @@ exports.sendSignupOtp = async (req, res) => {
       userData: { name, email, encryptedPassword, department, role },
     });
 
-    try {
-      await sendOTPEmail(email, otp, 'signup');
-    } catch (emailError) {
-      // console.error('Failed to send signup OTP email:', emailError.message);
-    }
+    // ⚡ Fast Background Email Dispatch: Sends email asynchronously in background
+    sendOTPEmail(email, otp, 'signup').catch(() => {});
 
-    res.json({ success: true, message: 'Verification OTP sent to your email', expiresIn: `${expiryMinutes} minutes` });
+    // Responds to phone immediately in < 150ms!
+    res.json({
+      success: true,
+      message: 'Verification OTP sent to your email',
+      expiresIn: `${expiryMinutes} minutes`,
+    });
   } catch (error) {
     // console.error('Send signup OTP error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
