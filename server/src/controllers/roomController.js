@@ -38,7 +38,6 @@ exports.getRooms = async (req, res) => {
 
     const query = { isActive: true };
 
-    // Support filtering by specific department or 'ALL'
     if (department && department !== 'ALL') {
       query.department = department.trim();
     } else if (!department && req.user && req.user.role === 'HOD') {
@@ -103,7 +102,7 @@ exports.getRoom = async (req, res) => {
   }
 };
 
-// ---------- GET AVAILABLE ROOMS (WITH OCCUPANCY DETAILS & HOLIDAY GUARD) ----------
+// ---------- GET AVAILABLE ROOMS (WITH AUTO-ADJUSTING TIME GUARD) ----------
 exports.getAvailableRooms = async (req, res) => {
   try {
     let {
@@ -120,16 +119,29 @@ exports.getAvailableRooms = async (req, res) => {
       hasWiFi,
     } = req.query;
 
-    if (!date || !startTime || !endTime) {
-      return res.status(400).json({ success: false, message: 'date, startTime and endTime are required' });
+    if (!date) {
+      date = getTodayDateString();
+    }
+    date = date.trim();
+
+    // ⚡ Auto-calculate or correct startTime and endTime if missing or invalid
+    if (!startTime || typeof startTime !== 'string') {
+      const now = new Date();
+      startTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    } else {
+      startTime = startTime.trim();
     }
 
-    date = date.trim();
-    startTime = startTime.trim();
-    endTime = endTime.trim();
-
-    if (startTime >= endTime) {
-      return res.status(400).json({ success: false, message: 'startTime must be strictly before endTime' });
+    if (!endTime || typeof endTime !== 'string' || startTime >= endTime) {
+      const [h, m] = startTime.split(':').map(Number);
+      if (h >= 23) {
+        startTime = '23:00';
+        endTime = '23:59';
+      } else {
+        endTime = `${String(h + 1).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}`;
+      }
+    } else {
+      endTime = endTime.trim();
     }
 
     const day = getDayOfWeek(date);
@@ -146,7 +158,7 @@ exports.getAvailableRooms = async (req, res) => {
       baseQuery.department = targetDept;
     }
 
-    // 🔒 1. HOLIDAY CHECK: Check for National or Department-specific holiday
+    // 🔒 1. HOLIDAY CHECK
     const holidayQuery = { date };
     if (targetDept) {
       holidayQuery.$or = [{ department: targetDept }, { department: 'ALL' }];
@@ -237,7 +249,7 @@ exports.getAvailableRooms = async (req, res) => {
     res.json({
       success: true,
       data: formatted,
-      occupancyMap, // Full occupant details passed to frontend
+      occupancyMap,
       total: formatted.length,
       unavailable: totalActiveRoomsCount - formatted.length,
       isHoliday: false,
@@ -267,7 +279,6 @@ exports.createRoom = async (req, res) => {
     roomNumber = roomNumber.trim().toUpperCase();
     const department = req.user.department;
 
-    // Check across entire institute
     const existing = await Room.findOne({
       isActive: true,
       $or: [
@@ -293,7 +304,6 @@ exports.createRoom = async (req, res) => {
       }
     }
 
-    // Clean up any stale soft-deleted duplicate records
     await Room.deleteMany({
       isActive: false,
       $or: [
@@ -316,10 +326,8 @@ exports.createRoom = async (req, res) => {
 
     const io = getIO();
     if (io) {
-      io.emit('timetable-updated', {
-        department,
-        reason: 'room-created',
-      });
+      io.emit('timetable-updated', { department, reason: 'room-created' });
+      io.emit('room-created', { room });
     }
 
     res.status(201).json({ success: true, message: 'Room created successfully', data: room });
@@ -414,10 +422,8 @@ exports.updateRoom = async (req, res) => {
 
     const io = getIO();
     if (io) {
-      io.emit('timetable-updated', {
-        department: room.department,
-        reason: 'room-updated',
-      });
+      io.emit('timetable-updated', { department: room.department, reason: 'room-updated' });
+      io.emit('room-updated', { room: updatedRoom });
     }
 
     res.json({ success: true, message: 'Room updated successfully', data: updatedRoom });
@@ -456,10 +462,7 @@ exports.toggleRoomAvailability = async (req, res) => {
 
     const io = getIO();
     if (io) {
-      io.emit('timetable-updated', {
-        department: room.department,
-        reason: 'room-availability-toggled',
-      });
+      io.emit('timetable-updated', { department: room.department, reason: 'room-availability-toggled' });
     }
 
     res.json({
@@ -550,16 +553,8 @@ exports.deleteRoom = async (req, res) => {
 
     const io = getIO();
     if (io) {
-      io.emit('timetable-updated', {
-        department: room.department,
-        roomId: room._id,
-        reason: 'Room deleted',
-      });
-      io.emit('booking-cancelled', {
-        roomId: room._id,
-        roomName: room.name,
-        reason: cancellationReason,
-      });
+      io.emit('timetable-updated', { department: room.department, roomId: room._id, reason: 'Room deleted' });
+      io.emit('booking-cancelled', { roomId: room._id, roomName: room.name, reason: cancellationReason });
     }
 
     res.json({
@@ -643,7 +638,6 @@ exports.getRoomAvailability = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Room not found' });
     }
 
-    // 🔒 Holiday Check
     const holiday = await Holiday.findOne({
       date: targetDate,
       $or: [{ department: room.department }, { department: 'ALL' }],

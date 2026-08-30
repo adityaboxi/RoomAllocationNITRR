@@ -129,9 +129,20 @@ export default function RoomDashboard({ user }) {
 
     try {
       const date = getTodayDateString();
-      const startTime = getCurrentTimeString();
-      const [h, m] = startTime.split(':').map(Number);
-      const endTime = h >= 23 ? '23:59' : `${String(h + 1).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      const now = new Date();
+      const h = now.getHours();
+      const m = now.getMinutes();
+
+      let startTime = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      let endTime;
+
+      // ⚡ Midnight-Safe Calculation: strictly guarantees startTime < endTime at all hours
+      if (h >= 23) {
+        startTime = '23:00';
+        endTime = '23:59';
+      } else {
+        endTime = `${String(h + 1).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      }
 
       const dept = user?.department;
 

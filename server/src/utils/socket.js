@@ -4,17 +4,16 @@ const jwt = require('jsonwebtoken');
 let io = null;
 
 exports.initSocket = (server) => {
-  const allowedOrigins = (process.env.CORS_ORIGIN || process.env.CLIENT_URL || 'http://localhost:5173')
-    .split(',')
-    .map((url) => url.trim());
-
   io = socketIo(server, {
     cors: {
-      origin: allowedOrigins.includes('*') ? '*' : allowedOrigins,
+      origin: (origin, callback) => {
+        // Dynamically reflects origin for both Web & iOS WKWebView
+        callback(null, true);
+      },
       credentials: true,
     },
     transports: ['websocket', 'polling'],
-    pingTimeout: parseInt(process.env.SOCKET_PING_TIMEOUT, 10) || 20000,
+    pingTimeout: parseInt(process.env.SOCKET_PING_TIMEOUT, 10) || 30000,
     pingInterval: parseInt(process.env.SOCKET_PING_INTERVAL, 10) || 25000,
   });
 

@@ -64,7 +64,7 @@ const getDefaultEndHHMM = (startStr) => {
   }
 
   const nextH = h + 1;
-  return `${String(nextH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  return `${String(nextH).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}`;
 };
 
 const FALLBACK_DEPARTMENTS = [
@@ -228,22 +228,21 @@ export default function BookingView({ user }) {
 
   const fetchAvailableRooms = async (signal) => {
     try {
-      const { date, startTime, endTime } = bookingData;
+      let { date, startTime, endTime } = bookingData;
       let end = endTime;
 
-      if (!end && startTime) {
-        end = getDefaultEndHHMM(startTime);
+      if (!startTime) {
+        startTime = getCurrentTimeHHMM();
       }
 
-      if (!date || !startTime || !end || startTime >= end) {
-        setAvailableRoomIds([]);
-        return;
+      if (!end || startTime >= end) {
+        end = getDefaultEndHHMM(startTime);
       }
 
       const nowTime = getCurrentTimeHHMM();
       if (date === todayStr && startTime < nowTime) {
-        setAvailableRoomIds([]);
-        return;
+        startTime = nowTime;
+        end = getDefaultEndHHMM(nowTime);
       }
 
       const deptParam = selectedBranch === 'ALL' ? undefined : selectedBranch;
@@ -312,6 +311,7 @@ export default function BookingView({ user }) {
     }
   }, [reviews, selectedReviewRoom]);
 
+  // ⚡ Smart Input Handler with Automatic End Time Forward Shift
   const handleBookingInput = (e) => {
     const { name, value } = e.target;
     setError('');
@@ -331,12 +331,13 @@ export default function BookingView({ user }) {
         if (prev.date === todayStr && value < currentNow) {
           setError(`Selected start time (${value}) has already passed.`);
         }
+        // Automatically calculate a valid end time 1 hour forward!
         updated.endTime = getDefaultEndHHMM(value);
       }
 
       if (name === 'endTime') {
         if (value <= prev.startTime) {
-          setError('End time must be strictly after start time.');
+          updated.endTime = getDefaultEndHHMM(prev.startTime);
         }
       }
 
@@ -358,9 +359,10 @@ export default function BookingView({ user }) {
       return;
     }
 
-    if (bookingData.startTime >= bookingData.endTime) {
-      setError('End time must be strictly after start time.');
-      return;
+    let { startTime, endTime } = bookingData;
+    if (startTime >= endTime) {
+      endTime = getDefaultEndHHMM(startTime);
+      setBookingData((prev) => ({ ...prev, endTime }));
     }
 
     setSelectedRoom(room);
@@ -370,8 +372,8 @@ export default function BookingView({ user }) {
       const lockRes = await lockRoom(
         roomId,
         bookingData.date,
-        bookingData.startTime,
-        bookingData.endTime
+        startTime,
+        endTime
       );
       if (lockRes.success && lockRes.lockId) {
         setActiveLockId(lockRes.lockId);
@@ -402,8 +404,7 @@ export default function BookingView({ user }) {
     }
 
     if (startTime >= endTime) {
-      setError('Start time must be strictly before end time.');
-      return;
+      endTime = getDefaultEndHHMM(startTime);
     }
 
     if (date === todayStr && startTime < currentNow) {
@@ -931,7 +932,7 @@ export default function BookingView({ user }) {
       {selectedReviewRoom && selectedRoomReviews !== null && (
         <ReviewsModal
           room={selectedReviewRoom}
-          reviews={selectedRoomReviews}
+          reviews={selectedReviewRoomReviews}
           onClose={() => {
             setSelectedReviewRoom(null);
             setSelectedRoomReviews(null);
