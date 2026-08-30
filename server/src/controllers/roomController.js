@@ -19,7 +19,7 @@ const getTodayDateString = () => {
   return `${year}-${month}-${day}`;
 };
 
-// ---------- GET ROOMS (Department Isolated & Search Filtered) ----------
+// ---------- GET ROOMS (Branch Filter & Search Support) ----------
 exports.getRooms = async (req, res) => {
   try {
     const {
@@ -38,10 +38,11 @@ exports.getRooms = async (req, res) => {
 
     const query = { isActive: true };
 
-    if (req.user && req.user.role === 'HOD') {
-      query.department = req.user.department;
-    } else if (department) {
+    // Support filtering by specific department or 'ALL'
+    if (department && department !== 'ALL') {
       query.department = department.trim();
+    } else if (!department && req.user && req.user.role === 'HOD') {
+      query.department = req.user.department;
     }
 
     if (floor) query.floor = floor.trim();
@@ -102,7 +103,7 @@ exports.getRoom = async (req, res) => {
   }
 };
 
-// ---------- GET AVAILABLE ROOMS (WITH HOLIDAY GUARD) ----------
+// ---------- GET AVAILABLE ROOMS (WITH BRANCH FILTER & HOLIDAY GUARD) ----------
 exports.getAvailableRooms = async (req, res) => {
   try {
     let {
@@ -134,17 +135,26 @@ exports.getAvailableRooms = async (req, res) => {
     const day = getDayOfWeek(date);
     const baseQuery = { isAvailable: true, isActive: true };
 
-    const targetDept = req.user && req.user.role === 'HOD' ? req.user.department : department ? department.trim() : req.user?.department;
+    let targetDept = null;
+    if (department && department !== 'ALL') {
+      targetDept = department.trim();
+    } else if (!department && req.user && req.user.role === 'HOD') {
+      targetDept = req.user.department;
+    }
+
     if (targetDept) {
       baseQuery.department = targetDept;
     }
 
-    // 🔒 1. HOLIDAY CHECK: If date is a declared holiday, all rooms are closed
-    const holiday = await Holiday.findOne({
-      date,
-      $or: [{ department: targetDept }, { department: 'ALL' }],
-    });
+    // 🔒 1. HOLIDAY CHECK: Check for National or Department-specific holiday
+    const holidayQuery = { date };
+    if (targetDept) {
+      holidayQuery.$or = [{ department: targetDept }, { department: 'ALL' }];
+    } else {
+      holidayQuery.department = 'ALL';
+    }
 
+    const holiday = await Holiday.findOne(holidayQuery);
     const totalActiveRoomsCount = await Room.countDocuments(baseQuery);
 
     if (holiday) {
