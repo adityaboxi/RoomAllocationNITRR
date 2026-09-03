@@ -5,6 +5,7 @@ import api, {
   updateTimetableEntry,
   deleteTimetableEntry,
 } from '../../services/api';
+import { getSocket } from '../../services/socket';
 import {
   Calendar,
   Download,
@@ -90,6 +91,28 @@ export default function TimetableManager({ user }) {
 
   useEffect(() => {
     fetchRooms();
+
+    const socket = getSocket();
+    if (!socket) return;
+
+    const handleTimetableLiveSync = () => {
+      fetchScheduleTable();
+    };
+    const handleRoomLiveSync = () => {
+      fetchRooms();
+    };
+
+    socket.on('timetable-updated', handleTimetableLiveSync);
+    socket.on('room-created', handleRoomLiveSync);
+    socket.on('room-updated', handleRoomLiveSync);
+    socket.on('room-deleted', handleRoomLiveSync);
+
+    return () => {
+      socket.off('timetable-updated', handleTimetableLiveSync);
+      socket.off('room-created', handleRoomLiveSync);
+      socket.off('room-updated', handleRoomLiveSync);
+      socket.off('room-deleted', handleRoomLiveSync);
+    };
   }, [user?.department]);
 
   useEffect(() => {
@@ -258,6 +281,7 @@ export default function TimetableManager({ user }) {
   };
 
   const handleSubmitFile = async () => {
+    if (uploading) return;
     if (!selectedFile) {
       setError('Please choose a valid spreadsheet file first.');
       return;
@@ -270,6 +294,7 @@ export default function TimetableManager({ user }) {
     setError('');
     setSuccess('');
     setUploading(true);
+    console.log(`📊 [TIMETABLE] Uploading schedule: sem=${uploadSemester} sec=${uploadSection} room=${uploadRoomId}`);
 
     const formData = new FormData();
     formData.append('file', selectedFile);
@@ -282,6 +307,7 @@ export default function TimetableManager({ user }) {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
+      console.log(`✅ [TIMETABLE] Upload succeeded`);
       setSuccess(data.data?.message || 'Timetable published successfully!');
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -290,7 +316,9 @@ export default function TimetableManager({ user }) {
       setFilterRoomId(uploadRoomId);
       await fetchScheduleTable();
     } catch (err) {
-      setError(extractErrorMessage(err, 'Failed to upload timetable file.'));
+      const errMsg = extractErrorMessage(err, 'Failed to upload timetable file.');
+      console.error('❌ [TIMETABLE] Upload failed:', errMsg);
+      setError(errMsg);
     } finally {
       setUploading(false);
     }
@@ -326,7 +354,7 @@ export default function TimetableManager({ user }) {
         } else if (day === 'Monday' && slot.s === '08:10') {
           csvContent += `${day},${slot.s},${slot.e},Data Structures,${group},Dr. Rajesh Kumar\n`;
         } else {
-          csvContent += `${day},${slot.s},${slot.e},,${group},\n`;
+          csvContent += `${day},${slot.s},${slot.e},,,${group}\n`;
         }
       });
     });
@@ -343,6 +371,7 @@ export default function TimetableManager({ user }) {
   };
 
   const handleUpdateEntry = async (entryId, updatedData) => {
+    if (loading) return;
     if (!updatedData.startTime || !updatedData.endTime || !updatedData.subject || !updatedData.faculty) {
       setError('Start Time, End Time, Subject, and Faculty are all required.');
       return;
@@ -362,6 +391,8 @@ export default function TimetableManager({ user }) {
 
     setLoading(true);
     setError('');
+    console.log(`📝 [TIMETABLE] Updating entry: ${entryId}`, updatedData);
+
     try {
       const cleanRoomId =
         updatedData.roomId && typeof updatedData.roomId === 'object'
@@ -369,27 +400,36 @@ export default function TimetableManager({ user }) {
           : updatedData.roomId;
 
       await updateTimetableEntry(entryId, { ...updatedData, roomId: cleanRoomId });
+      console.log(`✅ [TIMETABLE] Entry ${entryId} updated`);
       setSuccess('Timetable entry updated successfully.');
       setEditingEntry(null);
       await fetchScheduleTable();
     } catch (err) {
-      setError(extractErrorMessage(err, 'Failed to update timetable entry.'));
+      const errMsg = extractErrorMessage(err, 'Failed to update timetable entry.');
+      console.error('❌ [TIMETABLE] Update entry failed:', errMsg);
+      setError(errMsg);
     } finally {
       setLoading(false);
     }
   };
 
   const handleDeleteEntry = async (entryId) => {
+    if (actionLoadingId) return;
     if (!window.confirm('Are you sure you want to delete this schedule slot?')) return;
     setActionLoadingId(entryId);
     setError('');
     setSuccess('');
+    console.log(`🗑️  [TIMETABLE] Deleting entry: ${entryId}`);
+
     try {
       await deleteTimetableEntry(entryId);
+      console.log(`✅ [TIMETABLE] Entry ${entryId} deleted`);
       setSuccess('Slot removed from timetable.');
       await fetchScheduleTable();
     } catch (err) {
-      setError(extractErrorMessage(err, 'Failed to delete timetable entry.'));
+      const errMsg = extractErrorMessage(err, 'Failed to delete timetable entry.');
+      console.error('❌ [TIMETABLE] Delete entry failed:', errMsg);
+      setError(errMsg);
     } finally {
       setActionLoadingId(null);
     }

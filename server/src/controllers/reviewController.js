@@ -54,7 +54,7 @@ exports.getPendingReviews = async (req, res) => {
 
     res.json({ success: true, data: pendingReviews, total: pendingReviews.length });
   } catch (error) {
-    // console.error('Get pending reviews error:', error);
+    console.error("❌ [REVIEW]", 'Get pending reviews error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -124,7 +124,7 @@ exports.submitReview = async (req, res) => {
 
     res.status(201).json({ success: true, message: 'Review submitted successfully', data: review });
   } catch (error) {
-    // console.error('Submit review error:', error);
+    console.error("❌ [REVIEW]", 'Submit review error:', error);
     if (error.code === 11000) {
       return res.status(400).json({ success: false, message: 'A review for this booking already exists' });
     }
@@ -158,7 +158,7 @@ exports.getRoomReviews = async (req, res) => {
       },
     });
   } catch (error) {
-    // console.error('Get room reviews error:', error);
+    console.error("❌ [REVIEW]", 'Get room reviews error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -177,7 +177,7 @@ exports.getMyReviews = async (req, res) => {
       total: reviews.length,
     });
   } catch (error) {
-    // console.error('Get my reviews error:', error);
+    console.error("❌ [REVIEW]", 'Get my reviews error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

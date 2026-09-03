@@ -71,6 +71,7 @@ export default function HODDashboard({ user }) {
     socket.on('timetable-updated', handleSync);
     socket.on('room-created', handleSync);
     socket.on('room-updated', handleSync);
+    socket.on('room-deleted', handleSync);
 
     return () => {
       socket.off('booking-created', handleSync);
@@ -83,6 +84,7 @@ export default function HODDashboard({ user }) {
       socket.off('timetable-updated', handleSync);
       socket.off('room-created', handleSync);
       socket.off('room-updated', handleSync);
+      socket.off('room-deleted', handleSync);
     };
   }, []);
 

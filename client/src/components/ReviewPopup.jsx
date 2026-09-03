@@ -22,6 +22,7 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (loading) return;
     if (rating === 0) {
       setError('Please select a star rating between 1 and 5.');
       return;
@@ -29,6 +30,7 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
 
     setLoading(true);
     setError('');
+    console.log(`⭐ [REVIEW] Submitting review for booking: ${bookingId} | Rating: ${rating}`);
 
     try {
       await createReview(
@@ -36,11 +38,14 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
         rating,
         (comment || '').trim() || 'No comment provided'
       );
+      console.log(`✅ [REVIEW] Review submitted successfully for booking: ${bookingId}`);
       if (onSubmit) {
         onSubmit({ bookingId, rating, comment });
       }
     } catch (err) {
-      setError(extractErrorMessage(err, 'Failed to submit review. Please try again.'));
+      const errMsg = extractErrorMessage(err, 'Failed to submit review. Please try again.');
+      console.error('❌ [REVIEW] Submit failed:', errMsg);
+      setError(errMsg);
     } finally {
       setLoading(false);
     }

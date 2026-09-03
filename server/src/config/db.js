@@ -14,20 +14,20 @@ const connectDB = async () => {
       socketTimeoutMS: 45000,
     });
 
-    // console.log(`✅ MongoDB Connected: ${conn.connection.host}/${conn.connection.name}`);
-    // console.log(`🏊 Connection Pool: Min ${minPoolSize}, Max ${maxPoolSize}`);
+    console.log(`✅ [DB] MongoDB Connected: ${conn.connection.host}/${conn.connection.name}`);
+    console.log(`🏊 [DB] Connection Pool: Min ${minPoolSize}, Max ${maxPoolSize}`);
 
     mongoose.connection.on('error', (err) => {
-      // console.error('❌ MongoDB Runtime Error:', err);
+      console.error('❌ [DB] MongoDB Runtime Error:', err.message);
     });
 
     mongoose.connection.on('disconnected', () => {
-      // console.warn('⚠️ MongoDB Disconnected.');
+      console.warn('⚠️  [DB] MongoDB Disconnected.');
     });
 
     return conn;
   } catch (error) {
-    // console.error('❌ MongoDB Connection Error:', error.message);
+    console.error('❌ [DB] MongoDB Connection Error:', error.message);
     process.exit(1);
   }
 };

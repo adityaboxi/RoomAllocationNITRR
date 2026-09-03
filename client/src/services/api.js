@@ -34,6 +34,7 @@ api.interceptors.response.use(
       (typeof error.response?.data === 'string' ? error.response.data : null) ||
       error.message ||
       'Server request failed. Please check your connection.';
+    console.error(`❌ [API ERROR] ${error.config?.method?.toUpperCase() || 'REQ'} ${error.config?.url || ''}:`, message);
     return Promise.reject(new Error(message));
   }
 );

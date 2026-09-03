@@ -898,6 +898,16 @@ exports.updateTimetableEntry = async (req, res) => {
 
     await cancelConflictingBookings([entry], entry.department);
 
+    const io = getIO();
+    if (io) {
+      io.emit('timetable-updated', {
+        department: entry.department,
+        roomId: entry.roomId,
+        day: entry.day,
+        reason: 'entry-updated',
+      });
+    }
+
     const updated = await Timetable.findById(id).populate('roomId', 'name roomNumber floor building department');
     res.json({ success: true, message: 'Timetable entry updated successfully', data: updated });
   } catch (error) {
@@ -925,6 +935,16 @@ exports.deleteTimetableEntry = async (req, res) => {
 
     entry.isActive = false;
     await entry.save();
+
+    const io = getIO();
+    if (io) {
+      io.emit('timetable-updated', {
+        department: entry.department,
+        roomId: entry.roomId,
+        day: entry.day,
+        reason: 'entry-deleted',
+      });
+    }
 
     res.json({ success: true, message: 'Timetable entry deleted successfully' });
   } catch (error) {

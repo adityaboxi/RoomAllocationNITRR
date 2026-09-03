@@ -76,7 +76,7 @@ exports.getRooms = async (req, res) => {
 
     res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
-    // console.error('Get rooms error:', error);
+    console.error("❌ [ROOM]", 'Get rooms error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -97,7 +97,7 @@ exports.getRoom = async (req, res) => {
 
     res.json({ success: true, data: room });
   } catch (error) {
-    // console.error('Get room error:', error);
+    console.error("❌ [ROOM]", 'Get room error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -191,6 +191,14 @@ exports.getAvailableRooms = async (req, res) => {
     if (hasSmartBoard === 'true') baseQuery.hasSmartBoard = true;
     if (hasWiFi === 'true') baseQuery.hasWiFi = true;
 
+    // 🧹 Auto-clean expired temporary locks so they never show as falsely occupied
+    const lockExpirySecs = parseInt(process.env.LOCK_EXPIRY_SECONDS, 10) || 300;
+    const lockCutoff = new Date(Date.now() - lockExpirySecs * 1000);
+    await Booking.deleteMany({
+      purpose: 'TEMPORARY_LOCK',
+      lockedAt: { $lt: lockCutoff },
+    });
+
     // Fetch active bookings and timetables colliding in this window
     const [activeBookings, activeTimetables] = await Promise.all([
       Booking.find({
@@ -255,7 +263,7 @@ exports.getAvailableRooms = async (req, res) => {
       filters: { department: targetDept, floor, building, roomType, hasProjector, hasAC, hasSmartBoard, hasWiFi },
     });
   } catch (error) {
-    // console.error('Get available rooms error:', error);
+    console.error("❌ [ROOM]", 'Get available rooms error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -332,7 +340,7 @@ exports.createRoom = async (req, res) => {
 
     res.status(201).json({ success: true, message: 'Room created and allocated successfully', data: room });
   } catch (error) {
-    // console.error('Create room error:', error);
+    console.error("❌ [ROOM]", 'Create room error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -487,7 +495,7 @@ exports.updateRoom = async (req, res) => {
 
     res.json({ success: true, message: 'Room updated successfully', data: updatedRoom });
   } catch (error) {
-    // console.error('Update room error:', error);
+    console.error("❌ [ROOM]", 'Update room error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -528,7 +536,7 @@ exports.toggleRoomAvailability = async (req, res) => {
       data: room,
     });
   } catch (error) {
-    // console.error('Toggle room error:', error);
+    console.error("❌ [ROOM]", 'Toggle room error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -690,7 +698,7 @@ exports.deleteRoom = async (req, res) => {
           });
         }
       } catch (notifyErr) {
-        // console.error('[deleteRoom] Notification error:', notifyErr);
+        console.error("❌ [ROOM]", '[deleteRoom] Notification error:', notifyErr);
       }
     })().catch(() => {});
 
@@ -713,7 +721,7 @@ exports.deleteRoom = async (req, res) => {
       },
     });
   } catch (error) {
-    // console.error('Delete room error:', error);
+    console.error("❌ [ROOM]", 'Delete room error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 };

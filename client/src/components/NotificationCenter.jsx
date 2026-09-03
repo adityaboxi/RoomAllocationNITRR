@@ -54,8 +54,11 @@ export default function NotificationCenter({
 
     try {
       await markAsRead(id);
+      console.log(`🔔 [NOTIF] Marked notification read: ${id}`);
     } catch (err) {
-      setError(extractErrorMessage(err, 'Failed to update notification status.'));
+      const errMsg = extractErrorMessage(err, 'Failed to update notification status.');
+      console.error('❌ [NOTIF] Mark read error:', errMsg);
+      setError(errMsg);
       if (onRefresh) onRefresh();
     }
   };
@@ -68,8 +71,11 @@ export default function NotificationCenter({
 
     try {
       await markAllAsRead();
+      console.log(`🔔 [NOTIF] Marked all notifications read`);
     } catch (err) {
-      setError(extractErrorMessage(err, 'Failed to mark all notifications as read.'));
+      const errMsg = extractErrorMessage(err, 'Failed to mark all notifications as read.');
+      console.error('❌ [NOTIF] Mark all read error:', errMsg);
+      setError(errMsg);
       if (onRefresh) onRefresh();
     }
   };
@@ -82,8 +88,11 @@ export default function NotificationCenter({
 
     try {
       await deleteNotification(id);
+      console.log(`🗑️  [NOTIF] Deleted notification: ${id}`);
     } catch (err) {
-      setError(extractErrorMessage(err, 'Failed to delete notification.'));
+      const errMsg = extractErrorMessage(err, 'Failed to delete notification.');
+      console.error('❌ [NOTIF] Delete error:', errMsg);
+      setError(errMsg);
       if (onRefresh) onRefresh();
     }
   };
@@ -99,8 +108,11 @@ export default function NotificationCenter({
 
     try {
       await deleteAll();
+      console.log(`🗑️  [NOTIF] Cleared all notifications`);
     } catch (err) {
-      setError(extractErrorMessage(err, 'Failed to clear notifications.'));
+      const errMsg = extractErrorMessage(err, 'Failed to clear notifications.');
+      console.error('❌ [NOTIF] Clear all error:', errMsg);
+      setError(errMsg);
       if (onRefresh) onRefresh();
     }
   };

@@ -7,6 +7,7 @@ import {
   toggleRoomAvailability,
   deleteRoom,
 } from '../../services/api';
+import { getSocket } from '../../services/socket';
 import {
   Building2,
   Plus,
@@ -74,6 +75,33 @@ export default function RoomManager({ user }) {
 
   useEffect(() => {
     fetchRooms();
+
+    const socket = getSocket();
+    if (!socket) return;
+
+    const handleRoomLiveSync = () => {
+      fetchRooms();
+    };
+
+    socket.on('room-created', handleRoomLiveSync);
+    socket.on('room-updated', handleRoomLiveSync);
+    socket.on('room-deleted', handleRoomLiveSync);
+    socket.on('booking-created', handleRoomLiveSync);
+    socket.on('booking-cancelled', handleRoomLiveSync);
+    socket.on('room-locked', handleRoomLiveSync);
+    socket.on('room-unlocked', handleRoomLiveSync);
+    socket.on('timetable-updated', handleRoomLiveSync);
+
+    return () => {
+      socket.off('room-created', handleRoomLiveSync);
+      socket.off('room-updated', handleRoomLiveSync);
+      socket.off('room-deleted', handleRoomLiveSync);
+      socket.off('booking-created', handleRoomLiveSync);
+      socket.off('booking-cancelled', handleRoomLiveSync);
+      socket.off('room-locked', handleRoomLiveSync);
+      socket.off('room-unlocked', handleRoomLiveSync);
+      socket.off('timetable-updated', handleRoomLiveSync);
+    };
   }, [user?.department]);
 
   const fetchRooms = async () => {
@@ -119,6 +147,7 @@ export default function RoomManager({ user }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (loading) return;
     setError('');
     setSuccess('');
 
@@ -166,20 +195,26 @@ export default function RoomManager({ user }) {
       department: user?.department,
     };
 
+    console.log(`🏫 [ROOM MGR] Saving room: ${payload.name} (${payload.roomNumber})`);
+
     try {
       if (editingRoom) {
         const roomId = editingRoom.id || editingRoom._id;
         await updateRoom(roomId, payload);
+        console.log(`✅ [ROOM MGR] Room ${payload.name} updated`);
         setSuccess(`Room "${payload.name}" (${payload.roomNumber}) updated successfully.`);
       } else {
         await createRoom(payload);
+        console.log(`✅ [ROOM MGR] Room ${payload.name} created`);
         setSuccess(`Room "${payload.name}" (${payload.roomNumber}) added to ${user?.department} inventory.`);
       }
 
       resetForm();
       await fetchRooms();
     } catch (err) {
-      setError(extractErrorMessage(err, 'Failed to save room details. Please try again.'));
+      const errMsg = extractErrorMessage(err, 'Failed to save room details. Please try again.');
+      console.error('❌ [ROOM MGR] Save failed:', errMsg);
+      setError(errMsg);
     } finally {
       setLoading(false);
     }
@@ -212,6 +247,7 @@ export default function RoomManager({ user }) {
   };
 
   const handleToggle = async (room) => {
+    if (actionLoadingId) return;
     const isOwner = room.createdBy && room.createdBy.toString() === currentUserId?.toString();
     if (!isOwner && !isHOD) {
       setError(`Permission denied: Only Prof. ${room.createdByName || 'the creator'} or the HOD can toggle "${room.name}".`);
@@ -222,18 +258,24 @@ export default function RoomManager({ user }) {
     setActionLoadingId(roomId);
     setError('');
     setSuccess('');
+    console.log(`🔄 [ROOM MGR] Toggling availability for room: ${room.name}`);
+
     try {
       await toggleRoomAvailability(roomId);
+      console.log(`✅ [ROOM MGR] Availability toggled for ${room.name}`);
       await fetchRooms();
       setSuccess(`Room "${room.name}" availability toggled successfully.`);
     } catch (err) {
-      setError(extractErrorMessage(err, 'Failed to toggle room status.'));
+      const errMsg = extractErrorMessage(err, 'Failed to toggle room status.');
+      console.error('❌ [ROOM MGR] Toggle failed:', errMsg);
+      setError(errMsg);
     } finally {
       setActionLoadingId(null);
     }
   };
 
   const handleDelete = async (room) => {
+    if (actionLoadingId) return;
     const isOwner = room.createdBy && room.createdBy.toString() === currentUserId?.toString();
     if (!isOwner && !isHOD) {
       setError(`Permission denied: Only Prof. ${room.createdByName || 'the creator'} or the HOD can delete "${room.name}".`);
@@ -249,15 +291,20 @@ export default function RoomManager({ user }) {
     setActionLoadingId(roomId);
     setError('');
     setSuccess('');
+    console.log(`🗑️  [ROOM MGR] Deleting room: ${room.name} (${roomId})`);
+
     try {
       await deleteRoom(roomId);
+      console.log(`✅ [ROOM MGR] Room ${room.name} deleted successfully`);
       await fetchRooms();
       setSuccess(`Room "${room.name}" removed successfully.`);
       if (editingRoom && (editingRoom.id === roomId || editingRoom._id === roomId)) {
         resetForm();
       }
     } catch (err) {
-      setError(extractErrorMessage(err, 'Failed to delete room.'));
+      const errMsg = extractErrorMessage(err, 'Failed to delete room.');
+      console.error('❌ [ROOM MGR] Delete failed:', errMsg);
+      setError(errMsg);
     } finally {
       setActionLoadingId(null);
     }

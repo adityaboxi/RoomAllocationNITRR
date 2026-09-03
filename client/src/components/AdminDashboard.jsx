@@ -187,6 +187,9 @@ export default function AdminDashboard({ user, onLogout }) {
       socket.on('room-created', handleRoomChange);
       socket.on('room-updated', handleRoomChange);
       socket.on('room-deleted', handleRoomChange);
+      socket.on('timetable-updated', handleRoomChange);
+      socket.on('booking-created', handleRoomChange);
+      socket.on('booking-cancelled', handleRoomChange);
     }
     return () => {
       isMountedRef.current = false;
@@ -194,19 +197,27 @@ export default function AdminDashboard({ user, onLogout }) {
         socket.off('room-created', handleRoomChange);
         socket.off('room-updated', handleRoomChange);
         socket.off('room-deleted', handleRoomChange);
+        socket.off('timetable-updated', handleRoomChange);
+        socket.off('booking-created', handleRoomChange);
+        socket.off('booking-cancelled', handleRoomChange);
       }
     };
   }, [fetchRooms]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (formLoading) return;
     setFormError('');
     setFormLoading(true);
     try {
       if (editingId) {
+        console.log(`🛠️  [ADMIN] Updating room: ${editingId}`, formData);
         await updateRoom(editingId, formData);
+        console.log(`✅ [ADMIN] Room updated successfully`);
       } else {
+        console.log(`🛠️  [ADMIN] Creating room: ${formData.roomNumber} (${formData.name})`);
         await createRoom(formData);
+        console.log(`✅ [ADMIN] Room created successfully`);
       }
       setFormData({
         name: '',
@@ -224,7 +235,9 @@ export default function AdminDashboard({ user, onLogout }) {
       setEditingId(null);
       fetchRooms();
     } catch (err) {
-      setFormError(err?.response?.data?.message || 'Error saving room configuration.');
+      const errMsg = err.message || err.response?.data?.message || 'Error saving room configuration.';
+      console.error('❌ [ADMIN] Save room error:', errMsg);
+      setFormError(errMsg);
     } finally {
       setFormLoading(false);
     }
@@ -235,10 +248,18 @@ export default function AdminDashboard({ user, onLogout }) {
   };
 
   const handleDeleteConfirm = async (adminPassword) => {
-    const id = deleteTarget.id || deleteTarget._id;
-    await deleteRoom(id, adminPassword);
-    setDeleteTarget(null);
-    fetchRooms();
+    try {
+      const id = deleteTarget.id || deleteTarget._id;
+      console.log(`🗑️  [ADMIN] Confirming delete for room: ${id}`);
+      await deleteRoom(id, adminPassword);
+      console.log(`✅ [ADMIN] Room deleted successfully`);
+      setDeleteTarget(null);
+      fetchRooms();
+    } catch (err) {
+      const errMsg = err.message || err.response?.data?.message || 'Failed to delete room.';
+      console.error('❌ [ADMIN] Delete room error:', errMsg);
+      throw err; // Re-throw so modal can display the error to user
+    }
   };
 
   const handleEdit = (room) => {

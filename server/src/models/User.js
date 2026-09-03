@@ -55,7 +55,7 @@ const UserSchema = new mongoose.Schema(
 );
 
 // High-Performance Query Index
-UserSchema.index({ department: 1, role: 1 });
+UserSchema.index({ department: 1, role: 1 }, { name: 'dept_role_idx' });
 
 // 🔒 ATOMIC SINGLE-HOD CONSTRAINT: Enforces exactly 1 active HOD per department at the database level
 UserSchema.index(
@@ -63,6 +63,7 @@ UserSchema.index(
   {
     unique: true,
     partialFilterExpression: { role: 'HOD', isActive: true },
+    name: 'unique_active_hod_per_dept',
   }
 );
 
@@ -72,6 +73,7 @@ UserSchema.index(
   {
     unique: true,
     partialFilterExpression: { role: 'ADMIN', isActive: true },
+    name: 'unique_active_admin_per_dept',
   }
 );
 

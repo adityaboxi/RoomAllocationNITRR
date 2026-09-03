@@ -23,6 +23,18 @@ export const initSocket = (token) => {
       reconnectionAttempts: 10,
       reconnectionDelay: 2000,
     });
+
+    socket.on('connect', () => {
+      console.log('🔌 [SOCKET CLIENT] Connected successfully! Socket ID:', socket.id);
+    });
+
+    socket.on('disconnect', (reason) => {
+      console.warn('⚠️  [SOCKET CLIENT] Disconnected:', reason);
+    });
+
+    socket.on('connect_error', (err) => {
+      console.error('❌ [SOCKET CLIENT] Connection error:', err.message);
+    });
   }
 
   return socket;
@@ -139,4 +151,35 @@ export const onRoomDeleted = (callback) => {
 export const offRoomDeleted = (callback) => {
   const s = getSocket();
   if (s && callback) s.off('room-deleted', callback);
+};
+
+// ---------- HOLIDAY EVENTS ----------
+export const onHolidayAdded = (callback) => {
+  const s = getSocket();
+  if (s && callback) s.on('holiday-added', callback);
+};
+
+export const offHolidayAdded = (callback) => {
+  const s = getSocket();
+  if (s && callback) s.off('holiday-added', callback);
+};
+
+export const onHolidayDeleted = (callback) => {
+  const s = getSocket();
+  if (s && callback) s.on('holiday-deleted', callback);
+};
+
+export const offHolidayDeleted = (callback) => {
+  const s = getSocket();
+  if (s && callback) s.off('holiday-deleted', callback);
+};
+
+export const onHolidayUpdated = (callback) => {
+  const s = getSocket();
+  if (s && callback) s.on('holiday-updated', callback);
+};
+
+export const offHolidayUpdated = (callback) => {
+  const s = getSocket();
+  if (s && callback) s.off('holiday-updated', callback);
 };

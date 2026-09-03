@@ -23,6 +23,16 @@ import {
   offRoomUpdated,
   onRoomDeleted,
   offRoomDeleted,
+  onRoomLocked,
+  offRoomLocked,
+  onRoomUnlocked,
+  offRoomUnlocked,
+  onTimetableUpdated,
+  offTimetableUpdated,
+  onHolidayAdded,
+  offHolidayAdded,
+  onHolidayDeleted,
+  offHolidayDeleted,
 } from '../services/socket';
 import ReviewsModal from './ReviewsModal';
 import {
@@ -66,6 +76,21 @@ const getCurrentTimeHHMM = () => {
   return `${h}:${m}`;
 };
 
+const INSTITUTIONAL_PERIODS = [
+  { id: 1, start: '08:10', end: '09:00', label: '08:10 - 09:00 (Period 1)' },
+  { id: 2, start: '09:00', end: '09:50', label: '09:00 - 09:50 (Period 2)' },
+  { id: 3, start: '09:50', end: '10:40', label: '09:50 - 10:40 (Period 3)' },
+  { id: 4, start: '10:40', end: '11:30', label: '10:40 - 11:30 (Period 4)' },
+  { id: 5, start: '11:30', end: '12:20', label: '11:30 - 12:20 (Period 5)' },
+  { id: 6, start: '12:20', end: '13:10', label: '12:20 - 13:10 (Period 6)' },
+  // 13:10 - 14:10: LUNCH BREAK (EXCLUDED)
+  { id: 7, start: '14:10', end: '15:00', label: '14:10 - 15:00 (Period 7)' },
+  { id: 8, start: '15:00', end: '15:50', label: '15:00 - 15:50 (Period 8)' },
+  { id: 9, start: '15:50', end: '16:40', label: '15:50 - 16:40 (Period 9)' },
+  { id: 10, start: '16:40', end: '17:30', label: '16:40 - 17:30 (Period 10)' },
+  { id: 11, start: '17:30', end: '18:20', label: '17:30 - 18:20 (Period 11)' },
+];
+
 const VALID_START_SLOTS = [
   '08:10',
   '09:00',
@@ -73,11 +98,11 @@ const VALID_START_SLOTS = [
   '10:40',
   '11:30',
   '12:20',
-  '13:10',
   '14:10',
   '15:00',
   '15:50',
   '16:40',
+  '17:30',
 ];
 
 const VALID_END_SLOTS = [
@@ -87,23 +112,24 @@ const VALID_END_SLOTS = [
   '11:30',
   '12:20',
   '13:10',
-  '14:10',
   '15:00',
   '15:50',
   '16:40',
   '17:30',
+  '18:20',
 ];
 
 const getDefaultEndHHMM = (startStr) => {
-  if (!startStr) return '09:00';
-  const idx = VALID_START_SLOTS.indexOf(startStr);
-  if (idx !== -1 && idx < VALID_END_SLOTS.length) {
-    return VALID_END_SLOTS[idx];
+  const matched = INSTITUTIONAL_PERIODS.find((p) => p.start === startStr);
+  if (matched) return matched.end;
+  return '09:00';
+};
+
+const getAvailableEndSlots = (startStr) => {
+  if (startStr < '13:10') {
+    return VALID_END_SLOTS.filter((t) => t > startStr && t <= '13:10');
   }
-  const [h, m] = startStr.split(':').map(Number);
-  if (h >= 17) return '17:30';
-  const nextH = h + 1;
-  return `${String(nextH).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}`;
+  return VALID_END_SLOTS.filter((t) => t > startStr && t <= '18:20');
 };
 
 const STANDARD_ROOM_TYPES = [
@@ -254,11 +280,20 @@ export default function BookingView({ user }) {
       }
     };
 
+    const handleLockOrTimetableChange = () => {
+      fetchAvailableRooms(abortControllerRef.current?.signal);
+    };
+
     onBookingCancelled(handleBookingCancelled);
     onBookingCreated(handleBookingCreated);
     onRoomCreated(handleRoomDataChange);
     onRoomUpdated(handleRoomDataChange);
     onRoomDeleted(handleRoomDeleted);
+    onRoomLocked(handleLockOrTimetableChange);
+    onRoomUnlocked(handleLockOrTimetableChange);
+    onTimetableUpdated(handleLockOrTimetableChange);
+    onHolidayAdded(handleBookingCreated);
+    onHolidayDeleted(handleBookingCreated);
 
     const socket = getSocket();
     const handleReviewCreated = ({ roomId, review }) => {
@@ -284,8 +319,6 @@ export default function BookingView({ user }) {
 
     if (socket) {
       socket.on('review-created', handleReviewCreated);
-      socket.on('holiday-added', handleBookingCreated);
-      socket.on('holiday-deleted', handleBookingCreated);
     }
 
     return () => {
@@ -294,10 +327,13 @@ export default function BookingView({ user }) {
       offRoomCreated(handleRoomDataChange);
       offRoomUpdated(handleRoomDataChange);
       offRoomDeleted(handleRoomDeleted);
+      offRoomLocked(handleLockOrTimetableChange);
+      offRoomUnlocked(handleLockOrTimetableChange);
+      offTimetableUpdated(handleLockOrTimetableChange);
+      offHolidayAdded(handleBookingCreated);
+      offHolidayDeleted(handleBookingCreated);
       if (socket) {
         socket.off('review-created', handleReviewCreated);
-        socket.off('holiday-added', handleBookingCreated);
-        socket.off('holiday-deleted', handleBookingCreated);
       }
     };
   }, [selectedReviewRoom]);
@@ -458,14 +494,19 @@ export default function BookingView({ user }) {
 
       if (name === 'date') {
         if (value === todayStr && prev.startTime < currentNow) {
-          updated.startTime = currentNow;
-          updated.endTime = getDefaultEndHHMM(currentNow);
+          const nextSlot = VALID_START_SLOTS.find((s) => s >= currentNow) || '08:10';
+          updated.startTime = nextSlot;
+          updated.endTime = getDefaultEndHHMM(nextSlot);
         }
       }
 
       if (name === 'startTime') {
-        if (value >= '17:10') {
-          setError('Start time must be before 5:10 PM.');
+        if (value > '17:30') {
+          setError('Start time cannot be later than 05:30 PM (17:30).');
+          return prev;
+        }
+        if (value >= '13:10' && value < '14:10') {
+          setError('01:10 PM - 02:10 PM is reserved for Lunch Break. No bookings allowed.');
           return prev;
         }
         if (prev.date === todayStr && value < currentNow) {
@@ -477,6 +518,10 @@ export default function BookingView({ user }) {
       if (name === 'endTime') {
         if (value <= prev.startTime) {
           updated.endTime = getDefaultEndHHMM(prev.startTime);
+        }
+        if (prev.startTime < '13:10' && value > '13:10') {
+          setError('Bookings starting before lunch break cannot cross into or past the lunch break (01:10 PM - 02:10 PM).');
+          updated.endTime = '13:10';
         }
       }
 
@@ -519,7 +564,7 @@ export default function BookingView({ user }) {
   };
 
   const handleConfirmBooking = async () => {
-    if (!selectedRoom) return;
+    if (!selectedRoom || loading) return;
     const roomId = selectedRoom.id || selectedRoom._id;
     const currentNow = getCurrentTimeHHMM();
 
@@ -542,6 +587,7 @@ export default function BookingView({ user }) {
     setLoading(true);
     setError('');
     setSuccess('');
+    console.log(`📌 [BOOKING] Creating reservation: room=${selectedRoom.name} date=${date} ${startTime}-${endTime}`);
 
     try {
       await createBooking({
@@ -554,6 +600,7 @@ export default function BookingView({ user }) {
         lockId: activeLockId,
       });
 
+      console.log(`✅ [BOOKING] Room "${selectedRoom.name}" successfully reserved!`);
       setSuccess(`Room "${selectedRoom.name}" reserved.`);
       setBookingData((prev) => ({ ...prev, purpose: '', comment: '' }));
       setSelectedRoom(null);
@@ -564,27 +611,35 @@ export default function BookingView({ user }) {
         fetchAvailableRooms(abortControllerRef.current?.signal),
       ]);
     } catch (err) {
-      setError(extractErrorMessage(err, 'Booking conflict occurred.'));
+      const errMsg = extractErrorMessage(err, 'Booking conflict occurred.');
+      console.error('❌ [BOOKING] Reservation failed:', errMsg);
+      setError(errMsg);
     } finally {
       if (isMountedRef.current) setLoading(false);
     }
   };
 
   const handleCancelBooking = async (bookingId) => {
+    if (cancellingBookingId) return;
     if (!window.confirm('Cancel this booking?')) return;
 
     setCancellingBookingId(bookingId);
     setError('');
     setSuccess('');
+    console.log(`🚫 [BOOKING] Cancelling booking: ${bookingId}`);
+
     try {
       await cancelBooking(bookingId);
+      console.log(`✅ [BOOKING] Booking ${bookingId} cancelled successfully`);
       setSuccess('Booking cancelled.');
       await Promise.all([
         fetchMyBookings(),
         fetchAvailableRooms(abortControllerRef.current?.signal),
       ]);
     } catch (err) {
-      setError(extractErrorMessage(err, 'Cancellation failed.'));
+      const errMsg = extractErrorMessage(err, 'Cancellation failed.');
+      console.error('❌ [BOOKING] Cancellation failed:', errMsg);
+      setError(errMsg);
     } finally {
       if (isMountedRef.current) setCancellingBookingId(null);
     }
@@ -786,12 +841,59 @@ export default function BookingView({ user }) {
               onChange={handleBookingInput}
               className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
             >
-              {VALID_END_SLOTS.filter((t) => t > bookingData.startTime).map((t) => (
+              {getAvailableEndSlots(bookingData.startTime).map((t) => (
                 <option key={'end-' + t} value={t}>
                   {t}
                 </option>
               ))}
             </select>
+          </div>
+        </div>
+
+        {/* Quick Institutional Timetable Period Selector */}
+        <div className="mt-3 pt-3 border-t border-slate-100">
+          <div className="flex items-center justify-between mb-2 flex-wrap gap-1.5">
+            <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
+              <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
+              NIT Raipur Timetable Slots (08:10 - 18:20)
+            </span>
+            <span className="text-[11px] text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+              ☕ Lunch Break: 13:10 - 14:10 (Reserved)
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 text-xs">
+            {INSTITUTIONAL_PERIODS.map((p) => {
+              const isSelected = bookingData.startTime === p.start && bookingData.endTime === p.end;
+              const isPastToday = bookingData.date === todayStr && p.start < currentHHMM;
+
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  disabled={isPastToday}
+                  onClick={() => {
+                    setError('');
+                    setBookingData((prev) => ({
+                      ...prev,
+                      startTime: p.start,
+                      endTime: p.end,
+                    }));
+                  }}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex flex-col items-center flex-shrink-0 ${
+                    isSelected
+                      ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-600/30'
+                      : isPastToday
+                      ? 'bg-slate-100 text-slate-300 cursor-not-allowed border border-slate-100'
+                      : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
+                  }`}
+                  title={isPastToday ? 'This period has already passed today' : `${p.label}`}
+                >
+                  <span className="font-bold text-[11px]">Period {p.id}</span>
+                  <span className="text-[10px] opacity-80">{p.start} - {p.end}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>

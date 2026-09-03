@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getHolidays, createHoliday, updateHoliday, deleteHoliday } from '../../services/api';
+import { getSocket } from '../../services/socket';
 import {
   Plus,
   Edit2,
@@ -49,6 +50,23 @@ export default function HolidayManager({ user }) {
 
   useEffect(() => {
     fetchHolidaysList();
+
+    const socket = getSocket();
+    if (!socket) return;
+
+    const handleHolidayLiveSync = () => {
+      fetchHolidaysList();
+    };
+
+    socket.on('holiday-added', handleHolidayLiveSync);
+    socket.on('holiday-deleted', handleHolidayLiveSync);
+    socket.on('holiday-updated', handleHolidayLiveSync);
+
+    return () => {
+      socket.off('holiday-added', handleHolidayLiveSync);
+      socket.off('holiday-deleted', handleHolidayLiveSync);
+      socket.off('holiday-updated', handleHolidayLiveSync);
+    };
   }, [user?.department]);
 
   const fetchHolidaysList = async () => {
@@ -91,6 +109,7 @@ export default function HolidayManager({ user }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submitting) return;
     if (!formData.title.trim() || !formData.date) {
       setError('Please provide Holiday Title and Date.');
       return;
@@ -104,6 +123,7 @@ export default function HolidayManager({ user }) {
     setSubmitting(true);
     setError('');
     setSuccess('');
+    console.log(`🏖️  [HOLIDAY] Submitting holiday: "${formData.title}" on ${formData.date}`);
 
     try {
       const payload = {
@@ -118,22 +138,27 @@ export default function HolidayManager({ user }) {
       if (editingHoliday) {
         const id = editingHoliday.id || editingHoliday._id;
         const res = await updateHoliday(id, payload);
+        console.log(`✅ [HOLIDAY] Holiday "${formData.title}" updated`);
         setSuccess(res.message || `Holiday "${formData.title}" updated successfully!`);
       } else {
         const res = await createHoliday(payload);
+        console.log(`✅ [HOLIDAY] Holiday "${formData.title}" declared`);
         setSuccess(res.message || `Holiday "${formData.title}" declared successfully!`);
       }
 
       handleCancelEdit();
       await fetchHolidaysList();
     } catch (err) {
-      setError(extractErrorMessage(err, 'Failed to save holiday details.'));
+      const errMsg = extractErrorMessage(err, 'Failed to save holiday details.');
+      console.error('❌ [HOLIDAY] Save holiday failed:', errMsg);
+      setError(errMsg);
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleDelete = async (holiday) => {
+    if (deletingId) return;
     const confirmDelete = window.confirm(
       `Are you sure you want to remove the holiday "${holiday.title}" on ${holiday.date}?\n\nClassrooms and timetables will become available again.`
     );
@@ -143,16 +168,20 @@ export default function HolidayManager({ user }) {
     setDeletingId(holidayId);
     setError('');
     setSuccess('');
+    console.log(`🗑️  [HOLIDAY] Revoking holiday: "${holiday.title}" (${holiday.date})`);
 
     try {
       await deleteHoliday(holidayId);
+      console.log(`✅ [HOLIDAY] Holiday "${holiday.title}" revoked successfully`);
       setSuccess(`Holiday "${holiday.title}" removed successfully.`);
       if (editingHoliday && (editingHoliday.id === holidayId || editingHoliday._id === holidayId)) {
         handleCancelEdit();
       }
       await fetchHolidaysList();
     } catch (err) {
-      setError(extractErrorMessage(err, 'Failed to remove holiday.'));
+      const errMsg = extractErrorMessage(err, 'Failed to remove holiday.');
+      console.error('❌ [HOLIDAY] Delete failed:', errMsg);
+      setError(errMsg);
     } finally {
       setDeletingId(null);
     }

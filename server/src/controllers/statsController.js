@@ -113,7 +113,7 @@ exports.getDepartmentStats = async (req, res) => {
       },
     });
   } catch (error) {
-    // console.error('Get department stats error:', error);
+    console.error("❌ [STATS]", 'Get department stats error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

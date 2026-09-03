@@ -47,7 +47,7 @@ exports.getHolidays = async (req, res) => {
 
     res.json({ success: true, data: formatted });
   } catch (error) {
-    // console.error('Get holidays error:', error);
+    console.error("❌ [HOLIDAY]", 'Get holidays error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -167,7 +167,7 @@ exports.createHoliday = async (req, res) => {
       data: holiday,
     });
   } catch (error) {
-    // console.error('Create holiday error:', error);
+    console.error("❌ [HOLIDAY]", 'Create holiday error:', error);
     if (error.code === 11000) {
       return res.status(409).json({ success: false, message: 'A holiday on this date already exists.' });
     }
@@ -311,7 +311,7 @@ exports.updateHoliday = async (req, res) => {
       data: holiday,
     });
   } catch (error) {
-    // console.error('Update holiday error:', error);
+    console.error("❌ [HOLIDAY]", 'Update holiday error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -403,7 +403,7 @@ exports.deleteHoliday = async (req, res) => {
       restoredCount,
     });
   } catch (error) {
-    // console.error('Delete holiday error:', error);
+    console.error("❌ [HOLIDAY]", 'Delete holiday error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

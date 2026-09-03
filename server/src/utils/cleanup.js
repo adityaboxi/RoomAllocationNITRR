@@ -14,11 +14,11 @@ const runDatabaseCleanup = async () => {
   const todayStr = getTodayDateString();
   const currentHHMM = getCurrentTimeHHMM();
 
-  const cancelledDays = parseInt(process.env.PRUNE_CANCELLED_BOOKINGS_DAYS, 10) || 7;
+  const cancelledDays = parseInt(process.env.PRUNE_CANCELLED_BOOKINGS_DAYS, 10) || 90;
   const completedDays = parseInt(process.env.PRUNE_COMPLETED_BOOKINGS_DAYS, 10) || 90;
-  const reviewDays = parseInt(process.env.PRUNE_REVIEWS_DAYS, 10) || 90;
-  const readNotifDays = parseInt(process.env.PRUNE_READ_NOTIFICATIONS_DAYS, 10) || 7;
-  const unreadNotifDays = parseInt(process.env.PRUNE_UNREAD_NOTIFICATIONS_DAYS, 10) || 30;
+  const reviewDays = parseInt(process.env.PRUNE_REVIEWS_DAYS, 10) || 30;
+  const readNotifDays = parseInt(process.env.PRUNE_READ_NOTIFICATIONS_DAYS, 10) || 30;
+  const unreadNotifDays = parseInt(process.env.PRUNE_UNREAD_NOTIFICATIONS_DAYS, 10) || 90;
   const otpHours = parseInt(process.env.PRUNE_OTP_HOURS, 10) || 24;
 
   const cancelledCutoff = new Date(now.getTime() - cancelledDays * 24 * 60 * 60 * 1000);

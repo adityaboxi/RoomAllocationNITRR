@@ -32,7 +32,7 @@ exports.getNotifications = async (req, res) => {
       pages: Math.ceil(total / limit) || 1,
     });
   } catch (error) {
-    // console.error('Get notifications error:', error);
+    console.error("❌ [NOTIFICATION]", 'Get notifications error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -58,7 +58,7 @@ exports.markAsRead = async (req, res) => {
 
     res.json({ success: true, message: 'Notification marked as read', data: notification });
   } catch (error) {
-    // console.error('Mark notification as read error:', error);
+    console.error("❌ [NOTIFICATION]", 'Mark notification as read error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -77,7 +77,7 @@ exports.markAllAsRead = async (req, res) => {
       modifiedCount: result.modifiedCount,
     });
   } catch (error) {
-    // console.error('Mark all notifications read error:', error);
+    console.error("❌ [NOTIFICATION]", 'Mark all notifications read error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -102,7 +102,7 @@ exports.deleteNotification = async (req, res) => {
 
     res.json({ success: true, message: 'Notification deleted successfully' });
   } catch (error) {
-    // console.error('Delete notification error:', error);
+    console.error("❌ [NOTIFICATION]", 'Delete notification error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -120,7 +120,7 @@ exports.deleteAll = async (req, res) => {
       deletedCount: result.deletedCount,
     });
   } catch (error) {
-    // console.error('Delete all notifications error:', error);
+    console.error("❌ [NOTIFICATION]", 'Delete all notifications error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

@@ -11,8 +11,16 @@ import {
   disconnectSocket,
   onBookingCancelled,
   offBookingCancelled,
+  onBookingCreated,
+  offBookingCreated,
   onTimetableUpdated,
   offTimetableUpdated,
+  onRoomDeleted,
+  offRoomDeleted,
+  onHolidayAdded,
+  offHolidayAdded,
+  onHolidayDeleted,
+  offHolidayDeleted,
 } from './services/socket';
 import { getPendingReviews, getNotifications } from './services/api';
 
@@ -131,16 +139,41 @@ export default function App() {
       }
     };
 
+    const handleCreated = () => {
+      fetchUserNotifications();
+    };
+
     const handleTimetableUpdate = () => {
       fetchUserNotifications();
     };
 
+    const handleRoomDeletedNotification = (data) => {
+      fetchUserNotifications();
+      if ('Notification' in window && Notification.permission === 'granted' && data?.roomName) {
+        new Notification('🏫 Room Removed', {
+          body: `Room "${data.roomName}" was removed by Administrator.`,
+        });
+      }
+    };
+
+    const handleHolidayChange = () => {
+      fetchUserNotifications();
+    };
+
     onBookingCancelled(handleCancelled);
+    onBookingCreated(handleCreated);
     onTimetableUpdated(handleTimetableUpdate);
+    onRoomDeleted(handleRoomDeletedNotification);
+    onHolidayAdded(handleHolidayChange);
+    onHolidayDeleted(handleHolidayChange);
 
     return () => {
       offBookingCancelled(handleCancelled);
+      offBookingCreated(handleCreated);
       offTimetableUpdated(handleTimetableUpdate);
+      offRoomDeleted(handleRoomDeletedNotification);
+      offHolidayAdded(handleHolidayChange);
+      offHolidayDeleted(handleHolidayChange);
     };
   }, [currentUser, fetchUserNotifications]);
 
