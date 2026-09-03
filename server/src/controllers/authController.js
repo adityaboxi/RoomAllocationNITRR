@@ -66,7 +66,6 @@ exports.getDepartments = async (req, res) => {
       total: departments.length,
     });
   } catch (error) {
-    // console.error('Get departments error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -81,18 +80,15 @@ exports.login = async (req, res) => {
 
     email = email.trim().toLowerCase();
 
-    // 🔒 Admin Login logic
-    if (process.env.ADMIN_EMAIL && email === process.env.ADMIN_EMAIL.trim().toLowerCase()) {
-      if (role && role !== 'ADMIN') {
-        return res.status(403).json({ success: false, message: 'Please select the ADMIN role tab to log in with these credentials.' });
-      }
+    // 🔒 1. GLOBAL SUPER-ADMIN FLOW (Runs ONLY if role is Admin AND email matches .env)
+    if (role === 'ADMIN' && process.env.ADMIN_EMAIL && email === process.env.ADMIN_EMAIL.trim().toLowerCase()) {
       const AdminUser = require('../models/AdminUser');
       let adminUser = await AdminUser.findOne({ email }).select('+password');
       
-      // If Admin doesn't exist, this is their first signup/login via .env
+      // Seed the super admin account if it doesn't exist yet
       if (!adminUser) {
         if (password !== process.env.ADMIN_PASSWORD) {
-          return res.status(401).json({ success: false, message: 'Invalid admin credentials' });
+          return res.status(401).json({ success: false, message: 'Invalid super-admin credentials' });
         }
         adminUser = await AdminUser.create({
           name: 'System Admin',
@@ -103,11 +99,8 @@ exports.login = async (req, res) => {
           isFirstLogin: true
         });
       } else {
-        // Admin exists, verify against the DB password (which might have been reset)
         const isMatch = await adminUser.comparePassword(password);
         if (!isMatch) {
-           // Fallback: If they haven't reset it yet and use the .env password, we should let them in
-           // or we just rely entirely on the DB password since it was seeded with the .env password initially.
            return res.status(401).json({ success: false, message: 'Invalid email or password' });
         }
       }
@@ -129,11 +122,13 @@ exports.login = async (req, res) => {
       });
     }
 
+    // 🔒 2. BRANCH ADMIN / HOD / FACULTY LOGIN FLOW
     const user = await User.findOne({ email }).select('+password');
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
     
+    // Ensure they selected the correct tab for their regular account
     if (role && user.role !== role) {
       return res.status(403).json({ success: false, message: `Your account is registered as ${user.role}. Please select the correct role tab.` });
     }
@@ -162,7 +157,6 @@ exports.login = async (req, res) => {
       },
     });
   } catch (error) {
-    // console.error('Login error:', error);
     res.status(500).json({ success: false, message: 'Server error occurred during login' });
   }
 };
@@ -193,14 +187,12 @@ exports.signup = async (req, res) => {
     if (password.length < 8) {
       return res.status(400).json({ success: false, message: 'Password must be at least 8 characters long' });
     }
+    
     if (!User.isValidEmail(email)) {
       return res.status(400).json({
         success: false,
-        message: 'Only authorized university email addresses (@gmail.com or @nitrr.ac.in) are allowed',
+        message: 'Only authorized email addresses ending in .nitrr.ac.in are allowed.',
       });
-    }
-    if (name.length > 100) {
-      return res.status(400).json({ success: false, message: 'Name cannot exceed 100 characters' });
     }
 
     const existingUser = await User.findOne({ email });
@@ -208,15 +200,16 @@ exports.signup = async (req, res) => {
       return res.status(400).json({ success: false, message: 'User already exists with this email address' });
     }
 
-    const role = requestedRole === 'HOD' || User.detectRole(email) === 'HOD' ? 'HOD' : 'FACULTY';
+    // Assign role safely
+    const role = ['HOD', 'ADMIN'].includes(requestedRole) ? requestedRole : 'FACULTY';
 
-    // 🔒 Enforce Single HOD per Department Rule
-    if (role === 'HOD') {
-      const existingHOD = await User.findOne({ role: 'HOD', department, isActive: true });
-      if (existingHOD) {
+    // 🔒 Enforce Single Role per Department Rule (1 HOD and 1 ADMIN per branch)
+    if (role === 'HOD' || role === 'ADMIN') {
+      const existingLeader = await User.findOne({ role, department, isActive: true });
+      if (existingLeader) {
         return res.status(400).json({
           success: false,
-          message: `🚫 Cannot register as HOD: Prof. ${existingHOD.name} (${existingHOD.email}) is already registered as the active HOD for "${department}".`,
+          message: `🚫 Cannot register as ${role}: ${existingLeader.name} (${existingLeader.email}) is already the active ${role} for "${department}".`,
         });
       }
     }
@@ -236,7 +229,6 @@ exports.signup = async (req, res) => {
       },
     });
   } catch (error) {
-    // console.error('Signup error:', error);
     if (error.code === 11000) {
       return res.status(400).json({ success: false, message: 'User already exists with this email' });
     }
@@ -283,7 +275,6 @@ exports.changePassword = async (req, res) => {
 
     res.json({ success: true, message: 'Password changed successfully' });
   } catch (error) {
-    // console.error('Change password error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
@@ -313,8 +304,6 @@ exports.forgotPassword = async (req, res) => {
     const otp = generateOTP();
     const expiryMinutes = parseInt(process.env.OTP_EXPIRY_MINUTES, 10) || 5;
 
-    // console.log(`📧 OTP for ${email}: ${otp}`);
-
     await OTP.create({
       email,
       otp,
@@ -331,7 +320,6 @@ exports.forgotPassword = async (req, res) => {
       expiresIn: `${expiryMinutes} minutes`,
     });
   } catch (error) {
-    // console.error('Forgot password error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
@@ -362,7 +350,6 @@ exports.verifyResetOtp = async (req, res) => {
     const resetToken = jwt.sign({ email }, secret, { expiresIn: '10m' });
     res.json({ success: true, message: 'OTP verified successfully', resetToken });
   } catch (error) {
-    // console.error('Verify reset OTP error:', error);
     res.status(500).json({ success: false, message: 'OTP verification failed' });
   }
 };
@@ -412,7 +399,6 @@ exports.resetPassword = async (req, res) => {
 
     res.json({ success: true, message: 'Password reset successfully. You may now sign in.' });
   } catch (error) {
-    // console.error('Reset password error:', error);
     res.status(500).json({ success: false, message: 'Password reset failed' });
   }
 };
@@ -420,7 +406,11 @@ exports.resetPassword = async (req, res) => {
 // ---------- GET ME ----------
 exports.getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id);
+    let user = await User.findById(req.user.id);
+    if (!user) {
+      const AdminUser = require('../models/AdminUser');
+      user = await AdminUser.findById(req.user.id);
+    }
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
@@ -435,7 +425,6 @@ exports.getMe = async (req, res) => {
       },
     });
   } catch (error) {
-    // console.error('Get me error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
@@ -466,14 +455,12 @@ exports.sendSignupOtp = async (req, res) => {
     if (password.length < 8) {
       return res.status(400).json({ success: false, message: 'Password must be at least 8 characters long' });
     }
+    
     if (!User.isValidEmail(email)) {
       return res.status(400).json({
         success: false,
-        message: 'Only authorized institutional email addresses are allowed',
+        message: 'Only authorized email addresses ending in .nitrr.ac.in are allowed. Student accounts are restricted.',
       });
-    }
-    if (name.length > 100) {
-      return res.status(400).json({ success: false, message: 'Name cannot exceed 100 characters' });
     }
 
     const existingUser = await User.findOne({ email });
@@ -481,15 +468,15 @@ exports.sendSignupOtp = async (req, res) => {
       return res.status(400).json({ success: false, message: 'User already exists with this email' });
     }
 
-    const role = requestedRole === 'HOD' || User.detectRole(email) === 'HOD' ? 'HOD' : 'FACULTY';
+    const role = ['HOD', 'ADMIN'].includes(requestedRole) ? requestedRole : 'FACULTY';
 
-    // 🔒 Enforce Single HOD per Department Rule BEFORE dispatching OTP
-    if (role === 'HOD') {
-      const existingHOD = await User.findOne({ role: 'HOD', department, isActive: true });
-      if (existingHOD) {
+    // 🔒 Enforce Single Role per Department BEFORE dispatching OTP
+    if (role === 'HOD' || role === 'ADMIN') {
+      const existingLeader = await User.findOne({ role, department, isActive: true });
+      if (existingLeader) {
         return res.status(400).json({
           success: false,
-          message: `🚫 Cannot register as HOD: Prof. ${existingHOD.name} (${existingHOD.email}) is already registered as the active HOD for "${department}".`,
+          message: `🚫 Cannot register as ${role}: ${existingLeader.name} (${existingLeader.email}) is already the active ${role} for "${department}".`,
         });
       }
     }
@@ -498,8 +485,6 @@ exports.sendSignupOtp = async (req, res) => {
 
     const otp = generateOTP();
     const expiryMinutes = parseInt(process.env.OTP_EXPIRY_MINUTES, 10) || 5;
-
-    // console.log(`📧 Signup OTP for ${email}: ${otp}`);
 
     const encryptedPassword = encryptTemporaryPassword(password);
 
@@ -511,17 +496,15 @@ exports.sendSignupOtp = async (req, res) => {
       userData: { name, email, encryptedPassword, department, role },
     });
 
-    // ⚡ Fast Background Email Dispatch: Sends email asynchronously in background
+    // ⚡ Fast Background Email Dispatch
     sendOTPEmail(email, otp, 'signup').catch(() => {});
 
-    // Responds to phone immediately in < 150ms!
     res.json({
       success: true,
       message: 'Verification OTP sent to your email',
       expiresIn: `${expiryMinutes} minutes`,
     });
   } catch (error) {
-    // console.error('Send signup OTP error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
@@ -554,15 +537,15 @@ exports.verifySignupOtp = async (req, res) => {
     }
 
     const password = decryptTemporaryPassword(encryptedPassword);
-    const role = savedRole === 'HOD' || User.detectRole(email) === 'HOD' ? 'HOD' : 'FACULTY';
+    const role = ['HOD', 'ADMIN'].includes(savedRole) ? savedRole : 'FACULTY';
 
-    // 🔒 Final Safety Check for Duplicate HOD
-    if (role === 'HOD') {
-      const existingHOD = await User.findOne({ role: 'HOD', department, isActive: true });
-      if (existingHOD) {
+    // 🔒 Final Safety Check for Duplicate Role before saving
+    if (role === 'HOD' || role === 'ADMIN') {
+      const existingLeader = await User.findOne({ role, department, isActive: true });
+      if (existingLeader) {
         return res.status(400).json({
           success: false,
-          message: `🚫 Cannot register as HOD: Prof. ${existingHOD.name} (${existingHOD.email}) is already registered as the active HOD for "${department}".`,
+          message: `🚫 Cannot register as ${role}: ${existingLeader.name} (${existingLeader.email}) is already the active ${role} for "${department}".`,
         });
       }
     }
@@ -583,7 +566,6 @@ exports.verifySignupOtp = async (req, res) => {
       },
     });
   } catch (error) {
-    // console.error('Verify signup OTP error:', error);
     if (error.code === 11000) {
       return res.status(400).json({ success: false, message: 'User already exists with this email' });
     }

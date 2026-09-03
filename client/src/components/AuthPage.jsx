@@ -7,6 +7,7 @@ import {
   User,
   ArrowRight,
   CheckCircle2,
+  
   Eye,
   EyeOff,
   KeyRound,
@@ -36,37 +37,13 @@ const extractErrorMessage = (err, fallback) => {
   return err.response?.data?.message || err.message || fallback;
 };
 
-// Parse fallback departments from client .env or default list
-const getInitialDepartments = () => {
-  const envDepts = import.meta.env.VITE_DEPARTMENTS;
-  if (envDepts) {
-    return envDepts
-      .split(',')
-      .map((d) => d.trim())
-      .filter(Boolean)
-      .map((d) => ({ code: d, name: d }));
-  }
-
-  return [
-    { code: 'Computer Science & Engineering', name: 'Computer Science & Engineering (CSE)' },
-    { code: 'Information Technology', name: 'Information Technology (IT)' },
-    { code: 'Electronics & Communication', name: 'Electronics & Communication (ECE)' },
-    { code: 'Electrical Engineering', name: 'Electrical Engineering (EE)' },
-    { code: 'Mechanical Engineering', name: 'Mechanical Engineering (ME)' },
-    { code: 'Civil Engineering', name: 'Civil Engineering (CE)' },
-    { code: 'Chemical Engineering', name: 'Chemical Engineering (CHE)' },
-    { code: 'Biotechnology', name: 'Biotechnology (BT)' },
-    { code: 'Metallurgical & Materials', name: 'Metallurgical & Materials (MME)' },
-    { code: 'Mining Engineering', name: 'Mining Engineering (MIN)' },
-    { code: 'Common / Institute Level', name: 'Common / Institute Level (Halls)' },
-  ];
-};
-
 export default function AuthPage({ onLoginSuccess }) {
   const [view, setView] = useState('login');
   const [role, setRole] = useState('FACULTY');
 
-  const [departments, setDepartments] = useState(getInitialDepartments);
+  // 100% Dynamic: Starts empty, strictly relies on the Backend .env
+  const [departments, setDepartments] = useState([]);
+  const [loadingDepts, setLoadingDepts] = useState(true);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -75,7 +52,7 @@ export default function AuthPage({ onLoginSuccess }) {
     confirmPassword: '',
     newPassword: '',
     confirmNewPassword: '',
-    department: departments[0]?.code || 'Computer Science & Engineering',
+    department: '',
   });
 
   const [otp, setOtp] = useState('');
@@ -94,21 +71,24 @@ export default function AuthPage({ onLoginSuccess }) {
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Fetch dynamic departments on mount from server
+  // Fetch dynamic departments directly from the Backend API on mount
   useEffect(() => {
     const loadDepartments = async () => {
       try {
         const res = await getDepartments();
         const deptList = (res?.data || []).map((d) => (typeof d === 'string' ? { code: d, name: d } : d));
+        
         if (deptList.length > 0) {
           setDepartments(deptList);
           setFormData((prev) => ({
             ...prev,
-            department: prev.department || deptList[0].code,
+            department: deptList[0].code, // Auto-select the first backend branch
           }));
         }
       } catch (err) {
-        // Fallback to initial departments silently
+        setError('Failed to load department branches from the server. Please refresh.');
+      } finally {
+        setLoadingDepts(false);
       }
     };
 
@@ -159,19 +139,12 @@ export default function AuthPage({ onLoginSuccess }) {
       return false;
     }
 
-    const domain = cleanEmail.split('@')[1];
-
     if (selectedRole === 'ADMIN') {
-      return true; // Admin can use any email
-    }
-    if (selectedRole === 'HOD') {
-      return domain === 'cse.nitrr.ac.in'; // HOD strictly limited
-    }
-    if (selectedRole === 'FACULTY') {
-      return domain === 'gmail.com'; // Faculty strictly limited
+      return true; // Admin can use ANY valid email domain
     }
 
-    return false;
+    // STRICT DOMAIN CHECK: Faculty & HOD must end with nitrr.ac.in
+    return cleanEmail.endsWith('nitrr.ac.in');
   };
 
   const formatTimer = (seconds) => {
@@ -189,9 +162,11 @@ export default function AuthPage({ onLoginSuccess }) {
 
     // Enforce role-based email rules (skip for forgot-password – server validates user existence)
     if (view !== 'forgot' && !validateEmailByRole(cleanEmail, role)) {
-      if (role === 'HOD') setError('Access Denied: HOD accounts must use a @cse.nitrr.ac.in email address.');
-      else if (role === 'FACULTY') setError('Access Denied: Faculty accounts must use a @gmail.com email address.');
-      else setError('Please enter a valid email address.');
+      if (role === 'ADMIN') {
+        setError('Please enter a valid email address.');
+      } else {
+        setError(`Access Denied: ${role} accounts must use an institutional .nitrr.ac.in email address.`);
+      }
       return;
     }
 
@@ -205,7 +180,6 @@ export default function AuthPage({ onLoginSuccess }) {
           return;
         }
 
-        // Use axios api service (routes through Vite proxy, no CORS issues)
         const data = await apiLogin(cleanEmail, formData.password, role);
 
         if (!data.success) throw new Error(data.message || 'Login failed. Please verify your credentials.');
@@ -219,6 +193,11 @@ export default function AuthPage({ onLoginSuccess }) {
       if (view === 'signup') {
         if (!formData.name.trim()) {
           setError('Please enter your full name & academic title.');
+          setLoading(false);
+          return;
+        }
+        if (!formData.department) {
+          setError('Please select a valid department.');
           setLoading(false);
           return;
         }
@@ -665,8 +644,8 @@ export default function AuthPage({ onLoginSuccess }) {
                       onChange={handleInputChange}
                       placeholder={
                         role === 'ADMIN' ? 'admin@anydomain.com' : 
-                        role === 'HOD' ? 'hod.cse@cse.nitrr.ac.in' : 
-                        'faculty@gmail.com'
+                        role === 'HOD' ? 'hod@nitrr.ac.in' : 
+                        'faculty@nitrr.ac.in'
                       }
                       className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
                       required
@@ -675,10 +654,8 @@ export default function AuthPage({ onLoginSuccess }) {
                   <span className="text-[11px] text-slate-400 mt-1 block">
                     {role === 'ADMIN' ? (
                       <>Supported: <strong className="text-slate-600">Any valid email</strong></>
-                    ) : role === 'HOD' ? (
-                      <>Supported: <strong className="text-slate-600">@cse.nitrr.ac.in</strong> only</>
                     ) : (
-                      <>Supported: <strong className="text-slate-600">@gmail.com</strong> only</>
+                      <>Supported: <strong className="text-slate-600">.nitrr.ac.in</strong> domains only</>
                     )}
                   </span>
                 </div>
@@ -692,13 +669,18 @@ export default function AuthPage({ onLoginSuccess }) {
                       name="department"
                       value={formData.department}
                       onChange={handleInputChange}
-                      className="w-full px-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                      disabled={loadingDepts}
+                      className="w-full px-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all disabled:opacity-50"
                     >
-                      {departments.map((d) => (
-                        <option key={d.code} value={d.code}>
-                          {d.name}
-                        </option>
-                      ))}
+                      {loadingDepts ? (
+                        <option value="">Loading branches...</option>
+                      ) : (
+                        departments.map((d) => (
+                          <option key={d.code} value={d.code}>
+                            {d.name}
+                          </option>
+                        ))
+                      )}
                     </select>
                   </div>
                 )}
@@ -856,7 +838,7 @@ export default function AuthPage({ onLoginSuccess }) {
                       name="email"
                       value={formData.email}
                       onChange={handleInputChange}
-                      placeholder="faculty@gmail.com"
+                      placeholder="faculty@nitrr.ac.in"
                       className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
                       required
                     />

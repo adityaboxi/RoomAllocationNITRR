@@ -16,8 +16,8 @@ const UserSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
       match: [
-        /^[a-zA-Z0-9._%+-]+@(gmail\.com|([a-zA-Z0-9-]+\.)*nitrr\.ac\.in)$/,
-        'Please provide a valid @gmail.com or @nitrr.ac.in email address',
+        /^[a-zA-Z0-9._%+-]+@([a-zA-Z0-9-]+\.)*nitrr\.ac\.in$/i,
+        'Please provide a valid @nitrr.ac.in institutional email address',
       ],
       index: true,
     },
@@ -66,6 +66,15 @@ UserSchema.index(
   }
 );
 
+// 🔒 ATOMIC SINGLE-ADMIN CONSTRAINT: Enforces exactly 1 active ADMIN per department at the database level
+UserSchema.index(
+  { department: 1, role: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { role: 'ADMIN', isActive: true },
+  }
+);
+
 // Bcrypt password hashing pre-save hook
 UserSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
@@ -90,11 +99,29 @@ UserSchema.methods.updateLastLogin = async function () {
   return await this.save({ validateModifiedOnly: true });
 };
 
-// Static helper to validate email domain
+// Static helper to validate email domain and block students
 UserSchema.statics.isValidEmail = function (email) {
   if (!email || typeof email !== 'string') return false;
-  const regex = /^[a-zA-Z0-9._%+-]+@(gmail\.com|([a-zA-Z0-9-]+\.)*nitrr\.ac\.in)$/i;
-  return regex.test(email.trim().toLowerCase());
+  const cleanEmail = email.trim().toLowerCase();
+
+  // 1. MUST end with nitrr.ac.in (allows subdomains like @cse.nitrr.ac.in)
+  if (!cleanEmail.endsWith('nitrr.ac.in')) {
+    return false;
+  }
+
+  // 2. MUST NOT be a student email (block btech, mca, mtech, phd, etc.)
+  const studentTags = ['btech', 'mca', 'mtech', 'phd', 'barch'];
+  const hasStudentTag = studentTags.some(tag => cleanEmail.includes(tag));
+  
+  // 3. MUST NOT contain numbers before the @ (blocks roll numbers like aboxi006)
+  const usernamePart = cleanEmail.split('@')[0];
+  const hasNumbers = /\d/.test(usernamePart);
+
+  if (hasStudentTag || hasNumbers) {
+    return false;
+  }
+
+  return true; // Passes all checks
 };
 
 // Static helper to detect default role
