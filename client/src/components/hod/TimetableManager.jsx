@@ -179,6 +179,7 @@ export default function TimetableManager({ user }) {
           const endIdx = headers.indexOf('endtime');
           const subjIdx = headers.indexOf('subject');
           const facultyIdx = headers.indexOf('faculty');
+          const emailIdx = headers.findIndex((h) => ['facultyemail', 'email', 'professoremail'].includes(h));
 
           const parsedRows = [];
           for (let i = 1; i < lines.length; i++) {
@@ -190,6 +191,7 @@ export default function TimetableManager({ user }) {
             const endTime = cols[endIdx];
             const subject = cols[subjIdx] || '';
             const faculty = cols[facultyIdx] || '';
+            const facultyEmail = emailIdx !== -1 ? (cols[emailIdx] || '') : '';
 
             const isSubjectEmpty = subject === '';
             const isFacultyEmpty = faculty === '';
@@ -219,7 +221,7 @@ export default function TimetableManager({ user }) {
               continue;
             }
 
-            parsedRows.push({ rowNumber: i, day, startTime, endTime, subject, faculty });
+            parsedRows.push({ rowNumber: i, day, startTime, endTime, subject, faculty, facultyEmail });
           }
 
           for (let i = 0; i < parsedRows.length; i++) {
@@ -228,11 +230,17 @@ export default function TimetableManager({ user }) {
               const b = parsedRows[j];
 
               if (a.day === b.day && isOverlapping(a.startTime, a.endTime, b.startTime, b.endTime)) {
-                return reject(
-                  new Error(
-                    `🚫 Timetable Collision in File:\n• Row #${a.rowNumber}: "${a.subject}" (${a.startTime} - ${a.endTime})\n• Row #${b.rowNumber}: "${b.subject}" (${b.startTime} - ${b.endTime})\nBoth classes are scheduled at overlapping times on ${a.day}.`
-                  )
-                );
+                if (a.faculty.toLowerCase() === b.faculty.toLowerCase()) {
+                  if (a.facultyEmail && b.facultyEmail && a.facultyEmail.toLowerCase() !== b.facultyEmail.toLowerCase()) {
+                    // Distinct professors with identical names
+                  } else {
+                    return reject(
+                      new Error(
+                        `🚫 Faculty Collision in File:\n• Row #${a.rowNumber}: "${a.faculty}" (${a.startTime} - ${a.endTime})\n• Row #${b.rowNumber}: "${b.faculty}" (${b.startTime} - ${b.endTime})\nBoth classes are assigned to the same faculty at overlapping times on ${a.day}. Add 'Faculty Email' to distinguish professors with identical names.`
+                      )
+                    );
+                  }
+                }
               }
             }
           }
@@ -344,17 +352,17 @@ export default function TimetableManager({ user }) {
       { s: '17:30', e: '18:20' } 
     ];
 
-    let csvContent = 'Day,Start Time,End Time,Subject,Class Group,Faculty\n';
+    let csvContent = 'Day,Start Time,End Time,Subject,Class Group,Faculty,Faculty Email\n';
 
     templateDays.forEach((day) => {
       timeSlots.forEach((slot) => {
         if (slot.isBreak) {
-          // Exactly 3 trailing commas to make 6 columns total (Day, Start, End, Subject, Class Group, Faculty)
-          csvContent += `${day},${slot.s},${slot.e},,,\n`;
+          // Break row
+          csvContent += `${day},${slot.s},${slot.e},,,,\n`;
         } else if (day === 'Monday' && slot.s === '08:10') {
-          csvContent += `${day},${slot.s},${slot.e},Data Structures,${group},Dr. Rajesh Kumar\n`;
+          csvContent += `${day},${slot.s},${slot.e},Data Structures,${group},Dr. Rajesh Kumar,rkumar.cse@nitrr.ac.in\n`;
         } else {
-          csvContent += `${day},${slot.s},${slot.e},,,${group}\n`;
+          csvContent += `${day},${slot.s},${slot.e},,,${group},\n`;
         }
       });
     });
@@ -730,7 +738,14 @@ export default function TimetableManager({ user }) {
 
                           <td className="px-4 py-3.5 text-sm">
                             <div className="text-slate-800 font-medium">{entry.faculty}</div>
-                            <div className="text-[11px] text-slate-400">{entry.classGroup}</div>
+                            <div className="text-[11px] text-slate-400 flex items-center flex-wrap gap-1 mt-0.5">
+                              <span>{entry.classGroup}</span>
+                              {entry.facultyEmail && (
+                                <span className="text-[10px] text-indigo-600 font-mono bg-indigo-50 px-1 py-0.5 rounded border border-indigo-100">
+                                  {entry.facultyEmail}
+                                </span>
+                              )}
+                            </div>
                           </td>
 
                           <td className="px-4 py-3.5 text-sm text-right space-x-1.5 whitespace-nowrap">
@@ -845,11 +860,23 @@ export default function TimetableManager({ user }) {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Faculty</label>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Faculty Name</label>
                   <input
                     type="text"
                     value={editingEntry.faculty}
                     onChange={(e) => setEditingEntry({ ...editingEntry, faculty: e.target.value })}
+                    className="w-full border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-600"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    Faculty Email <span className="text-slate-400 font-normal">(Optional — disambiguates professors with identical names)</span>
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="e.g. rkumar.cse@nitrr.ac.in"
+                    value={editingEntry.facultyEmail || ''}
+                    onChange={(e) => setEditingEntry({ ...editingEntry, facultyEmail: e.target.value })}
                     className="w-full border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-600"
                   />
                 </div>

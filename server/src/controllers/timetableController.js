@@ -142,10 +142,11 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
 
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
-    let { day, startTime, endTime, subject, roomId, classGroup, faculty } = entry;
+    let { day, startTime, endTime, subject, roomId, classGroup, faculty, facultyEmail } = entry;
 
     const cleanSubject = subject ? String(subject).trim() : '';
     const cleanFaculty = faculty ? String(faculty).trim() : '';
+    let cleanFacultyEmail = facultyEmail ? String(facultyEmail).trim().toLowerCase() : '';
 
     const isSubjectEmpty = cleanSubject === '';
     const isFacultyEmpty = cleanFaculty === '';
@@ -183,6 +184,18 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
       continue;
     }
 
+    // Auto-resolve faculty email if not provided and exactly 1 registered faculty has this name
+    if (!cleanFacultyEmail && cleanFaculty) {
+      const matchingUsers = await User.find({
+        name: { $regex: new RegExp('^' + escapeRegex(cleanFaculty) + '$', 'i') },
+        department,
+        isActive: true,
+      }).select('email');
+      if (matchingUsers.length === 1) {
+        cleanFacultyEmail = matchingUsers[0].email;
+      }
+    }
+
     validatedEntries.push({
       roomId: new mongoose.Types.ObjectId(roomId),
       day: String(day).trim(),
@@ -191,6 +204,7 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
       subject: cleanSubject,
       classGroup: String(classGroup).trim(),
       faculty: cleanFaculty,
+      facultyEmail: cleanFacultyEmail,
       semester,
       section,
       department,
@@ -233,7 +247,14 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
           throw new Error(`🚫 Room collision in batch: Same room scheduled twice on ${a.day} (${a.startTime}-${a.endTime} & ${b.startTime}-${b.endTime})`);
         }
         if (a.faculty.toLowerCase() === b.faculty.toLowerCase()) {
-          throw new Error(`🚫 Faculty collision in batch: Prof. ${a.faculty} is assigned to two overlapping classes on ${a.day} (${a.startTime}-${a.endTime} & ${b.startTime}-${b.endTime})`);
+          // If both have different non-empty emails, they are distinct professors sharing the same name
+          if (a.facultyEmail && b.facultyEmail && a.facultyEmail !== b.facultyEmail) {
+            // Distinct individuals -> allowed!
+          } else {
+            throw new Error(`🚫 Faculty collision in batch: Prof. ${a.faculty} is assigned to two overlapping classes on ${a.day} (${a.startTime}-${a.endTime} & ${b.startTime}-${b.endTime})`);
+          }
+        } else if (a.facultyEmail && b.facultyEmail && a.facultyEmail === b.facultyEmail) {
+          throw new Error(`🚫 Faculty collision in batch: Faculty (${a.facultyEmail}) is assigned to two overlapping classes on ${a.day} (${a.startTime}-${a.endTime} & ${b.startTime}-${b.endTime})`);
         }
       }
     }
@@ -245,7 +266,11 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
       roomId: entry.roomId,
       day: entry.day,
       isActive: true,
-      $or: [{ semester: { $ne: semester } }, { section: { $ne: section } }],
+      $or: [
+        { department: { $ne: department } },
+        { semester: { $ne: semester } },
+        { section: { $ne: section } },
+      ],
       startTime: { $lt: entry.endTime },
       endTime: { $gt: entry.startTime },
     }).populate('roomId', 'name roomNumber');
@@ -258,18 +283,46 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
       );
     }
 
+    let facultyMatchCondition;
+    if (entry.facultyEmail) {
+      facultyMatchCondition = {
+        $or: [
+          { facultyEmail: entry.facultyEmail },
+          {
+            faculty: { $regex: new RegExp('^' + escapeRegex(entry.faculty) + '$', 'i') },
+            facultyEmail: { $in: [null, '', undefined] },
+          },
+        ],
+      };
+    } else {
+      facultyMatchCondition = {
+        faculty: { $regex: new RegExp('^' + escapeRegex(entry.faculty) + '$', 'i') },
+      };
+    }
+
     const facultyConflict = await Timetable.findOne({
-      faculty: { $regex: new RegExp('^' + escapeRegex(entry.faculty) + '$', 'i') },
+      $and: [
+        facultyMatchCondition,
+        {
+          $or: [
+            { department: { $ne: department } },
+            { semester: { $ne: semester } },
+            { section: { $ne: section } },
+            { roomId: { $ne: entry.roomId } },
+          ],
+        },
+      ],
       day: entry.day,
       isActive: true,
-      $or: [{ semester: { $ne: semester } }, { section: { $ne: section } }],
       startTime: { $lt: entry.endTime },
       endTime: { $gt: entry.startTime },
-    });
+    }).populate('roomId', 'name roomNumber');
 
     if (facultyConflict) {
+      const fDept = facultyConflict.department ? `[${facultyConflict.department}] ` : '';
+      const fRoom = facultyConflict.roomId?.name || 'Classroom';
       throw new Error(
-        `🚫 Faculty Collision: Prof. ${entry.faculty} is already teaching ${facultyConflict.subject} (${facultyConflict.semester} Sem Sec ${facultyConflict.section}) on ${entry.day} (${facultyConflict.startTime}-${facultyConflict.endTime}).`
+        `🚫 Faculty Collision: Prof. ${entry.faculty} is already teaching ${facultyConflict.subject} in ${fRoom} (${fDept}${facultyConflict.semester} Sem Sec ${facultyConflict.section}) on ${entry.day} (${facultyConflict.startTime}-${facultyConflict.endTime}).`
       );
     }
   }
@@ -504,6 +557,18 @@ exports.updateRoomDayTimetable = async (req, res) => {
         throw new Error(`Slot #${idx + 1}: Semester and Section are required for filled slots.`);
       }
 
+      let cleanFacultyEmail = entry.facultyEmail ? String(entry.facultyEmail).trim().toLowerCase() : '';
+      if (!cleanFacultyEmail && cleanFaculty) {
+        const matchingUsers = await User.find({
+          name: { $regex: new RegExp('^' + escapeRegex(cleanFaculty) + '$', 'i') },
+          department: room.department,
+          isActive: true,
+        }).select('email');
+        if (matchingUsers.length === 1) {
+          cleanFacultyEmail = matchingUsers[0].email;
+        }
+      }
+
       validatedEntries.push({
         roomId: room._id,
         day: day.trim(),
@@ -512,6 +577,7 @@ exports.updateRoomDayTimetable = async (req, res) => {
         subject: cleanSubject,
         classGroup: (entry.classGroup || `${entry.semester} Sec ${entry.section}`).trim(),
         faculty: cleanFaculty,
+        facultyEmail: cleanFacultyEmail,
         semester: entry.semester.trim(),
         section: entry.section.trim(),
         department: room.department,
@@ -527,6 +593,13 @@ exports.updateRoomDayTimetable = async (req, res) => {
         if (isOverlapping(a.startTime, a.endTime, b.startTime, b.endTime)) {
           throw new Error(`🚫 Slot Collision in form: Two slots overlap on ${day} (${a.startTime}-${a.endTime} & ${b.startTime}-${b.endTime})`);
         }
+        if (a.faculty.toLowerCase() === b.faculty.toLowerCase()) {
+          if (a.facultyEmail && b.facultyEmail && a.facultyEmail !== b.facultyEmail) {
+            // Different professors
+          } else {
+            throw new Error(`🚫 Faculty Collision in form: Prof. ${a.faculty} is assigned twice on ${day} (${a.startTime}-${a.endTime} & ${b.startTime}-${b.endTime})`);
+          }
+        }
       }
     }
 
@@ -536,7 +609,11 @@ exports.updateRoomDayTimetable = async (req, res) => {
         roomId: room._id,
         day: day.trim(),
         isActive: true,
-        $or: [{ semester: { $ne: entry.semester } }, { section: { $ne: entry.section } }],
+        $or: [
+          { department: { $ne: req.user.department } },
+          { semester: { $ne: entry.semester } },
+          { section: { $ne: entry.section } },
+        ],
         startTime: { $lt: entry.endTime },
         endTime: { $gt: entry.startTime },
       });
@@ -547,18 +624,46 @@ exports.updateRoomDayTimetable = async (req, res) => {
         );
       }
 
+      let facultyMatchCondition;
+      if (entry.facultyEmail) {
+        facultyMatchCondition = {
+          $or: [
+            { facultyEmail: entry.facultyEmail },
+            {
+              faculty: { $regex: new RegExp('^' + escapeRegex(entry.faculty) + '$', 'i') },
+              facultyEmail: { $in: [null, '', undefined] },
+            },
+          ],
+        };
+      } else {
+        facultyMatchCondition = {
+          faculty: { $regex: new RegExp('^' + escapeRegex(entry.faculty) + '$', 'i') },
+        };
+      }
+
       const facultyConflict = await Timetable.findOne({
-        faculty: { $regex: new RegExp('^' + escapeRegex(entry.faculty) + '$', 'i') },
+        $and: [
+          facultyMatchCondition,
+          {
+            $or: [
+              { department: { $ne: req.user.department } },
+              { semester: { $ne: entry.semester } },
+              { section: { $ne: entry.section } },
+              { roomId: { $ne: room._id } },
+            ],
+          },
+        ],
         day: day.trim(),
         isActive: true,
-        $or: [{ semester: { $ne: entry.semester } }, { section: { $ne: entry.section } }],
         startTime: { $lt: entry.endTime },
         endTime: { $gt: entry.startTime },
-      });
+      }).populate('roomId', 'name roomNumber');
 
       if (facultyConflict) {
+        const fDept = facultyConflict.department ? `[${facultyConflict.department}] ` : '';
+        const fRoom = facultyConflict.roomId?.name || 'Classroom';
         throw new Error(
-          `🚫 Faculty Collision: Prof. ${entry.faculty} is already teaching ${facultyConflict.subject} (${facultyConflict.semester} Sem Sec ${facultyConflict.section}) on ${day} (${facultyConflict.startTime}-${facultyConflict.endTime}).`
+          `🚫 Faculty Collision: Prof. ${entry.faculty} is already teaching ${facultyConflict.subject} in ${fRoom} (${fDept}${facultyConflict.semester} Sem Sec ${facultyConflict.section}) on ${day} (${facultyConflict.startTime}-${facultyConflict.endTime}).`
         );
       }
     }
@@ -746,6 +851,7 @@ exports.replaceTimetableFromFile = async (req, res) => {
         roomId: targetRoom ? targetRoom._id.toString() : get('RoomId', 'Room ID', 'Room', 'RoomNumber'),
         classGroup: get('Class Group', 'ClassGroup', 'Group') || `${semester} Sec ${section}`,
         faculty: get('Faculty', 'Professor', 'Teacher'),
+        facultyEmail: get('Faculty Email', 'FacultyEmail', 'Email', 'Professor Email', 'Teacher Email'),
       };
     });
 
@@ -820,7 +926,8 @@ exports.replaceTimetableFromFile = async (req, res) => {
 exports.updateTimetableEntry = async (req, res) => {
   try {
     const { id } = req.params;
-    let { startTime, endTime, subject, roomId, classGroup, faculty } = req.body;
+    const { startTime, endTime, subject, classGroup, faculty, facultyEmail, roomId } = req.body;
+    const targetRoomId = roomId && typeof roomId === 'object' ? roomId._id || roomId.id : roomId;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, message: 'Invalid timetable entry ID' });
@@ -835,13 +942,8 @@ exports.updateTimetableEntry = async (req, res) => {
       return res.status(403).json({ success: false, message: 'You can only update timetable for your own department' });
     }
 
-    const targetRoomId = roomId && typeof roomId === 'object' ? roomId._id || roomId.id : roomId;
-
-    if (startTime) startTime = String(startTime).trim();
-    if (endTime) endTime = String(endTime).trim();
-
-    const checkStartTime = startTime || entry.startTime;
-    const checkEndTime = endTime || entry.endTime;
+    const checkStartTime = (startTime || entry.startTime);
+    const checkEndTime = (endTime || entry.endTime);
 
     // Strict slot validation on update
     const slotKey = `${checkStartTime}-${checkEndTime}`;
@@ -886,12 +988,64 @@ exports.updateTimetableEntry = async (req, res) => {
       });
     }
 
+    const checkFaculty = faculty ? faculty.trim() : entry.faculty;
+    let checkFacultyEmail = facultyEmail !== undefined ? String(facultyEmail).trim().toLowerCase() : (entry.facultyEmail || '');
+
+    if (!checkFacultyEmail && checkFaculty) {
+      const matching = await User.find({
+        name: { $regex: new RegExp('^' + escapeRegex(checkFaculty) + '$', 'i') },
+        department: req.user.department,
+        isActive: true,
+      }).select('email');
+      if (matching.length === 1) {
+        checkFacultyEmail = matching[0].email;
+      }
+    }
+
+    if (checkFaculty) {
+      let facultyMatchCondition;
+      if (checkFacultyEmail) {
+        facultyMatchCondition = {
+          $or: [
+            { facultyEmail: checkFacultyEmail },
+            {
+              faculty: { $regex: new RegExp('^' + escapeRegex(checkFaculty) + '$', 'i') },
+              facultyEmail: { $in: [null, '', undefined] },
+            },
+          ],
+        };
+      } else {
+        facultyMatchCondition = {
+          faculty: { $regex: new RegExp('^' + escapeRegex(checkFaculty) + '$', 'i') },
+        };
+      }
+
+      const facultyCollision = await Timetable.findOne({
+        ...facultyMatchCondition,
+        day: entry.day,
+        isActive: true,
+        _id: { $ne: id },
+        startTime: { $lt: checkEndTime },
+        endTime: { $gt: checkStartTime },
+      }).populate('roomId', 'name roomNumber');
+
+      if (facultyCollision) {
+        const rName = facultyCollision.roomId?.name || 'Classroom';
+        const fDept = facultyCollision.department ? `[${facultyCollision.department}] ` : '';
+        return res.status(400).json({
+          success: false,
+          message: `🚫 Faculty Collision: Prof. ${checkFaculty} is already scheduled to teach ${facultyCollision.subject} in room "${rName}" (${fDept}${facultyCollision.semester} Sem Sec ${facultyCollision.section}) on ${entry.day} from ${facultyCollision.startTime} to ${facultyCollision.endTime}.`,
+        });
+      }
+    }
+
     if (targetRoomId) entry.roomId = targetRoomId;
     if (startTime) entry.startTime = startTime;
     if (endTime) entry.endTime = endTime;
     if (subject) entry.subject = subject.trim();
     if (classGroup) entry.classGroup = classGroup.trim();
     if (faculty) entry.faculty = faculty.trim();
+    if (checkFacultyEmail !== undefined) entry.facultyEmail = checkFacultyEmail;
 
     entry.version += 1;
     await entry.save();

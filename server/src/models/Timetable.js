@@ -47,6 +47,13 @@ const TimetableSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    facultyEmail: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      index: true,
+      default: '',
+    },
     semester: {
       type: String,
       required: true,

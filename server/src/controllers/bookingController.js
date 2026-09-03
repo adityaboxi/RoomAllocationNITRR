@@ -361,12 +361,19 @@ exports.createBooking = async (req, res) => {
 
     // 5. Faculty conflict check with master timetable
     const safeFacultyName = escapeRegex(req.user.name);
+    const userEmail = req.user.email ? req.user.email.toLowerCase().trim() : '';
     const facultyTimetableConflict = await Timetable.findOne({
-      faculty: { $regex: new RegExp(`^${safeFacultyName}$`, 'i') },
       day,
       startTime: { $lt: endTime },
       endTime: { $gt: startTime },
       isActive: true,
+      $or: [
+        { facultyEmail: userEmail },
+        {
+          faculty: { $regex: new RegExp(`^${safeFacultyName}$`, 'i') },
+          $or: [{ facultyEmail: { $exists: false } }, { facultyEmail: null }, { facultyEmail: '' }, { facultyEmail: userEmail }],
+        },
+      ],
     });
 
     if (facultyTimetableConflict) {
@@ -633,12 +640,19 @@ exports.lockRoom = async (req, res) => {
     }
 
     const safeFacultyName = escapeRegex(req.user.name);
+    const userEmail = req.user.email ? req.user.email.toLowerCase().trim() : '';
     const facultyTimetableConflict = await Timetable.findOne({
-      faculty: { $regex: new RegExp(`^${safeFacultyName}$`, 'i') },
       day,
       startTime: { $lt: endTime },
       endTime: { $gt: startTime },
       isActive: true,
+      $or: [
+        { facultyEmail: userEmail },
+        {
+          faculty: { $regex: new RegExp(`^${safeFacultyName}$`, 'i') },
+          $or: [{ facultyEmail: { $exists: false } }, { facultyEmail: null }, { facultyEmail: '' }, { facultyEmail: userEmail }],
+        },
+      ],
     });
 
     if (facultyTimetableConflict) {

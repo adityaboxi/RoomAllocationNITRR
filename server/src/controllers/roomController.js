@@ -231,7 +231,7 @@ exports.getAvailableRooms = async (req, res) => {
         occupancyMap[tt.roomId.toString()] = {
           type: 'TIMETABLE',
           facultyName: tt.faculty,
-          facultyEmail: '',
+          facultyEmail: tt.facultyEmail || '',
           purpose: `${tt.subject} (${tt.classGroup})`,
           startTime: tt.startTime,
           endTime: tt.endTime,
