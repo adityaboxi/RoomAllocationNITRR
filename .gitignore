@@ -1,6 +1,6 @@
 cd /Users/adityaboxi/Desktop/WebDev/project/RoomAllocationNITRR
 
-# Write the complete unified .gitignore
+# Write the complete unified .gitignore with ios_app ignored
 cat << 'EOF' > .gitignore
 # =================================================================
 # 🔐 1. ENVIRONMENT VARIABLES & SECRETS (NEVER COMMIT)
@@ -60,20 +60,11 @@ RoomAllocationNITRR_ios/dist/
 *.temp
 
 # =================================================================
-# 📱 5. IOS & XCODE GENERATED NATIVE FOLDERS (RoomAllocationNITRR_ios)
+# 📱 5. IOS & XCODE GENERATED NATIVE FOLDERS
 # =================================================================
-RoomAllocationNITRR_ios/ios/
-RoomAllocationNITRR_ios/ios/App/Pods/
-RoomAllocationNITRR_ios/ios/App/build/
-RoomAllocationNITRR_ios/ios/App/DerivedData/
-*.xcuserstate
-*.xcbkptlist
-*.xcscheme
-xcuserdata/
-*.ipa
-*.app
-*.dSYM
-*.dSYM.zip
+# Ignore the entire iOS app folder
+RoomAllocationNITRR_ios/
+ios_app/
 
 # =================================================================
 # 📋 6. LOGS & RUNTIME DATA
@@ -119,5 +110,14 @@ credentials.json
 service-account.json
 EOF
 
-# Refresh git index so ignored files are immediately untracked
-git rm -r --cached . 2>/dev/null || true
+# Remove the iOS folder from Git tracking (keep locally)
+git rm -r --cached RoomAllocationNITRR_ios/ 2>/dev/null || true
+git rm -r --cached ios_app/ 2>/dev/null || true
+
+# Refresh git index
+git add .gitignore
+git commit -m "Ignore iOS app folders"
+git push
+
+
+ios_app
