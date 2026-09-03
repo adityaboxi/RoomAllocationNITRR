@@ -120,4 +120,4 @@ git commit -m "Ignore iOS app folders"
 git push
 
 
-ios_app
+ios_app/
