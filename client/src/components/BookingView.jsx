@@ -382,17 +382,11 @@ export default function BookingView({ user }) {
       let end = endTime;
 
       if (!startTime) {
-        startTime = getCurrentTimeHHMM();
+        startTime = '08:10';
       }
 
       if (!end || startTime >= end) {
         end = getDefaultEndHHMM(startTime);
-      }
-
-      const nowTime = getCurrentTimeHHMM();
-      if (date === todayStr && startTime < nowTime) {
-        startTime = nowTime;
-        end = getDefaultEndHHMM(nowTime);
       }
 
       const deptParam = selectedBranch === 'ALL' ? undefined : selectedBranch;
@@ -647,6 +641,10 @@ export default function BookingView({ user }) {
 
   const isRoomAvailable = (room) => {
     if (isHolidayDate) return false;
+    const currentNow = getCurrentTimeHHMM();
+    if (bookingData.date === todayStr && bookingData.startTime < currentNow) {
+      return false;
+    }
     const id = String(room.id || room._id);
     return availableRoomIds.map(String).includes(id);
   };
@@ -1177,27 +1175,46 @@ export default function BookingView({ user }) {
                       )}
                     </div>
 
-                    {!available && occupancyInfo && (
-                      <div className="mt-3 p-2.5 rounded-xl bg-slate-100/70 border border-slate-200 text-xs text-slate-800 space-y-0.5">
-                        <div className="flex items-center gap-1.5 font-bold text-slate-900 text-[11px]">
-                          {occupancyInfo.type === 'TIMETABLE' ? (
-                            <>
-                              <BookOpen className="w-3 h-3 text-indigo-600" />
-                              <span>Timetable Lecture</span>
-                            </>
-                          ) : (
-                            <>
-                              <UserIcon className="w-3 h-3 text-indigo-600" />
-                              <span>Faculty Booking</span>
-                            </>
-                          )}
+                    {!available && (
+                      <div className="mt-3 p-2.5 rounded-xl bg-rose-50/80 border border-rose-200/90 text-xs text-slate-800 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 font-bold text-rose-900 text-[11px]">
+                            {occupancyInfo?.type === 'TIMETABLE' ? (
+                              <>
+                                <BookOpen className="w-3.5 h-3.5 text-rose-600" />
+                                <span>Timetable Class</span>
+                              </>
+                            ) : (
+                              <>
+                                <UserIcon className="w-3.5 h-3.5 text-rose-600" />
+                                <span>{occupancyInfo?.purpose === 'TEMPORARY_LOCK' ? 'Locked for Booking' : 'Faculty Booking'}</span>
+                              </>
+                            )}
+                          </div>
+                          <span className="text-[10px] font-bold text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded border border-rose-200 uppercase tracking-wide">
+                            Occupied
+                          </span>
                         </div>
-                        <div className="text-[11px] font-medium text-slate-700">
-                          {occupancyInfo.purpose}
-                        </div>
+
+                        {occupancyInfo?.purpose && occupancyInfo.purpose !== 'TEMPORARY_LOCK' && (
+                          <div className="text-[11px] font-semibold text-slate-800">
+                            {occupancyInfo.purpose}
+                          </div>
+                        )}
+
                         <div className="text-[10px] text-slate-500 flex items-center justify-between pt-0.5">
-                          <span>{occupancyInfo.facultyName || 'Faculty'}</span>
-                          <span>{occupancyInfo.startTime} - {occupancyInfo.endTime}</span>
+                          <span>
+                            {occupancyInfo?.facultyName
+                              ? `Prof. ${occupancyInfo.facultyName}`
+                              : (bookingData.date === todayStr && bookingData.startTime < getCurrentTimeHHMM()
+                              ? 'Slot Passed'
+                              : 'Occupied in this slot')}
+                          </span>
+                          <span>
+                            {occupancyInfo?.startTime && occupancyInfo?.endTime
+                              ? `${occupancyInfo.startTime} - ${occupancyInfo.endTime}`
+                              : `${bookingData.startTime} - ${bookingData.endTime}`}
+                          </span>
                         </div>
                       </div>
                     )}
@@ -1224,17 +1241,19 @@ export default function BookingView({ user }) {
                       <button
                         type="button"
                         onClick={() => handleSelectRoom(room)}
-                        className="w-full bg-indigo-600 text-white px-3 py-2 rounded-xl text-xs font-bold hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-100"
+                        className="w-full bg-indigo-600 text-white px-3 py-2 rounded-xl text-xs font-bold hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-100 flex items-center justify-center gap-1.5"
                       >
-                        Reserve Slot
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Reserve Slot</span>
                       </button>
                     ) : (
                       <button
                         type="button"
                         disabled
-                        className="w-full bg-slate-100 text-slate-400 px-3 py-2 rounded-xl text-xs font-semibold cursor-not-allowed border border-slate-200"
+                        className="w-full bg-rose-50 text-rose-700 px-3 py-2 rounded-xl text-xs font-bold cursor-not-allowed border border-rose-200 flex items-center justify-center gap-1.5"
                       >
-                        {isHolidayDate ? 'Holiday' : 'Unavailable'}
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                        <span>{isHolidayDate ? 'Holiday' : 'Occupied'}</span>
                       </button>
                     )}
                   </div>
