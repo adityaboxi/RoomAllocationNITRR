@@ -33,8 +33,10 @@ const runDatabaseCleanup = async () => {
   const completedCutoffStr = completedCutoff.toISOString().split('T')[0];
 
   try {
+    console.log(`🧹 [CLEANUP] Running database pruning at ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`);
+
     // 0. Auto-complete past active bookings
-    await Booking.updateMany(
+    const autoCompleted = await Booking.updateMany(
       {
         status: 'active',
         purpose: { $ne: 'TEMPORARY_LOCK' },
@@ -45,11 +47,12 @@ const runDatabaseCleanup = async () => {
       },
       { $set: { status: 'completed' } }
     );
+    if (autoCompleted.modifiedCount > 0) {
+      console.log(`🧹 [CLEANUP] Auto-completed ${autoCompleted.modifiedCount} past bookings`);
+    }
 
     // 1. Delete Old Reviews (> 90 days)
-    await Review.deleteMany({
-      createdAt: { $lt: reviewCutoff },
-    });
+    const deletedReviews = await Review.deleteMany({ createdAt: { $lt: reviewCutoff } });
 
     // 2. Protected booking IDs
     const activeReviewedBookingIds = await Review.distinct('bookingId');
@@ -67,61 +70,33 @@ const runDatabaseCleanup = async () => {
       .filter((id) => mongoose.Types.ObjectId.isValid(id))
       .map((id) => new mongoose.Types.ObjectId(id));
 
-    await Promise.all([
+    const [r1, r2, r3, r4, r5, r6, r7] = await Promise.all([
       // 3. Delete verified / expired OTPs (> 24h)
-      OTP.deleteMany({
-        createdAt: { $lt: otpCutoff },
-        verified: true,
-      }),
-
+      OTP.deleteMany({ createdAt: { $lt: otpCutoff }, verified: true }),
       // 4. Delete abandoned checkout locks older than 1h
-      Booking.deleteMany({
-        purpose: 'TEMPORARY_LOCK',
-        createdAt: { $lt: oneHourAgo },
-      }),
-
+      Booking.deleteMany({ purpose: 'TEMPORARY_LOCK', createdAt: { $lt: oneHourAgo } }),
       // 5. Delete read notifications (> 7 days)
-      Notification.deleteMany({
-        read: true,
-        createdAt: { $lt: readNotifCutoff },
-      }),
-
+      Notification.deleteMany({ read: true, createdAt: { $lt: readNotifCutoff } }),
       // 6. Delete unread notifications (> 30 days)
-      Notification.deleteMany({
-        read: false,
-        createdAt: { $lt: unreadNotifCutoff },
-      }),
-
+      Notification.deleteMany({ read: false, createdAt: { $lt: unreadNotifCutoff } }),
       // 7. Delete old cancelled bookings (> 7 days)
-      Booking.deleteMany({
-        status: 'cancelled',
-        date: { $lt: cancelledCutoffStr },
-        _id: { $nin: protectedBookingObjectIds },
-      }),
-
+      Booking.deleteMany({ status: 'cancelled', date: { $lt: cancelledCutoffStr }, _id: { $nin: protectedBookingObjectIds } }),
       // 8. Delete old completed bookings (> 90 days)
-      Booking.deleteMany({
-        status: 'completed',
-        date: { $lt: completedCutoffStr },
-        _id: { $nin: protectedBookingObjectIds },
-      }),
-
+      Booking.deleteMany({ status: 'completed', date: { $lt: completedCutoffStr }, _id: { $nin: protectedBookingObjectIds } }),
       // 9. Delete decommissioned timetable slots
-      Timetable.deleteMany({
-        isActive: false,
-        updatedAt: { $lt: cancelledCutoff },
-      }),
-
-      // 10. 🛡️ Delete ONLY Emergency/One-time holidays older than 90 days.
-      // (National / Recurring holidays with isRecurring: true are NEVER deleted!)
-      Holiday.deleteMany({
-        isRecurring: false,
-        type: 'EMERGENCY',
-        date: { $lt: completedCutoffStr },
-      }),
+      Timetable.deleteMany({ isActive: false, updatedAt: { $lt: cancelledCutoff } }),
     ]);
+
+    // 10. Delete ONLY Emergency/One-time holidays older than 90 days
+    const r8 = await Holiday.deleteMany({
+      isRecurring: false,
+      type: 'EMERGENCY',
+      date: { $lt: completedCutoffStr },
+    });
+
+    console.log(`🧹 [CLEANUP] Complete — OTPs: ${r1.deletedCount} | Locks: ${r2.deletedCount} | ReadNotifs: ${r3.deletedCount} | UnreadNotifs: ${r4.deletedCount} | CancelledBookings: ${r5.deletedCount} | CompletedBookings: ${r6.deletedCount} | Timetables: ${r7.deletedCount} | Holidays: ${r8.deletedCount} | Reviews: ${deletedReviews.deletedCount}`);
   } catch (error) {
-    // console.error('❌ [CRON] Database Pruning Error:', error.message);
+    console.error('❌ [CLEANUP] Database pruning error:', error.message);
   }
 };
 

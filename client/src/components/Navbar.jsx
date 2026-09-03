@@ -6,6 +6,7 @@ import {
   GraduationCap,
   Bell,
   Sparkles,
+  Building2,
 } from 'lucide-react';
 import nitrrLogo from '../assets/nitrr_new_logo_new.png';
 
@@ -13,7 +14,6 @@ export default function Navbar({
   currentUser,
   onLogout,
   notifications = [],
-  onClearNotifications,
 }) {
   const unreadCount = Array.isArray(notifications)
     ? notifications.filter((n) => !n.read).length
@@ -64,6 +64,8 @@ export default function Navbar({
             <div className="hidden sm:flex items-center gap-2.5 bg-slate-800/80 border border-slate-700/80 px-3.5 py-1.5 rounded-xl">
               {currentUser.role === 'HOD' ? (
                 <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+              ) : currentUser.role === 'ADMIN' ? (
+                <Building2 className="w-4 h-4 text-purple-400 flex-shrink-0" />
               ) : (
                 <GraduationCap className="w-4 h-4 text-indigo-400 flex-shrink-0" />
               )}
@@ -72,7 +74,7 @@ export default function Navbar({
                   {currentUser.name}
                 </div>
                 <div className="text-[11px] text-slate-400">
-                  {currentUser.role === 'HOD' ? 'Department Head' : 'Faculty Member'}
+                  {currentUser.role === 'HOD' ? 'Department Head' : currentUser.role === 'ADMIN' ? 'System Administrator' : 'Faculty Member'}
                 </div>
               </div>
             </div>

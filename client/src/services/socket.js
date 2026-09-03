@@ -109,3 +109,34 @@ export const offRoomUnlocked = (callback) => {
   const s = getSocket();
   if (s && callback) s.off('room-unlocked', callback);
 };
+
+// ---------- ROOM DATA CHANGE EVENTS (Admin → All Users) ----------
+export const onRoomCreated = (callback) => {
+  const s = getSocket();
+  if (s && callback) s.on('room-created', callback);
+};
+
+export const offRoomCreated = (callback) => {
+  const s = getSocket();
+  if (s && callback) s.off('room-created', callback);
+};
+
+export const onRoomUpdated = (callback) => {
+  const s = getSocket();
+  if (s && callback) s.on('room-updated', callback);
+};
+
+export const offRoomUpdated = (callback) => {
+  const s = getSocket();
+  if (s && callback) s.off('room-updated', callback);
+};
+
+export const onRoomDeleted = (callback) => {
+  const s = getSocket();
+  if (s && callback) s.on('room-deleted', callback);
+};
+
+export const offRoomDeleted = (callback) => {
+  const s = getSocket();
+  if (s && callback) s.off('room-deleted', callback);
+};

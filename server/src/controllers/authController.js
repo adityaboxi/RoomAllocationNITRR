@@ -28,7 +28,11 @@ const getConfiguredDepartments = () => {
     .map((d) => d.trim())
     .filter(Boolean);
 
-  return parsed.length > 0 ? parsed : defaultList;
+  const finalList = parsed.length > 0 ? parsed : defaultList;
+  if (!finalList.includes('Common / Institute Level')) {
+    finalList.push('Common / Institute Level');
+  }
+  return finalList;
 };
 
 // Helper to safely encrypt temporary password in OTP collection
@@ -70,17 +74,70 @@ exports.getDepartments = async (req, res) => {
 // ---------- LOGIN ----------
 exports.login = async (req, res) => {
   try {
-    let { email, password } = req.body;
+    let { email, password, role } = req.body;
     if (!email || !password) {
       return res.status(400).json({ success: false, message: 'Email and password required' });
     }
 
     email = email.trim().toLowerCase();
 
+    // 🔒 Admin Login logic
+    if (process.env.ADMIN_EMAIL && email === process.env.ADMIN_EMAIL.trim().toLowerCase()) {
+      if (role && role !== 'ADMIN') {
+        return res.status(403).json({ success: false, message: 'Please select the ADMIN role tab to log in with these credentials.' });
+      }
+      const AdminUser = require('../models/AdminUser');
+      let adminUser = await AdminUser.findOne({ email }).select('+password');
+      
+      // If Admin doesn't exist, this is their first signup/login via .env
+      if (!adminUser) {
+        if (password !== process.env.ADMIN_PASSWORD) {
+          return res.status(401).json({ success: false, message: 'Invalid admin credentials' });
+        }
+        adminUser = await AdminUser.create({
+          name: 'System Admin',
+          email,
+          password,
+          role: 'ADMIN',
+          department: 'ALL',
+          isFirstLogin: true
+        });
+      } else {
+        // Admin exists, verify against the DB password (which might have been reset)
+        const isMatch = await adminUser.comparePassword(password);
+        if (!isMatch) {
+           // Fallback: If they haven't reset it yet and use the .env password, we should let them in
+           // or we just rely entirely on the DB password since it was seeded with the .env password initially.
+           return res.status(401).json({ success: false, message: 'Invalid email or password' });
+        }
+      }
+
+      await adminUser.updateLastLogin();
+      const token = generateToken(adminUser._id);
+      
+      return res.json({
+        success: true,
+        token,
+        user: {
+          id: adminUser.id,
+          name: adminUser.name,
+          email: adminUser.email,
+          role: adminUser.role,
+          department: adminUser.department,
+          isFirstLogin: adminUser.isFirstLogin
+        },
+      });
+    }
+
     const user = await User.findOne({ email }).select('+password');
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
+    
+    if (role && user.role !== role) {
+      return res.status(403).json({ success: false, message: `Your account is registered as ${user.role}. Please select the correct role tab.` });
+    }
+
     if (!user.isActive) {
       return res.status(401).json({ success: false, message: 'Account deactivated. Please contact the administrator.' });
     }
@@ -201,7 +258,14 @@ exports.changePassword = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Password must be at least 8 characters long' });
     }
 
-    const user = await User.findById(req.user.id).select('+password');
+    let user = await User.findById(req.user.id).select('+password');
+    let isAdmin = false;
+    if (!user) {
+      const AdminUser = require('../models/AdminUser');
+      user = await AdminUser.findById(req.user.id).select('+password');
+      isAdmin = true;
+    }
+    
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
@@ -212,6 +276,9 @@ exports.changePassword = async (req, res) => {
     }
 
     user.password = newPassword;
+    if (isAdmin && user.isFirstLogin) {
+      user.isFirstLogin = false;
+    }
     await user.save();
 
     res.json({ success: true, message: 'Password changed successfully' });
@@ -231,7 +298,11 @@ exports.forgotPassword = async (req, res) => {
 
     email = email.trim().toLowerCase();
 
-    const user = await User.findOne({ email });
+    let user = await User.findOne({ email });
+    if (!user) {
+      const AdminUser = require('../models/AdminUser');
+      user = await AdminUser.findOne({ email });
+    }
     if (!user) {
       return res.status(404).json({ success: false, message: 'No account found with this email address' });
     }
@@ -325,7 +396,11 @@ exports.resetPassword = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Reset token does not match provided email' });
     }
 
-    const user = await User.findOne({ email });
+    let user = await User.findOne({ email });
+    if (!user) {
+      const AdminUser = require('../models/AdminUser');
+      user = await AdminUser.findOne({ email });
+    }
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }

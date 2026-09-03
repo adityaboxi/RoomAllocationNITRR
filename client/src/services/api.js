@@ -39,8 +39,9 @@ api.interceptors.response.use(
 );
 
 // Auth Endpoints
-export const login = (email, password) =>
-  api.post('/api/auth/login', { email, password });
+export const login = (email, password, role) =>
+  api.post('/api/auth/login', { email, password, role });
+
 
 export const signup = (name, email, password, confirmPassword, department, role) =>
   api.post('/api/auth/signup', { name, email, password, confirmPassword, department, role });
@@ -87,7 +88,7 @@ export const getRoomsByDepartment = (department) => api.get(`/api/rooms/departme
 export const createRoom = (data) => api.post('/api/rooms', data);
 export const updateRoom = (id, data) => api.put(`/api/rooms/${id}`, data);
 export const toggleRoomAvailability = (id) => api.put(`/api/rooms/${id}/toggle`);
-export const deleteRoom = (id) => api.delete(`/api/rooms/${id}`);
+export const deleteRoom = (id, adminPassword) => api.delete(`/api/rooms/${id}`, { data: { adminPassword } });
 export const getRoomAvailability = (roomId, day, time, date) =>
   api.get(`/api/rooms/${roomId}/availability`, { params: { day, time, date } });
 
@@ -131,7 +132,7 @@ export const deleteHoliday = (id) => api.delete(`/api/holidays/${id}`);
 export const getDepartmentStats = (department) => api.get(`/api/stats/department/${department}`);
 
 // Notifications
-export const getNotifications = (params = {}) => api.get('/api/notifications', { params });
+export const getNotifications = (params = {}, options = {}) => api.get('/api/notifications', { params, ...options });
 export const markAsRead = (id) => api.put(`/api/notifications/${id}/read`);
 export const markAllAsRead = () => api.put('/api/notifications/read-all');
 export const deleteNotification = (id) => api.delete(`/api/notifications/${id}`);

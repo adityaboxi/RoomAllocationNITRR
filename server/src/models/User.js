@@ -29,7 +29,7 @@ const UserSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['FACULTY', 'HOD'],
+      enum: ['FACULTY', 'HOD', 'ADMIN'],
       required: true,
       default: 'FACULTY',
       index: true,
@@ -102,6 +102,11 @@ UserSchema.statics.detectRole = function (email) {
   if (!email || typeof email !== 'string') return 'FACULTY';
   const normalized = email.trim().toLowerCase();
   const [localPart, domain] = normalized.split('@');
+
+  // Detect ADMIN (e.g. admin@nitrr.ac.in)
+  if (localPart === 'admin' || localPart.startsWith('admin.')) {
+    return 'ADMIN';
+  }
 
   // Detect HOD designations via local prefix or departmental head addresses
   if (

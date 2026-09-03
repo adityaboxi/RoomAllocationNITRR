@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import {
+import api, {
   getRooms,
   getTimetable,
   updateTimetableEntry,
@@ -23,7 +23,23 @@ import {
   Loader2,
 } from 'lucide-react';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+// ============================================================================
+// STRICT INSTITUTIONAL TIME GRID
+// ============================================================================
+const VALID_TIMETABLE_SLOTS = [
+  '08:10-09:00',
+  '09:00-09:50',
+  '09:50-10:40',
+  '10:40-11:30',
+  '11:30-12:20',
+  '12:20-13:10',
+  '13:10-14:10', // LUNCH BREAK
+  '14:10-15:00',
+  '15:00-15:50',
+  '15:50-16:40',
+  '16:40-17:30',
+  '17:30-18:20'
+];
 
 // Helper to safely extract error messages
 const extractErrorMessage = (err, fallback) => {
@@ -149,26 +165,40 @@ export default function TimetableManager({ user }) {
             const day = cols[dayIdx];
             const startTime = cols[startIdx];
             const endTime = cols[endIdx];
-            const subject = cols[subjIdx];
-            const faculty = cols[facultyIdx];
+            const subject = cols[subjIdx] || '';
+            const faculty = cols[facultyIdx] || '';
+
+            const isSubjectEmpty = subject === '';
+            const isFacultyEmpty = faculty === '';
+
+            if (isSubjectEmpty !== isFacultyEmpty) {
+              return reject(new Error(`Row #${i}: Both Subject and Faculty must be provided together, or both must be empty to indicate a free slot.`));
+            }
 
             if (!days.includes(day)) {
               return reject(new Error(`Row #${i}: Invalid Day "${day}". Must be one of ${days.join(', ')}.`));
             }
             if (!isValidTimeFormat(startTime) || !isValidTimeFormat(endTime)) {
-              return reject(new Error(`Row #${i} ("${subject}"): Invalid time format (${startTime} - ${endTime}). Must be 24-hour HH:mm.`));
+              return reject(new Error(`Row #${i}: Invalid time format (${startTime} - ${endTime}). Must be 24-hour HH:mm.`));
             }
-            if (toMinutes(startTime) >= toMinutes(endTime)) {
-              return reject(new Error(`Row #${i} ("${subject}"): Start time (${startTime}) must be strictly before End time (${endTime}).`));
+
+            const slotKey = `${startTime}-${endTime}`;
+            
+            if (!VALID_TIMETABLE_SLOTS.includes(slotKey)) {
+              return reject(new Error(`Row #${i}: Invalid time slot ${slotKey}. You must use the exact 50-minute institutional slots.`));
             }
-            if (toMinutes(endTime) - toMinutes(startTime) < 30) {
-              return reject(new Error(`Row #${i} ("${subject}"): Class duration must be at least 30 minutes.`));
+
+            if (slotKey === '13:10-14:10' && (!isSubjectEmpty || !isFacultyEmpty)) {
+              return reject(new Error(`Row #${i}: The 13:10-14:10 slot is reserved for lunch break. You must leave Subject and Faculty blank.`));
+            }
+
+            if (isSubjectEmpty && isFacultyEmpty) {
+              continue;
             }
 
             parsedRows.push({ rowNumber: i, day, startTime, endTime, subject, faculty });
           }
 
-          // Check for intra-batch collision between rows in the uploaded file
           for (let i = 0; i < parsedRows.length; i++) {
             for (let j = i + 1; j < parsedRows.length; j++) {
               const a = parsedRows[i];
@@ -193,7 +223,6 @@ export default function TimetableManager({ user }) {
     });
   };
 
-  // ----- File Staging & Upload -----
   const handleFileSelect = async (e) => {
     const file = e.target.files?.[0];
     setError('');
@@ -214,7 +243,6 @@ export default function TimetableManager({ user }) {
       return;
     }
 
-    // Client-side verification for CSV files
     if (ext === '.csv') {
       try {
         await verifyCSVContent(file);
@@ -250,19 +278,11 @@ export default function TimetableManager({ user }) {
     formData.append('roomId', uploadRoomId);
 
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`${API_BASE}/api/timetable/upload`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
+      const data = await api.post('/api/timetable/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.message || 'File upload failed.');
-      }
-
-      setSuccess(data.message || 'Timetable published successfully!');
+      setSuccess(data.data?.message || 'Timetable published successfully!');
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
 
@@ -276,30 +296,41 @@ export default function TimetableManager({ user }) {
     }
   };
 
-  // ----- Enhanced Download Template Function -----
+  // ----- DYNAMIC FULL-WEEK DOWNLOAD TEMPLATE -----
   const downloadTemplate = () => {
-    const group = `${uploadSemester} Sec ${uploadSection}`;
-    const sampleRows = [
-      `Monday,09:00,09:50,Database Management Systems,${group},Dr. A. Sharma`,
-      `Monday,09:50,10:40,Algorithms & Data Structures,${group},Prof. R. Patel`,
-      `Monday,10:40,11:30,Software Engineering,${group},Dr. S. Kumar`,
-      `Tuesday,09:00,09:50,Database Management Systems,${group},Dr. A. Sharma`,
-      `Tuesday,09:50,10:40,Software Engineering,${group},Dr. S. Kumar`,
-      `Tuesday,10:40,11:30,Algorithms & Data Structures,${group},Prof. R. Patel`,
-      `Wednesday,10:40,11:30,Algorithms & Data Structures,${group},Prof. R. Patel`,
-      `Wednesday,11:30,12:20,Natural Language Processing,${group},Dr. N. Verma`,
-      `Wednesday,12:20,13:10,Software Engineering,${group},Dr. S. Kumar`,
-      `Wednesday,14:10,15:50,Data Science Lab,${group},Prof. M. Gupta`,
-      `Thursday,09:00,10:40,Database Management Systems Lab,${group},Dr. A. Sharma`,
-      `Thursday,10:40,12:20,Natural Language Processing,${group},Dr. N. Verma`,
-      `Thursday,12:20,13:10,Software Engineering,${group},Dr. S. Kumar`,
-      `Thursday,14:10,15:50,Computing Algorithms & IKS,${group},Prof. M. Gupta`,
-      `Friday,09:00,10:40,Web Technologies Lab,${group},Prof. K. Singh`,
-      `Friday,11:30,13:10,Summer Internship Mentorship,${group},Prof. Faculty Mentor`,
-      `Saturday,10:00,12:00,Remedial & Project Guidance,${group},Department Faculty`,
+    const group = `${uploadSemester} Sem Sec ${uploadSection}`;
+    const templateDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    
+    const timeSlots = [
+      { s: '08:10', e: '09:00' },
+      { s: '09:00', e: '09:50' },
+      { s: '09:50', e: '10:40' },
+      { s: '10:40', e: '11:30' },
+      { s: '11:30', e: '12:20' },
+      { s: '12:20', e: '13:10' },
+      { s: '13:10', e: '14:10', isBreak: true }, 
+      { s: '14:10', e: '15:00' },
+      { s: '15:00', e: '15:50' },
+      { s: '15:50', e: '16:40' },
+      { s: '16:40', e: '17:30' },
+      { s: '17:30', e: '18:20' } 
     ];
 
-    const csvContent = 'Day,Start Time,End Time,Subject,Class Group,Faculty\n' + sampleRows.join('\n');
+    let csvContent = 'Day,Start Time,End Time,Subject,Class Group,Faculty\n';
+
+    templateDays.forEach((day) => {
+      timeSlots.forEach((slot) => {
+        if (slot.isBreak) {
+          // Exactly 3 trailing commas to make 6 columns total (Day, Start, End, Subject, Class Group, Faculty)
+          csvContent += `${day},${slot.s},${slot.e},,,\n`;
+        } else if (day === 'Monday' && slot.s === '08:10') {
+          csvContent += `${day},${slot.s},${slot.e},Data Structures,${group},Dr. Rajesh Kumar\n`;
+        } else {
+          csvContent += `${day},${slot.s},${slot.e},,${group},\n`;
+        }
+      });
+    });
+
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -311,20 +342,21 @@ export default function TimetableManager({ user }) {
     URL.revokeObjectURL(url);
   };
 
-  // ----- Single Slot Update & Delete -----
   const handleUpdateEntry = async (entryId, updatedData) => {
     if (!updatedData.startTime || !updatedData.endTime || !updatedData.subject || !updatedData.faculty) {
       setError('Start Time, End Time, Subject, and Faculty are all required.');
       return;
     }
 
-    if (toMinutes(updatedData.startTime) >= toMinutes(updatedData.endTime)) {
-      setError('Start time must be strictly before end time.');
+    const slotKey = `${updatedData.startTime}-${updatedData.endTime}`;
+    
+    if (!VALID_TIMETABLE_SLOTS.includes(slotKey)) {
+      setError(`Invalid time slot ${slotKey}. You must use the exact 50-minute institutional slots.`);
       return;
     }
 
-    if (toMinutes(updatedData.endTime) - toMinutes(updatedData.startTime) < 30) {
-      setError('Class duration must be at least 30 minutes.');
+    if (slotKey === '13:10-14:10') {
+      setError('The 13:10-14:10 slot is reserved for the institutional break and cannot be assigned a class.');
       return;
     }
 
@@ -469,7 +501,7 @@ export default function TimetableManager({ user }) {
                 </div>
 
                 <div className="text-[11px] text-slate-500 leading-relaxed">
-                  Generates an editable spreadsheet pre-filled for <strong className="text-slate-700">{uploadSemester} Sem Sec {uploadSection}</strong> (Monday–Sunday slots in 24h format).
+                  Generates an editable spreadsheet pre-filled for <strong className="text-slate-700">{uploadSemester} Sem Sec {uploadSection}</strong> (Monday–Saturday slots in 24h format).
                 </div>
               </div>
 
@@ -714,21 +746,27 @@ export default function TimetableManager({ user }) {
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 mb-1">Start Time</label>
-                  <input
-                    type="time"
+                  <select
                     value={editingEntry.startTime}
                     onChange={(e) => setEditingEntry({ ...editingEntry, startTime: e.target.value })}
                     className="w-full border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-600"
-                  />
+                  >
+                    {['08:10', '09:00', '09:50', '10:40', '11:30', '12:20', '13:10', '14:10', '15:00', '15:50', '16:40', '17:30', '18:20'].map(t => (
+                      <option key={'start-'+t} value={t}>{t}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 mb-1">End Time</label>
-                  <input
-                    type="time"
+                  <select
                     value={editingEntry.endTime}
                     onChange={(e) => setEditingEntry({ ...editingEntry, endTime: e.target.value })}
                     className="w-full border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-600"
-                  />
+                  >
+                    {['08:10', '09:00', '09:50', '10:40', '11:30', '12:20', '13:10', '14:10', '15:00', '15:50', '16:40', '17:30', '18:20'].map(t => (
+                      <option key={'end-'+t} value={t} disabled={t <= editingEntry.startTime}>{t}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 mb-1">Room</label>

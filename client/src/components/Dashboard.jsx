@@ -1,5 +1,5 @@
-import React from 'react';
 import { Loader2 } from 'lucide-react';
+import { Navigate } from 'react-router-dom';
 import FacultyDashboard from './FacultyDashboard';
 import HODDashboard from './HODDashboard';
 
@@ -11,6 +11,10 @@ export default function Dashboard({ user, onLogout }) {
         <span>Loading user dashboard...</span>
       </div>
     );
+  }
+
+  if (user.role === 'ADMIN') {
+    return <Navigate to="/admin" replace />;
   }
 
   if (user.role === 'HOD') {

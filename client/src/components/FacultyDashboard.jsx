@@ -1,20 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import RoomDashboard from './RoomDashboard';
 import BookingView from './BookingView';
 import ReviewPopup from './ReviewPopup';
 import { getPendingReviews } from '../services/api';
 import { getSocket } from '../services/socket';
 import {
-  LayoutDashboard,
-  CalendarPlus,
   GraduationCap,
   Star,
   CheckCircle2,
-  BellRing,
 } from 'lucide-react';
 
 export default function FacultyDashboard({ user }) {
-  const [view, setView] = useState('dashboard'); // 'dashboard' | 'book'
   const [pendingReviews, setPendingReviews] = useState([]);
   const [activeReviewBooking, setActiveReviewBooking] = useState(null);
   const isMountedRef = useRef(true);
@@ -116,35 +111,6 @@ export default function FacultyDashboard({ user }) {
             </div>
           </div>
         </div>
-
-        {/* View Switcher Tabs */}
-        <div className="flex items-center bg-slate-100 p-1 rounded-xl self-start sm:self-auto">
-          <button
-            type="button"
-            onClick={() => setView('dashboard')}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all ${
-              view === 'dashboard'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-900'
-            }`}
-          >
-            <LayoutDashboard className="w-3.5 h-3.5" />
-            <span>Live Room Status</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setView('book')}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all ${
-              view === 'book'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-900'
-            }`}
-          >
-            <CalendarPlus className="w-3.5 h-3.5 text-indigo-600" />
-            <span>Reserve Slot</span>
-          </button>
-        </div>
       </div>
 
       {/* Pending Reviews Banner */}
@@ -166,13 +132,9 @@ export default function FacultyDashboard({ user }) {
         </div>
       )}
 
-      {/* Active View Component */}
-      <div className="transition-all duration-300">
-        {view === 'dashboard' ? (
-          <RoomDashboard user={user} />
-        ) : (
-          <BookingView user={user} />
-        )}
+      {/* Unified Live Room Status & Booking Section */}
+      <div>
+        <BookingView user={user} />
       </div>
 
       {/* Review Submission Modal Popup */}

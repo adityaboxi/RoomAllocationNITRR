@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import AuthPage from './components/AuthPage';
 import Dashboard from './components/Dashboard';
 import NotificationCenter from './components/NotificationCenter';
 import ReviewPopup from './components/ReviewPopup';
+import AdminDashboard from './components/AdminDashboard';
 import {
   initSocket,
   disconnectSocket,
@@ -17,8 +18,12 @@ import { getPendingReviews, getNotifications } from './services/api';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(() => {
-    const saved = localStorage.getItem('currentUser');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('currentUser');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
   });
 
   const [notifications, setNotifications] = useState([]);
@@ -28,110 +33,123 @@ export default function App() {
 
   const socketRef = useRef(null);
   const isMountedRef = useRef(true);
+  const notifAbortControllerRef = useRef(null);
 
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      if (notifAbortControllerRef.current) {
+        notifAbortControllerRef.current.abort();
+      }
     };
   }, []);
 
-  // Fetch initial notifications and pending reviews + Poll every 30 seconds
-  useEffect(() => {
-    if (currentUser) {
-      fetchUserNotifications();
-      fetchPendingReviews();
+  // Safe notification fetcher with request cancellation
+  const fetchUserNotifications = useCallback(async () => {
+    if (!currentUser) return;
 
-      // Background heartbeat to trigger review popup as soon as a class ends
-      const reviewInterval = setInterval(() => {
-        if (isMountedRef.current) {
-          fetchPendingReviews();
-        }
-      }, 30000);
+    if (notifAbortControllerRef.current) {
+      notifAbortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    notifAbortControllerRef.current = controller;
 
-      return () => clearInterval(reviewInterval);
+    try {
+      const res = await getNotifications({}, { signal: controller.signal });
+      if (isMountedRef.current && res?.data) {
+        setNotifications(res.data);
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError' && err.name !== 'CanceledError') {
+        // Suppress expected teardown aborts
+      }
     }
   }, [currentUser]);
 
-  const fetchUserNotifications = async () => {
-    try {
-      const res = await getNotifications();
-      if (isMountedRef.current) {
-        setNotifications(res?.data || []);
-      }
-    } catch (err) {
-      // Handled silently
-    }
-  };
-
-  const fetchPendingReviews = async () => {
+  // Safe pending reviews fetcher
+  const fetchPendingReviews = useCallback(async () => {
     if (!currentUser) return;
     try {
       const res = await getPendingReviews();
       const pending = res?.data || [];
       if (isMountedRef.current) {
         setPendingReviews(pending);
-        // Only open popup if not already open
-        if (pending.length > 0 && !showReviewPopup) {
-          setCurrentPending(pending[0]);
-          setShowReviewPopup(true);
-        }
+        setCurrentPending((prev) => {
+          if (!prev && pending.length > 0) {
+            setShowReviewPopup(true);
+            return pending[0];
+          }
+          return prev;
+        });
       }
-    } catch (err) {
+    } catch {
       // Handled silently
     }
-  };
+  }, [currentUser]);
 
-  // Browser Desktop Notification Permission
-  const requestNotificationPermission = () => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().catch(() => {});
-    }
-  };
-
-  // Socket Connection & Real-Time Events
+  // Background polling for reviews
   useEffect(() => {
-    if (currentUser) {
-      const token = localStorage.getItem('token');
-      if (token) {
-        if (!socketRef.current) {
-          socketRef.current = initSocket(token);
-        }
+    if (!currentUser) return;
 
-        const handleCancelled = (data) => {
-          fetchUserNotifications();
+    fetchUserNotifications();
+    fetchPendingReviews();
 
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('❌ Booking Cancelled', {
-              body: `Room ${data.roomName || 'Room'} on ${data.date} (${data.startTime} - ${data.endTime})`,
-            });
-          }
-        };
-
-        const handleTimetableUpdate = () => {
-          fetchUserNotifications();
-        };
-
-        onBookingCancelled(handleCancelled);
-        onTimetableUpdated(handleTimetableUpdate);
-
-        return () => {
-          offBookingCancelled(handleCancelled);
-          offTimetableUpdated(handleTimetableUpdate);
-        };
+    const reviewInterval = setInterval(() => {
+      if (isMountedRef.current) {
+        fetchPendingReviews();
       }
-    } else {
+    }, 30000);
+
+    return () => clearInterval(reviewInterval);
+  }, [currentUser, fetchUserNotifications, fetchPendingReviews]);
+
+  // Socket Connection Lifecycle & Real-Time Listeners
+  useEffect(() => {
+    if (!currentUser) {
       if (socketRef.current) {
         disconnectSocket();
         socketRef.current = null;
       }
+      return;
     }
-  }, [currentUser]);
+
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    if (!socketRef.current) {
+      socketRef.current = initSocket(token);
+    }
+
+    const handleCancelled = (data) => {
+      fetchUserNotifications();
+
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('❌ Booking Cancelled', {
+          body: `Room ${data?.roomName || 'Classroom'} on ${data?.date || 'scheduled day'} (${data?.startTime || ''} - ${data?.endTime || ''})`,
+        });
+      }
+    };
+
+    const handleTimetableUpdate = () => {
+      fetchUserNotifications();
+    };
+
+    onBookingCancelled(handleCancelled);
+    onTimetableUpdated(handleTimetableUpdate);
+
+    return () => {
+      offBookingCancelled(handleCancelled);
+      offTimetableUpdated(handleTimetableUpdate);
+    };
+  }, [currentUser, fetchUserNotifications]);
 
   const handleLoginSuccess = (user) => {
     localStorage.setItem('currentUser', JSON.stringify(user));
     setCurrentUser(user);
-    requestNotificationPermission();
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
   };
 
   const handleLogout = () => {
@@ -146,30 +164,30 @@ export default function App() {
     setCurrentPending(null);
   };
 
-  // Review popup handlers
+  // Safe item advancement by matching target ID
+  const advanceReviewQueue = (completedId) => {
+    setPendingReviews((prevList) => {
+      const nextList = prevList.filter((p) => (p.id || p._id) !== completedId);
+      if (nextList.length > 0) {
+        setCurrentPending(nextList[0]);
+        setShowReviewPopup(true);
+      } else {
+        setCurrentPending(null);
+        setShowReviewPopup(false);
+      }
+      return nextList;
+    });
+  };
+
   const handleReviewSubmit = () => {
-    const nextList = pendingReviews.filter(
-      (p) => (p.id || p._id) !== (currentPending.id || currentPending._id)
-    );
-    setPendingReviews(nextList);
-    if (nextList.length > 0) {
-      setCurrentPending(nextList[0]);
-      setShowReviewPopup(true);
-    } else {
-      setShowReviewPopup(false);
-      setCurrentPending(null);
+    if (currentPending) {
+      advanceReviewQueue(currentPending.id || currentPending._id);
     }
   };
 
   const handleReviewSkip = () => {
-    const nextList = pendingReviews.slice(1);
-    setPendingReviews(nextList);
-    if (nextList.length > 0) {
-      setCurrentPending(nextList[0]);
-      setShowReviewPopup(true);
-    } else {
-      setShowReviewPopup(false);
-      setCurrentPending(null);
+    if (currentPending) {
+      advanceReviewQueue(currentPending.id || currentPending._id);
     }
   };
 
@@ -190,6 +208,16 @@ export default function App() {
             <Routes>
               <Route path="/" element={<Dashboard user={currentUser} onLogout={handleLogout} />} />
               <Route
+                path="/admin"
+                element={
+                  currentUser?.role === 'ADMIN' ? (
+                    <AdminDashboard user={currentUser} onLogout={handleLogout} />
+                  ) : (
+                    <Navigate to="/" replace />
+                  )
+                }
+              />
+              <Route
                 path="/notifications"
                 element={
                   <NotificationCenter
@@ -205,7 +233,6 @@ export default function App() {
           )}
         </main>
 
-        {/* Global Completed Class Review Popup */}
         {showReviewPopup && currentPending && (
           <ReviewPopup
             booking={currentPending}

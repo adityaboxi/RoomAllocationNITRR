@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import RoomManager from './hod/RoomManager';
 import TimetableManager from './hod/TimetableManager';
 import HolidayManager from './hod/HolidayManager';
 import BookingView from './BookingView';
-import RoomDashboard from './RoomDashboard';
 import { getDepartmentStats } from '../services/api';
 import { getSocket } from '../services/socket';
 import {
@@ -11,15 +9,13 @@ import {
   Building2,
   Calendar,
   CalendarPlus,
-  LayoutDashboard,
   Clock,
   Palmtree,
-  RefreshCw,
 } from 'lucide-react';
 
 export default function HODDashboard({ user }) {
   const [stats, setStats] = useState(null);
-  const [activeTab, setActiveTab] = useState('live');
+  const [activeTab, setActiveTab] = useState('book'); // 'book' | 'timetable' | 'holidays'
   const [refreshing, setRefreshing] = useState(false);
   const isMountedRef = useRef(true);
 
@@ -33,10 +29,9 @@ export default function HODDashboard({ user }) {
   const fetchStats = async (isManual = false) => {
     if (isManual) setRefreshing(true);
     try {
-      if (!user?.department) return;
-      const data = await getDepartmentStats(user.department);
+      const res = await getDepartmentStats();
       if (isMountedRef.current) {
-        setStats(data?.data || null);
+        setStats(res.data);
       }
     } catch (err) {
       // Handled silently
@@ -47,7 +42,6 @@ export default function HODDashboard({ user }) {
     }
   };
 
-  // Initial fetch and 15-second live background refresh fallback
   useEffect(() => {
     fetchStats();
     const interval = setInterval(() => {
@@ -57,7 +51,6 @@ export default function HODDashboard({ user }) {
     return () => clearInterval(interval);
   }, [user?.department]);
 
-  // Real-Time Socket Synchronization across entire HOD Dashboard
   useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
@@ -120,28 +113,15 @@ export default function HODDashboard({ user }) {
         <div className="flex items-center bg-slate-100 p-1 rounded-xl flex-wrap self-start sm:self-auto gap-1">
           <button
             type="button"
-            onClick={() => setActiveTab('live')}
+            onClick={() => setActiveTab('book')}
             className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-all ${
-              activeTab === 'live'
+              activeTab === 'book'
                 ? 'bg-white text-slate-900 shadow-sm'
                 : 'text-slate-500 hover:text-slate-900'
             }`}
           >
-            <LayoutDashboard className="w-3.5 h-3.5" />
-            <span>Live Status</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('rooms')}
-            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-all ${
-              activeTab === 'rooms'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-900'
-            }`}
-          >
-            <Building2 className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Rooms</span>
+            <CalendarPlus className="w-3.5 h-3.5 text-amber-600" />
+            <span>Rooms & Reservations</span>
           </button>
 
           <button
@@ -168,19 +148,6 @@ export default function HODDashboard({ user }) {
           >
             <Palmtree className="w-3.5 h-3.5 text-teal-600" />
             <span>Holidays</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('book')}
-            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-all ${
-              activeTab === 'book'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-900'
-            }`}
-          >
-            <CalendarPlus className="w-3.5 h-3.5 text-amber-600" />
-            <span>Ad-hoc Booking</span>
           </button>
         </div>
       </div>
@@ -226,11 +193,9 @@ export default function HODDashboard({ user }) {
 
       {/* Main Tab Panels */}
       <div className="transition-all duration-200">
-        {activeTab === 'live' && <RoomDashboard user={user} />}
-        {activeTab === 'rooms' && <RoomManager user={user} />}
+        {activeTab === 'book' && <BookingView user={user} />}
         {activeTab === 'timetable' && <TimetableManager user={user} />}
         {activeTab === 'holidays' && <HolidayManager user={user} />}
-        {activeTab === 'book' && <BookingView user={user} />}
       </div>
     </div>
   );

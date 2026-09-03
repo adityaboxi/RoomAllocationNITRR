@@ -15,14 +15,19 @@ import {
   Zap,
   Sparkles,
   ArrowLeft,
-  RefreshCw,
   Clock,
   Loader2,
 } from 'lucide-react';
-import { getDepartments } from '../services/api';
+import {
+  getDepartments,
+  login as apiLogin,
+  sendSignupOtp as apiSendSignupOtp,
+  verifySignupOtp as apiVerifySignupOtp,
+  forgotPassword as apiForgotPassword,
+  verifyResetOtp as apiVerifyResetOtp,
+  resetPassword as apiResetPassword,
+} from '../services/api';
 import nitrrLogo from '../assets/nitrr_new_logo_new.png';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 // Safe error extractor helper
 const extractErrorMessage = (err, fallback) => {
@@ -53,6 +58,7 @@ const getInitialDepartments = () => {
     { code: 'Biotechnology', name: 'Biotechnology (BT)' },
     { code: 'Metallurgical & Materials', name: 'Metallurgical & Materials (MME)' },
     { code: 'Mining Engineering', name: 'Mining Engineering (MIN)' },
+    { code: 'Common / Institute Level', name: 'Common / Institute Level (Halls)' },
   ];
 };
 
@@ -142,9 +148,30 @@ export default function AuthPage({ onLoginSuccess }) {
 
   const passwordStrength = evaluatePasswordStrength(formData.password);
 
-  const isValidEmailFormat = (email) => {
-    const regex = /^[a-zA-Z0-9._%+-]+@(gmail\.com|([a-zA-Z0-9-]+\.)*nitrr\.ac\.in)$/i;
-    return regex.test(email.trim());
+  // ============================================
+  // STRICT ROLE-BASED EMAIL VALIDATION
+  // ============================================
+  const validateEmailByRole = (email, selectedRole) => {
+    const cleanEmail = email.trim().toLowerCase();
+    
+    // Basic format check
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return false;
+    }
+
+    const domain = cleanEmail.split('@')[1];
+
+    if (selectedRole === 'ADMIN') {
+      return true; // Admin can use any email
+    }
+    if (selectedRole === 'HOD') {
+      return domain === 'cse.nitrr.ac.in'; // HOD strictly limited
+    }
+    if (selectedRole === 'FACULTY') {
+      return domain === 'gmail.com'; // Faculty strictly limited
+    }
+
+    return false;
   };
 
   const formatTimer = (seconds) => {
@@ -160,8 +187,11 @@ export default function AuthPage({ onLoginSuccess }) {
 
     const cleanEmail = formData.email.trim().toLowerCase();
 
-    if (!isValidEmailFormat(cleanEmail)) {
-      setError('Please enter a valid @gmail.com or @nitrr.ac.in institutional email address.');
+    // Enforce role-based email rules (skip for forgot-password – server validates user existence)
+    if (view !== 'forgot' && !validateEmailByRole(cleanEmail, role)) {
+      if (role === 'HOD') setError('Access Denied: HOD accounts must use a @cse.nitrr.ac.in email address.');
+      else if (role === 'FACULTY') setError('Access Denied: Faculty accounts must use a @gmail.com email address.');
+      else setError('Please enter a valid email address.');
       return;
     }
 
@@ -175,17 +205,10 @@ export default function AuthPage({ onLoginSuccess }) {
           return;
         }
 
-        const res = await fetch(`${API_BASE}/api/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: cleanEmail,
-            password: formData.password,
-          }),
-        });
+        // Use axios api service (routes through Vite proxy, no CORS issues)
+        const data = await apiLogin(cleanEmail, formData.password, role);
 
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message || 'Login failed. Please verify your credentials.');
+        if (!data.success) throw new Error(data.message || 'Login failed. Please verify your credentials.');
 
         localStorage.setItem('token', data.token);
         localStorage.setItem('currentUser', JSON.stringify(data.user));
@@ -210,21 +233,14 @@ export default function AuthPage({ onLoginSuccess }) {
           return;
         }
 
-        const res = await fetch(`${API_BASE}/api/auth/send-signup-otp`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: formData.name.trim(),
-            email: cleanEmail,
-            password: formData.password,
-            confirmPassword: formData.confirmPassword,
-            department: formData.department,
-            role,
-          }),
+        const data = await apiSendSignupOtp({
+          name: formData.name.trim(),
+          email: cleanEmail,
+          password: formData.password,
+          confirmPassword: formData.confirmPassword,
+          department: formData.department,
+          role,
         });
-
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message || 'Failed to dispatch verification code.');
 
         setEmailForReset(cleanEmail);
         setOtpPurpose('signup');
@@ -236,14 +252,7 @@ export default function AuthPage({ onLoginSuccess }) {
       }
 
       if (view === 'forgot') {
-        const res = await fetch(`${API_BASE}/api/auth/forgot-password`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: cleanEmail }),
-        });
-
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.message || 'Failed to send password reset code.');
+        const data = await apiForgotPassword(cleanEmail);
 
         setEmailForReset(cleanEmail);
         setOtpPurpose('forgot');
@@ -272,25 +281,15 @@ export default function AuthPage({ onLoginSuccess }) {
     }
 
     try {
-      let url = '';
-      let body = { email: emailForReset, otp };
+      let data;
 
       if (otpPurpose === 'signup') {
-        url = `${API_BASE}/api/auth/verify-signup-otp`;
+        data = await apiVerifySignupOtp(emailForReset, otp);
       } else if (otpPurpose === 'forgot') {
-        url = `${API_BASE}/api/auth/verify-reset-otp`;
+        data = await apiVerifyResetOtp(emailForReset, otp);
       } else {
         throw new Error('Verification session expired. Please start over.');
       }
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Invalid or expired verification code.');
 
       if (otpPurpose === 'signup') {
         localStorage.setItem('token', data.token);
@@ -312,31 +311,18 @@ export default function AuthPage({ onLoginSuccess }) {
     setError('');
     setResending(true);
     try {
-      const url =
-        otpPurpose === 'signup'
-          ? `${API_BASE}/api/auth/send-signup-otp`
-          : `${API_BASE}/api/auth/forgot-password`;
-
-      const payload =
-        otpPurpose === 'signup'
-          ? {
-              name: formData.name,
-              email: emailForReset,
-              password: formData.password,
-              confirmPassword: formData.confirmPassword,
-              department: formData.department,
-              role,
-            }
-          : { email: emailForReset };
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Failed to resend verification code.');
+      if (otpPurpose === 'signup') {
+        await apiSendSignupOtp({
+          name: formData.name,
+          email: emailForReset,
+          password: formData.password,
+          confirmPassword: formData.confirmPassword,
+          department: formData.department,
+          role,
+        });
+      } else {
+        await apiForgotPassword(emailForReset);
+      }
 
       setOtpTimer(300);
       setSuccessMsg('A fresh verification code has been dispatched to your email.');
@@ -368,19 +354,7 @@ export default function AuthPage({ onLoginSuccess }) {
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: emailForReset,
-          resetToken,
-          newPassword,
-          confirmPassword: confirmNewPassword,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Failed to update password.');
+      const data = await apiResetPassword(emailForReset, resetToken, newPassword, confirmNewPassword);
 
       setSuccessMsg('Password updated successfully! Please sign in with your new password.');
       setFormData((prev) => ({
@@ -480,43 +454,47 @@ export default function AuthPage({ onLoginSuccess }) {
                   </span>
                   <span className="text-[11px] font-semibold text-slate-500">
                     Selected:{' '}
-                    <strong className={role === 'HOD' ? 'text-emerald-700' : 'text-indigo-700'}>
+                    <strong className={
+                      role === 'HOD' ? 'text-emerald-700' : 
+                      role === 'ADMIN' ? 'text-purple-700' : 
+                      'text-indigo-700'
+                    }>
                       {role}
                     </strong>
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => {
                       setRole('FACULTY');
                       setError('');
                     }}
-                    className={`relative flex items-center p-3 rounded-xl border-2 text-left transition-all duration-200 ${
+                    className={`relative flex items-center p-2.5 sm:p-3 rounded-xl border-2 text-left transition-all duration-200 ${
                       role === 'FACULTY'
                         ? 'border-indigo-600 bg-indigo-50/80 shadow-sm ring-2 ring-indigo-600/20'
                         : 'border-slate-200 hover:border-slate-300 bg-white opacity-60 hover:opacity-100'
                     }`}
                   >
                     <div
-                      className={`w-9 h-9 rounded-lg flex items-center justify-center mr-2.5 flex-shrink-0 ${
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center mr-2 flex-shrink-0 ${
                         role === 'FACULTY'
                           ? 'bg-indigo-600 text-white shadow-md'
                           : 'bg-slate-100 text-slate-500'
                       }`}
                     >
-                      <GraduationCap className="w-5 h-5" />
+                      <GraduationCap className="w-4 h-4" />
                     </div>
                     <div>
                       <div
-                        className={`text-sm font-bold leading-tight ${
+                        className={`text-xs sm:text-sm font-bold leading-tight ${
                           role === 'FACULTY' ? 'text-indigo-950' : 'text-slate-800'
                         }`}
                       >
                         Faculty
                       </div>
-                      <div className="text-[11px] text-slate-500 mt-0.5">Book free slots</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5 hidden sm:block">Book slots</div>
                     </div>
                   </button>
 
@@ -526,30 +504,63 @@ export default function AuthPage({ onLoginSuccess }) {
                       setRole('HOD');
                       setError('');
                     }}
-                    className={`relative flex items-center p-3 rounded-xl border-2 text-left transition-all duration-200 ${
+                    className={`relative flex items-center p-2.5 sm:p-3 rounded-xl border-2 text-left transition-all duration-200 ${
                       role === 'HOD'
                         ? 'border-emerald-600 bg-emerald-50/80 shadow-sm ring-2 ring-emerald-600/20'
                         : 'border-slate-200 hover:border-slate-300 bg-white opacity-60 hover:opacity-100'
                     }`}
                   >
                     <div
-                      className={`w-9 h-9 rounded-lg flex items-center justify-center mr-2.5 flex-shrink-0 ${
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center mr-2 flex-shrink-0 ${
                         role === 'HOD'
                           ? 'bg-emerald-600 text-white shadow-md'
                           : 'bg-slate-100 text-slate-500'
                       }`}
                     >
-                      <ShieldCheck className="w-5 h-5" />
+                      <ShieldCheck className="w-4 h-4" />
                     </div>
                     <div>
                       <div
-                        className={`text-sm font-bold leading-tight ${
+                        className={`text-xs sm:text-sm font-bold leading-tight ${
                           role === 'HOD' ? 'text-emerald-950' : 'text-slate-800'
                         }`}
                       >
                         HOD
                       </div>
-                      <div className="text-[11px] text-slate-500 mt-0.5">Manage schedule</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5 hidden sm:block">Schedule</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRole('ADMIN');
+                      setError('');
+                    }}
+                    className={`relative flex items-center p-2.5 sm:p-3 rounded-xl border-2 text-left transition-all duration-200 ${
+                      role === 'ADMIN'
+                        ? 'border-purple-600 bg-purple-50/80 shadow-sm ring-2 ring-purple-600/20'
+                        : 'border-slate-200 hover:border-slate-300 bg-white opacity-60 hover:opacity-100'
+                    }`}
+                  >
+                    <div
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center mr-2 flex-shrink-0 ${
+                        role === 'ADMIN'
+                          ? 'bg-purple-600 text-white shadow-md'
+                          : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      <KeyRound className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div
+                        className={`text-xs sm:text-sm font-bold leading-tight ${
+                          role === 'ADMIN' ? 'text-purple-950' : 'text-slate-800'
+                        }`}
+                      >
+                        Admin
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5 hidden sm:block">Inventory</div>
                     </div>
                   </button>
                 </div>
@@ -591,8 +602,24 @@ export default function AuthPage({ onLoginSuccess }) {
                 </button>
               </div>
 
-              <form onSubmit={handleSubmit} className="space-y-3.5">
-                {view === 'signup' && (
+              {view === 'signup' && role === 'ADMIN' ? (
+                <div className="text-center p-6 bg-slate-50 border border-slate-200 rounded-2xl">
+                  <ShieldAlert className="w-10 h-10 text-slate-400 mx-auto mb-3" />
+                  <h3 className="font-bold text-slate-900 mb-1">System Admin Account</h3>
+                  <p className="text-xs text-slate-500">
+                    Administrator accounts are provisioned via system variables. Please use the Sign In tab.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setView('login')}
+                    className="mt-4 px-4 py-2 bg-slate-950 text-white rounded-xl text-sm font-bold hover:bg-slate-800 shadow-md transition-all"
+                  >
+                    Go to Sign In
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleSubmit} className="space-y-3.5">
+                  {view === 'signup' && (
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
                       Full Name & Title *
@@ -619,12 +646,14 @@ export default function AuthPage({ onLoginSuccess }) {
                     </label>
                     <span
                       className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        role === 'HOD'
+                        role === 'ADMIN'
+                          ? 'bg-purple-100 text-purple-800'
+                          : role === 'HOD'
                           ? 'bg-emerald-100 text-emerald-800'
                           : 'bg-indigo-100 text-indigo-800'
                       }`}
                     >
-                      {role === 'HOD' ? 'HOD' : 'FACULTY'}
+                      {role}
                     </span>
                   </div>
                   <div className="relative">
@@ -634,14 +663,23 @@ export default function AuthPage({ onLoginSuccess }) {
                       name="email"
                       value={formData.email}
                       onChange={handleInputChange}
-                      placeholder={role === 'HOD' ? 'hod.cse@nitrr.ac.in' : 'faculty@gmail.com'}
+                      placeholder={
+                        role === 'ADMIN' ? 'admin@anydomain.com' : 
+                        role === 'HOD' ? 'hod.cse@cse.nitrr.ac.in' : 
+                        'faculty@gmail.com'
+                      }
                       className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
                       required
                     />
                   </div>
                   <span className="text-[11px] text-slate-400 mt-1 block">
-                    Supported: <strong className="text-slate-600">@gmail.com</strong> or{' '}
-                    <strong className="text-slate-600">@*.nitrr.ac.in</strong>
+                    {role === 'ADMIN' ? (
+                      <>Supported: <strong className="text-slate-600">Any valid email</strong></>
+                    ) : role === 'HOD' ? (
+                      <>Supported: <strong className="text-slate-600">@cse.nitrr.ac.in</strong> only</>
+                    ) : (
+                      <>Supported: <strong className="text-slate-600">@gmail.com</strong> only</>
+                    )}
                   </span>
                 </div>
 
@@ -677,7 +715,7 @@ export default function AuthPage({ onLoginSuccess }) {
                           setSuccessMsg('');
                           setOtpPurpose('forgot');
                         }}
-                        className="text-xs font-medium text-indigo-600 hover:text-indigo-800"
+                        className="text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
                       >
                         Forgot Password?
                       </button>
@@ -783,6 +821,7 @@ export default function AuthPage({ onLoginSuccess }) {
                   )}
                 </button>
               </form>
+              )}
             </div>
           )}
 
@@ -792,7 +831,7 @@ export default function AuthPage({ onLoginSuccess }) {
               <button
                 type="button"
                 onClick={() => goBack('login')}
-                className="inline-flex items-center text-xs font-semibold text-slate-600 hover:text-slate-900 mb-6"
+                className="inline-flex items-center text-xs font-semibold text-slate-600 hover:text-slate-900 mb-6 transition-colors"
               >
                 <ArrowLeft className="w-3.5 h-3.5 mr-1" /> Back to Sign In
               </button>
@@ -856,7 +895,7 @@ export default function AuthPage({ onLoginSuccess }) {
                     goBack('forgot');
                   }
                 }}
-                className="inline-flex items-center text-xs font-semibold text-slate-600 hover:text-slate-900 mb-6"
+                className="inline-flex items-center text-xs font-semibold text-slate-600 hover:text-slate-900 mb-6 transition-colors"
               >
                 <ArrowLeft className="w-3.5 h-3.5 mr-1" /> Back
               </button>
@@ -931,7 +970,7 @@ export default function AuthPage({ onLoginSuccess }) {
               <button
                 type="button"
                 onClick={() => goBack('verify-otp')}
-                className="inline-flex items-center text-xs font-semibold text-slate-600 hover:text-slate-900 mb-6"
+                className="inline-flex items-center text-xs font-semibold text-slate-600 hover:text-slate-900 mb-6 transition-colors"
               >
                 <ArrowLeft className="w-3.5 h-3.5 mr-1" /> Back
               </button>

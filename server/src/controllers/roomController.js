@@ -5,7 +5,7 @@ const Timetable = require('../models/Timetable');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
 const Holiday = require('../models/Holiday');
-const { sendBookingCancellationEmail } = require('../utils/email');
+const { sendBookingCancellationEmail, sendRoomDeletedNotificationEmail } = require('../utils/email');
 const { getIO, emitToUser } = require('../utils/socket');
 const { getDayOfWeek } = require('../utils/helpers');
 
@@ -40,9 +40,9 @@ exports.getRooms = async (req, res) => {
 
     if (department && department !== 'ALL') {
       query.department = department.trim();
-    } else if (!department && req.user && req.user.role === 'HOD') {
-      query.department = req.user.department;
     }
+    // Note: No auto-restriction for HOD — they can browse ALL rooms (incl. Common/Institute Level)
+    // HOD restriction is only applied in timetable management, NOT room browsing/booking
 
     if (floor) query.floor = floor.trim();
     if (building) query.building = building.trim();
@@ -150,9 +150,9 @@ exports.getAvailableRooms = async (req, res) => {
     let targetDept = null;
     if (department && department !== 'ALL') {
       targetDept = department.trim();
-    } else if (!department && req.user && req.user.role === 'HOD') {
-      targetDept = req.user.department;
     }
+    // No auto-restriction for HOD: when no dept filter is sent, show ALL free rooms college-wide
+    // This allows HOD/Faculty to find and book any available room (incl. Common/Institute Level)
 
     if (targetDept) {
       baseQuery.department = targetDept;
@@ -196,7 +196,6 @@ exports.getAvailableRooms = async (req, res) => {
       Booking.find({
         date,
         status: 'active',
-        purpose: { $ne: 'TEMPORARY_LOCK' },
         startTime: { $lt: endTime },
         endTime: { $gt: startTime },
       }).lean(),
@@ -261,13 +260,17 @@ exports.getAvailableRooms = async (req, res) => {
   }
 };
 
-// ---------- CREATE ROOM ----------
+// ---------- CREATE ROOM (ADMIN ONLY) ----------
 exports.createRoom = async (req, res) => {
   try {
-    let { name, roomNumber, capacity, type, floor, building } = req.body;
+    let { name, roomNumber, capacity, type, floor, building, department } = req.body;
 
-    if (!name || !roomNumber || !capacity || !type || !floor || !building) {
-      return res.status(400).json({ success: false, message: 'All required room fields must be provided' });
+    if (req.user.role !== 'ADMIN') {
+      return res.status(403).json({ success: false, message: 'Permission denied: Only Admin can add rooms.' });
+    }
+
+    if (!name || !roomNumber || !capacity || !type || !floor || !building || !department) {
+      return res.status(400).json({ success: false, message: 'All required room fields (including branch allocation) must be provided.' });
     }
 
     const numericCapacity = Number(capacity);
@@ -277,7 +280,7 @@ exports.createRoom = async (req, res) => {
 
     name = name.trim();
     roomNumber = roomNumber.trim().toUpperCase();
-    const department = req.user.department;
+    department = department.trim();
 
     const existing = await Room.findOne({
       isActive: true,
@@ -288,18 +291,15 @@ exports.createRoom = async (req, res) => {
     }).populate('createdBy', 'name email');
 
     if (existing) {
-      const addedByProf = existing.createdByName || existing.createdBy?.name || 'an HOD/Faculty';
-      const existingDept = existing.department || 'another department';
-
       if (existing.roomNumber.toUpperCase() === roomNumber.toUpperCase()) {
         return res.status(400).json({
           success: false,
-          message: `🚫 Cannot add room: Room Number "${existing.roomNumber}" is already registered by Prof. ${addedByProf} in the "${existingDept}" department (Room Name: "${existing.name}").`,
+          message: `🚫 Cannot add room: Room Number "${existing.roomNumber}" is already registered in the "${existing.department || 'another'}" department.`,
         });
       } else {
         return res.status(400).json({
           success: false,
-          message: `🚫 Cannot add room: A room with the name "${existing.name}" is already registered by Prof. ${addedByProf} in your department (${existingDept}).`,
+          message: `🚫 Cannot add room: A room with the name "${existing.name}" is already registered in the ${existing.department || 'another'} department.`,
         });
       }
     }
@@ -330,14 +330,14 @@ exports.createRoom = async (req, res) => {
       io.emit('room-created', { room });
     }
 
-    res.status(201).json({ success: true, message: 'Room created successfully', data: room });
+    res.status(201).json({ success: true, message: 'Room created and allocated successfully', data: room });
   } catch (error) {
     // console.error('Create room error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
 
-// ---------- UPDATE ROOM ----------
+// ---------- UPDATE ROOM (ADMIN ONLY) ----------
 exports.updateRoom = async (req, res) => {
   try {
     const { id } = req.params;
@@ -351,13 +351,10 @@ exports.updateRoom = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Room not found' });
     }
 
-    const isOwner = room.createdBy && room.createdBy.toString() === req.user._id.toString();
-    const isHOD = req.user.role === 'HOD' && room.department === req.user.department;
-
-    if (!isOwner && !isHOD) {
+    if (req.user.role !== 'ADMIN') {
       return res.status(403).json({
         success: false,
-        message: `Permission denied: Only the creator or the Department HOD can update this room.`,
+        message: `Permission denied: Only the Admin can update and allocate rooms.`,
       });
     }
 
@@ -369,6 +366,9 @@ exports.updateRoom = async (req, res) => {
     }
     if (req.body.capacity) {
       req.body.capacity = Number(req.body.capacity);
+    }
+    if (req.body.department) {
+      req.body.department = req.body.department.trim();
     }
 
     if (req.body.name || req.body.roomNumber) {
@@ -386,43 +386,102 @@ exports.updateRoom = async (req, res) => {
       if (req.body.name) {
         duplicateQuery.$or.push({
           name: { $regex: new RegExp('^' + escapeRegex(req.body.name) + '$', 'i') },
-          department: room.department,
+          department: req.body.department || room.department,
         });
       }
 
       if (duplicateQuery.$or.length > 0) {
         const duplicate = await Room.findOne(duplicateQuery).populate('createdBy', 'name email');
         if (duplicate) {
-          const addedByProf = duplicate.createdByName || duplicate.createdBy?.name || 'an HOD/Faculty';
-          const existingDept = duplicate.department || 'another department';
-
           if (
             req.body.roomNumber &&
             duplicate.roomNumber.toUpperCase() === req.body.roomNumber.toUpperCase()
           ) {
             return res.status(400).json({
               success: false,
-              message: `🚫 Cannot update room: Room Number "${duplicate.roomNumber}" is already in use by Prof. ${addedByProf} in the "${existingDept}" department (Room: "${duplicate.name}").`,
+              message: `🚫 Cannot update room: Room Number "${duplicate.roomNumber}" is already in use in the "${duplicate.department}" department.`,
             });
           } else {
             return res.status(400).json({
               success: false,
-              message: `🚫 Cannot update room: Room Name "${duplicate.name}" is already in use by Prof. ${addedByProf} in "${existingDept}".`,
+              message: `🚫 Cannot update room: Room Name "${duplicate.name}" is already in use in "${duplicate.department}".`,
             });
           }
         }
       }
     }
 
-    delete req.body.department;
+    const oldDepartment = room.department;
+    const newDepartment = req.body.department || oldDepartment;
+    const isReallocating = oldDepartment !== newDepartment;
+
     delete req.body.createdBy;
     delete req.body.createdByName;
 
     const updatedRoom = await Room.findByIdAndUpdate(id, req.body, { new: true, runValidators: true });
 
+    // 🚨 EDGE CASE: If Admin re-allocates a room to a DIFFERENT branch, clean up old timetables and bookings
+    if (isReallocating) {
+      await Timetable.deleteMany({ roomId: id });
+      await Booking.deleteMany({ roomId: id, purpose: 'TEMPORARY_LOCK' });
+
+      const todayStr = getTodayDateString();
+      const affectedBookings = await Booking.find({
+        roomId: id,
+        date: { $gte: todayStr },
+        status: 'active',
+      });
+
+      const cancellationReason = `Room "${room.name}" was re-allocated to the ${newDepartment} department by Admin.`;
+
+      for (const booking of affectedBookings) {
+        booking.status = 'cancelled';
+        booking.conflictMessage = cancellationReason;
+        await booking.save();
+
+        (async () => {
+          try {
+            await sendBookingCancellationEmail(booking, cancellationReason);
+          } catch (emailErr) {}
+
+          const facultyUser = await User.findOne({ email: booking.facultyEmail });
+          if (facultyUser) {
+            emitToUser(facultyUser._id.toString(), 'booking-cancelled', {
+              bookingId: booking.id,
+              roomName: room.name,
+              date: booking.date,
+              startTime: booking.startTime,
+              endTime: booking.endTime,
+              reason: cancellationReason,
+            });
+
+            await Notification.create({
+              userId: facultyUser._id,
+              message: `Booking cancelled: Room "${room.name}" on ${booking.date} was re-allocated to another department.`,
+              type: 'booking-cancelled',
+              metadata: {
+                roomId: room._id,
+                roomName: room.name,
+                date: booking.date,
+                startTime: booking.startTime,
+                endTime: booking.endTime,
+                bookingId: booking.id,
+              },
+            });
+          }
+        })().catch(() => {});
+      }
+
+      const io = getIO();
+      if (io) {
+        io.emit('timetable-updated', { department: oldDepartment, reason: 'room-reallocated-away' });
+        io.emit('booking-cancelled', { roomId: room._id, roomName: room.name, reason: cancellationReason });
+      }
+    }
+
     const io = getIO();
     if (io) {
-      io.emit('timetable-updated', { department: room.department, reason: 'room-updated' });
+      io.emit('timetable-updated', { department: updatedRoom.department, reason: 'room-updated' });
       io.emit('room-updated', { room: updatedRoom });
     }
 
@@ -433,7 +492,7 @@ exports.updateRoom = async (req, res) => {
   }
 };
 
-// ---------- TOGGLE AVAILABILITY ----------
+// ---------- TOGGLE AVAILABILITY (ADMIN ONLY) ----------
 exports.toggleRoomAvailability = async (req, res) => {
   try {
     const { id } = req.params;
@@ -447,13 +506,10 @@ exports.toggleRoomAvailability = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Room not found' });
     }
 
-    const isOwner = room.createdBy && room.createdBy.toString() === req.user._id.toString();
-    const isHOD = req.user.role === 'HOD' && room.department === req.user.department;
-
-    if (!isOwner && !isHOD) {
+    if (req.user.role !== 'ADMIN') {
       return res.status(403).json({
         success: false,
-        message: `Permission denied: Only the creator or the Department HOD can toggle availability.`,
+        message: `Permission denied: Only Admin can toggle room availability.`,
       });
     }
 
@@ -463,6 +519,7 @@ exports.toggleRoomAvailability = async (req, res) => {
     const io = getIO();
     if (io) {
       io.emit('timetable-updated', { department: room.department, reason: 'room-availability-toggled' });
+      io.emit('room-updated', { room });
     }
 
     res.json({
@@ -476,7 +533,7 @@ exports.toggleRoomAvailability = async (req, res) => {
   }
 };
 
-// ---------- DELETE ROOM ----------
+// ---------- DELETE ROOM (ADMIN ONLY) ----------
 exports.deleteRoom = async (req, res) => {
   try {
     const { id } = req.params;
@@ -490,76 +547,166 @@ exports.deleteRoom = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Room not found' });
     }
 
-    const isOwner = room.createdBy && room.createdBy.toString() === req.user._id.toString();
-    const isHOD = req.user.role === 'HOD' && room.department === req.user.department;
-
-    if (!isOwner && !isHOD) {
+    if (req.user.role !== 'ADMIN') {
       return res.status(403).json({
         success: false,
-        message: `Permission denied: Only the creator or Department HOD can delete this room.`,
+        message: `Permission denied: Only Admin can delete rooms.`,
       });
     }
 
+    // 🔐 Require admin to re-confirm identity with their password before destructive action
+    const { adminPassword } = req.body;
+    if (!adminPassword) {
+      return res.status(400).json({ success: false, message: 'Admin password confirmation is required to delete a room.' });
+    }
+
+    // Verify against AdminUser DB password (supports post-reset passwords)
+    const AdminUser = require('../models/AdminUser');
+    const adminUser = await AdminUser.findOne({ email: req.user.email }).select('+password');
+    if (!adminUser) {
+      return res.status(403).json({ success: false, message: 'Admin account not found. Please log in again.' });
+    }
+    const isPasswordCorrect = await adminUser.comparePassword(adminPassword);
+    if (!isPasswordCorrect) {
+      return res.status(401).json({ success: false, message: '❌ Incorrect admin password. Deletion aborted.' });
+    }
+
+    // Capture room details BEFORE deletion for use in notifications
+    const roomSnapshot = {
+      _id: room._id,
+      name: room.name,
+      roomNumber: room.roomNumber,
+      building: room.building,
+      floor: room.floor,
+      department: room.department,
+    };
+
+    // Delete room and timetable entries
     await Room.findByIdAndDelete(id);
     const timetableDeleteResult = await Timetable.deleteMany({ roomId: id });
     await Booking.deleteMany({ roomId: id, purpose: 'TEMPORARY_LOCK' });
 
     const todayStr = getTodayDateString();
+
+    // Fetch all active future bookings (populate roomId so email has full room details)
     const affectedBookings = await Booking.find({
       roomId: id,
       date: { $gte: todayStr },
       status: 'active',
     });
 
-    const cancellationReason = `Room "${room.name}" was removed from department inventory.`;
+    const cancellationReason = `Room "${roomSnapshot.name}" (${roomSnapshot.roomNumber}) in ${roomSnapshot.building} has been permanently removed from the ${roomSnapshot.department} department inventory by the System Administrator.`;
 
+    // Cancel all affected bookings and notify each faculty member
     for (const booking of affectedBookings) {
       booking.status = 'cancelled';
       booking.conflictMessage = cancellationReason;
       await booking.save();
+    }
 
-      (async () => {
-        try {
-          await sendBookingCancellationEmail(booking, cancellationReason);
-        } catch (emailErr) {}
+    // Fire all notifications async (non-blocking — response is not delayed)
+    (async () => {
+      try {
+        // 1. Notify each faculty member who had a booking
+        for (const booking of affectedBookings) {
+          try {
+            // Inject room snapshot so email has full room info (room is already deleted from DB)
+            const bookingWithRoom = {
+              ...booking.toObject(),
+              roomId: roomSnapshot,
+            };
+            await sendBookingCancellationEmail(bookingWithRoom, cancellationReason);
+          } catch (emailErr) {}
 
-        const facultyUser = await User.findOne({ email: booking.facultyEmail });
-        if (facultyUser) {
-          emitToUser(facultyUser._id.toString(), 'booking-cancelled', {
-            bookingId: booking.id,
-            roomName: room.name,
-            date: booking.date,
-            startTime: booking.startTime,
-            endTime: booking.endTime,
-            reason: cancellationReason,
-          });
-
-          await Notification.create({
-            userId: facultyUser._id,
-            message: `Booking cancelled: Room "${room.name}" on ${booking.date} was deleted by department HOD.`,
-            type: 'booking-cancelled',
-            metadata: {
-              roomId: room._id,
-              roomName: room.name,
+          const facultyUser = await User.findOne({ email: booking.facultyEmail });
+          if (facultyUser) {
+            emitToUser(facultyUser._id.toString(), 'booking-cancelled', {
+              bookingId: booking.id,
+              roomName: roomSnapshot.name,
               date: booking.date,
               startTime: booking.startTime,
               endTime: booking.endTime,
-              bookingId: booking.id,
+              reason: cancellationReason,
+            });
+
+            await Notification.create({
+              userId: facultyUser._id,
+              message: `❌ Your booking for "${roomSnapshot.name}" on ${booking.date} (${booking.startTime}–${booking.endTime}) was cancelled — room has been removed by Admin.`,
+              type: 'booking-cancelled',
+              metadata: {
+                roomId: roomSnapshot._id,
+                roomName: roomSnapshot.name,
+                date: booking.date,
+                startTime: booking.startTime,
+                endTime: booking.endTime,
+                bookingId: booking.id,
+              },
+            });
+          }
+        }
+
+        // 2. Notify the HOD of that department
+        const hod = await User.findOne({
+          role: 'HOD',
+          department: roomSnapshot.department,
+          isActive: true,
+        });
+
+        if (hod) {
+          // In-app notification for HOD
+          await Notification.create({
+            userId: hod._id,
+            message: `🏫 Admin removed room "${roomSnapshot.name}" (${roomSnapshot.roomNumber}) from your department. ${timetableDeleteResult.deletedCount} timetable slot(s) and ${affectedBookings.length} booking(s) were cancelled.`,
+            type: 'system',
+            metadata: {
+              roomId: roomSnapshot._id,
+              roomName: roomSnapshot.name,
+              roomNumber: roomSnapshot.roomNumber,
+              department: roomSnapshot.department,
+              bookingsCancelled: affectedBookings.length,
+              timetableSlotsRemoved: timetableDeleteResult.deletedCount,
             },
           });
-        }
-      })().catch(() => {});
-    }
 
+          // Real-time socket push to HOD
+          emitToUser(hod._id.toString(), 'room-deleted', {
+            roomId: roomSnapshot._id,
+            roomName: roomSnapshot.name,
+            department: roomSnapshot.department,
+            message: `Room "${roomSnapshot.name}" was removed from your department by Admin.`,
+          });
+
+          // Email notification to HOD
+          await sendRoomDeletedNotificationEmail({
+            hodEmail: hod.email,
+            hodName: hod.name,
+            roomName: roomSnapshot.name,
+            roomNumber: roomSnapshot.roomNumber,
+            building: roomSnapshot.building,
+            floor: roomSnapshot.floor,
+            department: roomSnapshot.department,
+            bookingsCancelled: affectedBookings.length,
+            timetableSlotsRemoved: timetableDeleteResult.deletedCount,
+          });
+        }
+      } catch (notifyErr) {
+        // console.error('[deleteRoom] Notification error:', notifyErr);
+      }
+    })().catch(() => {});
+
+    // 3. Broadcast to all connected clients (live room list refresh)
     const io = getIO();
     if (io) {
-      io.emit('timetable-updated', { department: room.department, roomId: room._id, reason: 'Room deleted' });
-      io.emit('booking-cancelled', { roomId: room._id, roomName: room.name, reason: cancellationReason });
+      io.emit('room-deleted', { roomId: roomSnapshot._id, roomName: roomSnapshot.name, department: roomSnapshot.department });
+      io.emit('timetable-updated', { department: roomSnapshot.department, roomId: roomSnapshot._id, reason: 'Room deleted' });
+      if (affectedBookings.length > 0) {
+        io.emit('booking-cancelled', { roomId: roomSnapshot._id, roomName: roomSnapshot.name, reason: cancellationReason });
+      }
     }
 
     res.json({
       success: true,
-      message: `Room "${room.name}" deleted successfully. Removed ${timetableDeleteResult.deletedCount} timetable slots and cancelled ${affectedBookings.length} future bookings.`,
+      message: `Room "${roomSnapshot.name}" deleted successfully. Removed ${timetableDeleteResult.deletedCount} timetable slots and cancelled ${affectedBookings.length} future bookings.`,
       data: {
         timetableSlotsDeleted: timetableDeleteResult.deletedCount,
         bookingsCancelled: affectedBookings.length,

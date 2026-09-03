@@ -7,7 +7,7 @@ exports.initSocket = (server) => {
   io = socketIo(server, {
     cors: {
       origin: (origin, callback) => {
-        // Dynamically reflects origin for both Web & iOS WKWebView
+        // Dynamically reflects origin for Web & iOS WKWebView
         callback(null, true);
       },
       credentials: true,
@@ -17,6 +17,7 @@ exports.initSocket = (server) => {
     pingInterval: parseInt(process.env.SOCKET_PING_INTERVAL, 10) || 25000,
   });
 
+  // JWT Authentication middleware for Socket.IO
   io.use((socket, next) => {
     const token =
       socket.handshake.auth?.token ||
@@ -24,6 +25,7 @@ exports.initSocket = (server) => {
       socket.handshake.headers?.authorization?.replace('Bearer ', '');
 
     if (!token) {
+      console.warn(`🔌 [SOCKET] Connection rejected: no token | Socket ${socket.id}`);
       return next(new Error('Authentication error: Missing token'));
     }
 
@@ -32,7 +34,8 @@ exports.initSocket = (server) => {
       const decoded = jwt.verify(token, secret);
       socket.userId = decoded.userId;
       next();
-    } catch {
+    } catch (err) {
+      console.warn(`🔌 [SOCKET] Connection rejected: invalid/expired token | Socket ${socket.id} | ${err.message}`);
       next(new Error('Authentication error: Invalid or expired token'));
     }
   });
@@ -42,13 +45,18 @@ exports.initSocket = (server) => {
     if (userId) {
       socket.join(userId);
     }
-    // console.log(`🔌 [SOCKET] User connected: ${userId} (Socket: ${socket.id})`);
+    console.log(`🔌 [SOCKET] User connected: ${userId} | Socket: ${socket.id} | Total: ${io.engine.clientsCount}`);
 
     socket.on('disconnect', (reason) => {
-      // console.log(`🔌 [SOCKET] User disconnected: ${userId} (${reason})`);
+      console.log(`🔌 [SOCKET] User disconnected: ${userId} | Reason: ${reason} | Socket: ${socket.id}`);
+    });
+
+    socket.on('error', (err) => {
+      console.error(`🔌 [SOCKET] Error for user ${userId}:`, err.message);
     });
   });
 
+  console.log(`✅ [SOCKET] Socket.IO initialized and attached to HTTP server`);
   return io;
 };
 
@@ -57,5 +65,8 @@ exports.getIO = () => io;
 exports.emitToUser = (userId, event, data) => {
   if (io && userId) {
     io.to(userId.toString()).emit(event, data);
+    console.log(`📡 [SOCKET] emitToUser | userId: ${userId} | event: ${event}`);
+  } else if (!io) {
+    console.warn(`📡 [SOCKET] emitToUser called before Socket.IO initialized | event: ${event}`);
   }
 };

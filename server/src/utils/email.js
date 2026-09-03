@@ -198,3 +198,48 @@ exports.sendBookingRestorationEmail = async (booking, holidayTitle) => {
     });
   } catch (error) {}
 };
+
+// ---------- SEND ROOM DELETED EMAIL (to HOD of that department) ----------
+exports.sendRoomDeletedNotificationEmail = async ({ hodEmail, hodName, roomName, roomNumber, building, floor, department, bookingsCancelled, timetableSlotsRemoved }) => {
+  if (!hodEmail) return;
+
+  const html = `
+  <div style="font-family:Arial, sans-serif;max-width:540px;margin:30px auto;background:#ffffff;padding:30px;border-radius:16px;border:1px solid #e2e8f0;box-shadow:0 4px 12px rgba(0,0,0,0.05)">
+    <div style="text-align:center;margin-bottom:20px;">
+      <h2 style="color:#dc2626;margin:0;font-size:22px;font-weight:800;">🏫 Room Removed from Inventory</h2>
+      <p style="color:#64748b;font-size:13px;margin-top:4px;">NIT Raipur — System Administrator Notice</p>
+    </div>
+    <p style="color:#1e293b;font-size:14px;line-height:1.5;">Dear <strong>${hodName || 'HOD'}</strong>,</p>
+    <p style="color:#475569;font-size:13px;margin-top:0;">
+      The System Administrator has <strong>permanently removed</strong> the following room from the <strong>${department}</strong> department inventory:
+    </p>
+    <div style="background:#fef2f2;border:1px solid #fecaca;padding:18px;border-radius:12px;margin:18px 0;font-size:13px;color:#991b1b;line-height:1.7;">
+      <div><strong>Room Name:</strong> ${roomName}</div>
+      <div><strong>Room Number:</strong> ${roomNumber || '—'}</div>
+      <div><strong>Building:</strong> ${building || '—'}</div>
+      <div><strong>Floor:</strong> ${floor !== undefined ? 'Floor ' + floor : '—'}</div>
+    </div>
+    <div style="background:#fff7ed;border:1px solid #fed7aa;padding:14px 18px;border-radius:12px;margin:14px 0;font-size:13px;color:#9a3412;line-height:1.7;">
+      <div><strong>⚠️ Impact Summary:</strong></div>
+      <div>• Timetable slots removed: <strong>${timetableSlotsRemoved || 0}</strong></div>
+      <div>• Future bookings cancelled: <strong>${bookingsCancelled || 0}</strong></div>
+      <div style="margin-top:6px;font-size:12px;color:#b45309;">All affected faculty members have been individually notified.</div>
+    </div>
+    <p style="color:#475569;font-size:13px;">Please re-allocate necessary sessions to another room using the HOD portal.</p>
+    <hr style="border:none;border-top:1px solid #f1f5f9;margin:24px 0 16px 0;" />
+    <p style="text-align:center;color:#94a3b8;font-size:11px;margin:0;">National Institute of Technology Raipur — Academic Scheduling</p>
+  </div>`;
+
+  if (!transporter || isLoggingOnly) {
+    return;
+  }
+
+  try {
+    await transporter.sendMail({
+      from: getSenderAddress(),
+      to: hodEmail,
+      subject: `🏫 Admin Action: Room "${roomName}" Removed from ${department} Inventory`,
+      html,
+    });
+  } catch (error) {}
+};

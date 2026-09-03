@@ -16,7 +16,25 @@ const { Readable } = require('stream');
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const isValidTimeFormat = (time) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(time);
 
-// ---------- MULTER STORAGE (Wired to Configured Limits) ----------
+// ============================================================================
+// STRICT INSTITUTIONAL TIME GRID
+// ============================================================================
+const VALID_TIMETABLE_SLOTS = [
+  '08:10-09:00',
+  '09:00-09:50',
+  '09:50-10:40',
+  '10:40-11:30',
+  '11:30-12:20',
+  '12:20-13:10',
+  '13:10-14:10', // LUNCH BREAK
+  '14:10-15:00',
+  '15:00-15:50',
+  '15:50-16:40',
+  '16:40-17:30',
+  '17:30-18:20'
+];
+
+// ---------- MULTER STORAGE ----------
 const maxUploadBytes = (parseInt(process.env.MAX_FILE_UPLOAD_MB, 10) || 5) * 1024 * 1024;
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -25,18 +43,13 @@ const upload = multer({
     if (['.xlsx', '.xls', '.csv'].includes(ext)) {
       cb(null, true);
     } else {
-      cb(
-        new Error(
-          'Invalid file type. Only spreadsheet files (.csv, .xlsx, .xls) are supported.'
-        ),
-        false
-      );
+      cb(new Error('Invalid file type. Only spreadsheet files (.csv, .xlsx, .xls) are supported.'), false);
     }
   },
   limits: { fileSize: maxUploadBytes },
 });
 
-// ---------- HIGH-SPEED IN-MEMORY ROOM RESOLVER (O(1) Lookup) ----------
+// ---------- HIGH-SPEED IN-MEMORY ROOM RESOLVER ----------
 const buildDepartmentRoomMap = async (department) => {
   const rooms = await Room.find({ department, isActive: true }).lean();
   const roomMap = new Map();
@@ -84,7 +97,6 @@ const cancelConflictingBookings = async (timetableEntries, department) => {
       await booking.save();
       cancelledBookings.push(booking);
 
-      // Async email & socket alert
       (async () => {
         try {
           await sendBookingCancellationEmail(booking, booking.conflictMessage);
@@ -132,44 +144,53 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
     const entry = entries[i];
     let { day, startTime, endTime, subject, roomId, classGroup, faculty } = entry;
 
-    if (!day || !startTime || !endTime || !subject || !roomId || !classGroup || !faculty) {
-      errors.push(`Row #${i + 1}: All fields are required`);
+    const cleanSubject = subject ? String(subject).trim() : '';
+    const cleanFaculty = faculty ? String(faculty).trim() : '';
+
+    const isSubjectEmpty = cleanSubject === '';
+    const isFacultyEmpty = cleanFaculty === '';
+
+    // 1. REJECT FILE: If one is empty but the other is provided
+    if (isSubjectEmpty !== isFacultyEmpty) {
+      errors.push(`Row #${i + 1}: Both Subject and Faculty must be provided together, or both must be left completely empty to indicate a free slot.`);
       continue;
     }
 
+    // 2. Format times and construct slot key
     startTime = String(startTime).trim();
     endTime = String(endTime).trim();
-    day = String(day).trim();
-    subject = String(subject).trim();
-    classGroup = String(classGroup).trim();
-    faculty = String(faculty).trim();
+    const slotKey = `${startTime}-${endTime}`;
 
-    if (!isValidTimeFormat(startTime) || !isValidTimeFormat(endTime)) {
-      errors.push(`Row #${i + 1}: Times must be in 24-hour HH:mm format`);
+    // 3. STRICT GRID VALIDATION
+    if (!VALID_TIMETABLE_SLOTS.includes(slotKey)) {
+      errors.push(`Row #${i + 1}: Invalid time slot ${slotKey}. You must use the exact 50-minute institutional slots (e.g., 08:10-09:00). Do not alter the times.`);
       continue;
     }
 
-    if (startTime >= endTime) {
-      errors.push(`Row #${i + 1}: Start time must be before end time`);
+    // 4. LUNCH BREAK ENFORCEMENT
+    if (slotKey === '13:10-14:10' && (!isSubjectEmpty || !isFacultyEmpty)) {
+      errors.push(`Row #${i + 1}: The 13:10-14:10 slot is reserved for the institutional break. You must leave Subject and Faculty blank.`);
       continue;
     }
 
-    const [sH, sM] = startTime.split(':').map(Number);
-    const [eH, eM] = endTime.split(':').map(Number);
-    const durationMinutes = (eH * 60 + eM) - (sH * 60 + sM);
-    if (durationMinutes < 30) {
-      errors.push(`Row #${i + 1}: Class duration must be at least 30 minutes`);
+    // 5. SKIP ENTRY (Free Slot or Break): If both are empty, do not add to the database
+    if (isSubjectEmpty && isFacultyEmpty) {
+      continue; 
+    }
+
+    if (!day || !roomId || !classGroup) {
+      errors.push(`Row #${i + 1}: Day, Room, and Class Group are required`);
       continue;
     }
 
     validatedEntries.push({
       roomId: new mongoose.Types.ObjectId(roomId),
-      day,
+      day: String(day).trim(),
       startTime,
       endTime,
-      subject,
-      classGroup,
-      faculty,
+      subject: cleanSubject,
+      classGroup: String(classGroup).trim(),
+      faculty: cleanFaculty,
       semester,
       section,
       department,
@@ -181,7 +202,24 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
     throw new Error(`Data validation failed:\n• ${errors.slice(0, 5).join('\n• ')}`);
   }
   if (validatedEntries.length === 0) {
-    throw new Error('No valid timetable entries found');
+    throw new Error('No valid timetable entries found. (If you submitted only empty rows, the timetable remains unchanged).');
+  }
+
+  // 1. Verify all rooms belong to this department and are NOT Common / Institute Level
+  const uniqueRoomIds = [...new Set(validatedEntries.map((e) => e.roomId.toString()))];
+  const roomsInDb = await Room.find({ _id: { $in: uniqueRoomIds }, isActive: true }).lean();
+  
+  if (roomsInDb.length !== uniqueRoomIds.length) {
+    throw new Error('One or more selected rooms were not found or are deactivated.');
+  }
+
+  for (const r of roomsInDb) {
+    if (r.department === 'Common / Institute Level') {
+      throw new Error(`🚫 Cannot schedule timetable in "${r.name}": "Common / Institute Level" rooms are strictly reserved for ad-hoc bookings only.`);
+    }
+    if (r.department !== department) {
+      throw new Error(`🚫 Cannot schedule timetable in "${r.name}": Room belongs to "${r.department}", not "${department}".`);
+    }
   }
 
   // 1. Intra-Batch Overlap Checks
@@ -283,7 +321,6 @@ exports.getTimetable = async (req, res) => {
     const formatted = entries.map((e) => ({ ...e, id: e._id.toString() }));
     res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
-    // console.error('Get timetable error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -373,6 +410,9 @@ exports.replaceTimetable = async (req, res) => {
     if (req.user.department !== department) {
       return res.status(403).json({ success: false, message: `You can only manage timetable for your own department (${req.user.department})` });
     }
+    if (department === 'Common / Institute Level') {
+      return res.status(403).json({ success: false, message: '🚫 Timetables cannot be managed for "Common / Institute Level" rooms. These rooms are available for ad-hoc booking only.' });
+    }
 
     const result = await replaceTimetableEntries({
       department,
@@ -399,7 +439,6 @@ exports.replaceTimetable = async (req, res) => {
       data: result,
     });
   } catch (error) {
-    // console.error('Replace timetable error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -422,28 +461,63 @@ exports.updateRoomDayTimetable = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Room not found' });
     }
 
+    if (room.department === 'Common / Institute Level') {
+      return res.status(403).json({ success: false, message: '🚫 Timetables cannot be managed for "Common / Institute Level" rooms. These rooms are available for ad-hoc booking only.' });
+    }
+
     if (room.department !== req.user.department) {
       return res.status(403).json({ success: false, message: 'You can only update schedules for your department rooms' });
     }
 
-    const validatedEntries = entries.map((entry, idx) => {
-      if (!entry.startTime || !entry.endTime || !entry.subject || !entry.faculty || !entry.semester || !entry.section) {
-        throw new Error(`Slot #${idx + 1}: Start Time, End Time, Subject, Faculty, Semester, and Section are required`);
+    const validatedEntries = [];
+    for (let idx = 0; idx < entries.length; idx++) {
+      const entry = entries[idx];
+      
+      const cleanSubject = entry.subject ? String(entry.subject).trim() : '';
+      const cleanFaculty = entry.faculty ? String(entry.faculty).trim() : '';
+      const isSubjectEmpty = cleanSubject === '';
+      const isFacultyEmpty = cleanFaculty === '';
+
+      if (isSubjectEmpty !== isFacultyEmpty) {
+        throw new Error(`Slot #${idx + 1}: Both Subject and Faculty must be provided together, or both must be left completely empty to indicate a free slot.`);
       }
-      return {
+
+      if (!entry.startTime || !entry.endTime) {
+         throw new Error(`Slot #${idx + 1}: Start Time and End Time are required.`);
+      }
+
+      const slotKey = `${entry.startTime.trim()}-${entry.endTime.trim()}`;
+
+      if (!VALID_TIMETABLE_SLOTS.includes(slotKey)) {
+        throw new Error(`Slot #${idx + 1}: Invalid time slot ${slotKey}. You must use the exact 50-minute institutional slots.`);
+      }
+
+      if (slotKey === '13:10-14:10' && (!isSubjectEmpty || !isFacultyEmpty)) {
+        throw new Error(`Slot #${idx + 1}: The 13:10-14:10 slot is reserved for the institutional break. You must leave Subject and Faculty blank.`);
+      }
+
+      if (isSubjectEmpty && isFacultyEmpty) {
+        continue;
+      }
+
+      if (!entry.semester || !entry.section) {
+        throw new Error(`Slot #${idx + 1}: Semester and Section are required for filled slots.`);
+      }
+
+      validatedEntries.push({
         roomId: room._id,
         day: day.trim(),
         startTime: entry.startTime.trim(),
         endTime: entry.endTime.trim(),
-        subject: entry.subject.trim(),
+        subject: cleanSubject,
         classGroup: (entry.classGroup || `${entry.semester} Sec ${entry.section}`).trim(),
-        faculty: entry.faculty.trim(),
+        faculty: cleanFaculty,
         semester: entry.semester.trim(),
         section: entry.section.trim(),
         department: room.department,
         createdBy: req.user._id,
-      };
-    });
+      });
+    }
 
     // 1. Intra-batch collision check
     for (let i = 0; i < validatedEntries.length; i++) {
@@ -530,7 +604,6 @@ exports.updateRoomDayTimetable = async (req, res) => {
       data: created,
     });
   } catch (error) {
-    // console.error('Update room day timetable error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -595,7 +668,6 @@ exports.replaceTimetableFromFile = async (req, res) => {
       });
     }
 
-    // Release memory buffer explicitly
     req.file.buffer = null;
 
     if (jsonData.length === 0) {
@@ -613,9 +685,14 @@ exports.replaceTimetableFromFile = async (req, res) => {
       if (!targetRoom || !targetRoom.isActive) {
         return res.status(404).json({ success: false, message: 'Selected room not found or deactivated.' });
       }
+      if (targetRoom.department === 'Common / Institute Level') {
+        return res.status(403).json({ success: false, message: '🚫 Timetables cannot be managed for "Common / Institute Level" rooms. These rooms are available for ad-hoc booking only.' });
+      }
+      if (targetRoom.department !== req.user.department) {
+        return res.status(403).json({ success: false, message: `This room belongs to "${targetRoom.department}". You can only manage rooms in your own department (${req.user.department}).` });
+      }
     }
 
-    // Header Format Validation
     const normalizedHeaders = detectedHeaders.map((h) => String(h || '').trim().toLowerCase().replace(/[\s_-]/g, ''));
     const requiredHeaderPatterns = [
       { key: 'day', match: ['day'] },
@@ -672,13 +749,18 @@ exports.replaceTimetableFromFile = async (req, res) => {
       };
     });
 
-    // In-Memory Room Resolution
     const { roomMap } = await buildDepartmentRoomMap(req.user.department);
     const resolvedEntries = [];
     const resolveErrors = [];
 
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
+
+      if (!entry.subject && !entry.faculty) {
+        resolvedEntries.push(entry);
+        continue;
+      }
+
       if (targetRoom) {
         resolvedEntries.push({ ...entry, roomId: targetRoom._id });
         continue;
@@ -730,7 +812,6 @@ exports.replaceTimetableFromFile = async (req, res) => {
       data: result,
     });
   } catch (error) {
-    // console.error('File upload error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -762,11 +843,31 @@ exports.updateTimetableEntry = async (req, res) => {
     const checkStartTime = startTime || entry.startTime;
     const checkEndTime = endTime || entry.endTime;
 
-    if (checkStartTime >= checkEndTime) {
-      return res.status(400).json({ success: false, message: 'Start time must be before end time' });
+    // Strict slot validation on update
+    const slotKey = `${checkStartTime}-${checkEndTime}`;
+    if (!VALID_TIMETABLE_SLOTS.includes(slotKey)) {
+      return res.status(400).json({ success: false, message: `Invalid time slot ${slotKey}. You must use the exact 50-minute institutional slots.` });
+    }
+
+    if (slotKey === '13:10-14:10') {
+      return res.status(400).json({ success: false, message: `The 13:10-14:10 slot is reserved for the institutional break and cannot be assigned a class.` });
     }
 
     const checkRoomId = targetRoomId || entry.roomId;
+    if (!mongoose.Types.ObjectId.isValid(checkRoomId)) {
+      return res.status(400).json({ success: false, message: 'Invalid room ID format' });
+    }
+
+    const targetRoom = await Room.findById(checkRoomId);
+    if (!targetRoom || !targetRoom.isActive) {
+      return res.status(404).json({ success: false, message: 'Selected room not found or deactivated' });
+    }
+    if (targetRoom.department === 'Common / Institute Level') {
+      return res.status(403).json({ success: false, message: '🚫 Timetables cannot be assigned to "Common / Institute Level" rooms. These rooms are available for ad-hoc booking only.' });
+    }
+    if (targetRoom.department !== req.user.department) {
+      return res.status(403).json({ success: false, message: `Room belongs to "${targetRoom.department}". You can only assign rooms from your own department (${req.user.department}).` });
+    }
 
     const roomCollision = await Timetable.findOne({
       roomId: checkRoomId,
@@ -800,7 +901,6 @@ exports.updateTimetableEntry = async (req, res) => {
     const updated = await Timetable.findById(id).populate('roomId', 'name roomNumber floor building department');
     res.json({ success: true, message: 'Timetable entry updated successfully', data: updated });
   } catch (error) {
-    // console.error('Update timetable entry error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -828,7 +928,6 @@ exports.deleteTimetableEntry = async (req, res) => {
 
     res.json({ success: true, message: 'Timetable entry deleted successfully' });
   } catch (error) {
-    // console.error('Delete timetable entry error:', error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
