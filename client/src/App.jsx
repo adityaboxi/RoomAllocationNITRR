@@ -70,7 +70,7 @@ export default function App() {
       }
     } catch (err) {
       if (err.name !== 'AbortError' && err.name !== 'CanceledError') {
-        // Suppress expected teardown aborts
+        console.error('❌ [APP] Failed to fetch notifications:', err.message || err);
       }
     }
   }, [currentUser]);
@@ -91,8 +91,8 @@ export default function App() {
           return prev;
         });
       }
-    } catch {
-      // Handled silently
+    } catch (err) {
+      console.error('❌ [APP] Failed to fetch pending reviews:', err.message || err);
     }
   }, [currentUser]);
 
@@ -181,7 +181,9 @@ export default function App() {
     localStorage.setItem('currentUser', JSON.stringify(user));
     setCurrentUser(user);
     if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().catch(() => {});
+      Notification.requestPermission().catch((err) => {
+        console.warn('⚠️  [APP] Notification permission request error:', err.message || err);
+      });
     }
   };
 

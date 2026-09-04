@@ -341,7 +341,9 @@ export default function BookingView({ user }) {
   useEffect(() => {
     return () => {
       if (activeLockId) {
-        unlockRoom(activeLockId).catch(() => {});
+        unlockRoom(activeLockId).catch((err) => {
+          console.warn('⚠️  [BOOKING VIEW] Background unlock cleanup error:', err.message || err);
+        });
       }
     };
   }, [activeLockId]);
@@ -424,6 +426,7 @@ export default function BookingView({ user }) {
       ) {
         return;
       }
+      console.error('❌ [BOOKING VIEW] Failed to fetch available rooms:', err.message || err);
     }
   };
 
@@ -435,7 +438,7 @@ export default function BookingView({ user }) {
       }
     } catch (err) {
       if (axios.isCancel(err) || err.message === 'canceled') return;
-      // Handled silently
+      console.error('❌ [BOOKING VIEW] Failed to fetch my bookings:', err.message || err);
     }
   };
 
@@ -451,7 +454,7 @@ export default function BookingView({ user }) {
       setReviews((prev) => ({ ...prev, [roomId]: reviewsArray }));
     } catch (err) {
       if (axios.isCancel(err) || err.message === 'canceled') return;
-      // Handled silently
+      console.error(`❌ [BOOKING VIEW] Failed to fetch reviews for room ${roomId}:`, err.message || err);
     } finally {
       if (isMountedRef.current) {
         setLoadingReviews((prev) => ({ ...prev, [roomId]: false }));
@@ -545,13 +548,17 @@ export default function BookingView({ user }) {
       setSelectedRoom(room);
       setSuccess(`Room "${room.name}" locked for reservation.`);
     } catch (err) {
-      setError(extractErrorMessage(err, 'Room was just locked or booked by another user.'));
+      const errMsg = extractErrorMessage(err, 'Room was just locked or booked by another user.');
+      console.error('❌ [BOOKING VIEW] Lock room error:', errMsg);
+      setError(errMsg);
     }
   };
 
   const handleCancelSelectedRoom = () => {
     if (activeLockId) {
-      unlockRoom(activeLockId).catch(() => {});
+      unlockRoom(activeLockId).catch((err) => {
+        console.warn('⚠️  [BOOKING VIEW] Unlock room error:', err.message || err);
+      });
       setActiveLockId(null);
     }
     setSelectedRoom(null);

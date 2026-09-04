@@ -1,13 +1,21 @@
 const mongoose = require('mongoose');
 
 const connectDB = async () => {
-  const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017/roomallocation';
+  const uri = process.env.MONGODB_URI;
+  if (!uri) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('❌ [FATAL] MONGODB_URI environment variable is missing in production!');
+      process.exit(1);
+    }
+    console.warn('⚠️  [DB WARNING] MONGODB_URI is not set in .env. Falling back to local MongoDB.');
+  }
+  const mongoUri = uri || 'mongodb://127.0.0.1:27017/roomallocation';
   const maxPoolSize = parseInt(process.env.DB_MAX_POOL_SIZE, 10) || 50;
   const minPoolSize = parseInt(process.env.DB_MIN_POOL_SIZE, 10) || 10;
   const serverSelectionTimeoutMS = parseInt(process.env.DB_TIMEOUT_MS, 10) || 5000;
 
   try {
-    const conn = await mongoose.connect(uri, {
+    const conn = await mongoose.connect(mongoUri, {
       maxPoolSize,
       minPoolSize,
       serverSelectionTimeoutMS,

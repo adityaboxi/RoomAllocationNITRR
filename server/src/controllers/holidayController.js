@@ -114,7 +114,9 @@ exports.createHoliday = async (req, res) => {
       );
 
       for (const booking of existingBookings) {
-        sendBookingCancellationEmail(booking, cancelReason).catch(() => {});
+        sendBookingCancellationEmail(booking, cancelReason).catch((err) => {
+          console.error('❌ [HOLIDAY] Cancellation email error:', err.message || err);
+        });
 
         (async () => {
           const facultyUser = await User.findOne({ email: booking.facultyEmail });
@@ -143,7 +145,9 @@ exports.createHoliday = async (req, res) => {
               reason: cancelReason,
             });
           }
-        })().catch(() => {});
+        })().catch((err) => {
+          console.error('❌ [HOLIDAY] Background cancellation notification error:', err.message || err);
+        });
       }
     }
 
@@ -240,7 +244,9 @@ exports.updateHoliday = async (req, res) => {
         booking.conflictMessage = undefined;
         await booking.save();
 
-        sendBookingRestorationEmail(booking, oldTitle).catch(() => {});
+        sendBookingRestorationEmail(booking, oldTitle).catch((err) => {
+          console.error('❌ [HOLIDAY] Restoration email error:', err.message || err);
+        });
 
         (async () => {
           const facultyUser = await User.findOne({ email: booking.facultyEmail });
@@ -267,7 +273,9 @@ exports.updateHoliday = async (req, res) => {
               endTime: booking.endTime,
             });
           }
-        })().catch(() => {});
+        })().catch((err) => {
+          console.error('❌ [HOLIDAY] Background restoration notification error:', err.message || err);
+        });
       }
 
       // 2. Auto-cancel bookings on new date
@@ -286,7 +294,9 @@ exports.updateHoliday = async (req, res) => {
         );
 
         newExistingBookings.forEach((b) => {
-          sendBookingCancellationEmail(b, cancelReason).catch(() => {});
+          sendBookingCancellationEmail(b, cancelReason).catch((err) => {
+            console.error('❌ [HOLIDAY] Reschedule cancellation email error:', err.message || err);
+          });
         });
       }
     }
@@ -351,7 +361,9 @@ exports.deleteHoliday = async (req, res) => {
       await booking.save();
       restoredCount++;
 
-      sendBookingRestorationEmail(booking, holiday.title).catch(() => {});
+      sendBookingRestorationEmail(booking, holiday.title).catch((err) => {
+        console.error('❌ [HOLIDAY] Revocation restoration email error:', err.message || err);
+      });
 
       (async () => {
         const facultyUser = await User.findOne({ email: booking.facultyEmail });
@@ -378,7 +390,9 @@ exports.deleteHoliday = async (req, res) => {
             endTime: booking.endTime,
           });
         }
-      })().catch(() => {});
+      })().catch((err) => {
+        console.error('❌ [HOLIDAY] Background revocation notification error:', err.message || err);
+      });
     }
 
     // 🔒 3. Delete the holiday record

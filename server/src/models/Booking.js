@@ -108,7 +108,7 @@ BookingSchema.index({ roomId: 1, date: 1, status: 1, startTime: 1, endTime: 1 })
 BookingSchema.index(
   { lockedAt: 1 },
   {
-    expireAfterSeconds: 300,
+    expireAfterSeconds: parseInt(process.env.LOCK_EXPIRY_SECONDS, 10) || 300,
     partialFilterExpression: { purpose: 'TEMPORARY_LOCK' },
   }
 );

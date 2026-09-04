@@ -81,9 +81,23 @@ exports.generateOTP = () => crypto.randomInt(100000, 999999).toString();
 exports.generateLockId = () =>
   `lock_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
 
+// ---------- JWT SECRET RETRIEVER (Strictly from .env) ----------
+exports.getJwtSecret = () => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('❌ [FATAL] JWT_SECRET environment variable is missing in production!');
+      throw new Error('JWT_SECRET environment variable is not configured');
+    }
+    console.warn('⚠️  [SECURITY WARNING] JWT_SECRET is not set in .env! Using local fallback.');
+    return 'nitrr_development_only_jwt_secret_fallback_2026';
+  }
+  return secret;
+};
+
 // ---------- JWT TOKEN GENERATOR (Wired to .env) ----------
 exports.generateToken = (userId) => {
-  const secret = process.env.JWT_SECRET || 'nitrr_secret_key_default';
+  const secret = exports.getJwtSecret();
   const expiresIn = process.env.JWT_EXPIRES_IN || process.env.JWT_EXPIRE || '7d';
   return jwt.sign({ userId }, secret, { expiresIn });
 };

@@ -128,7 +128,9 @@ export default function TimetableManager({ user }) {
         setUploadRoomId(roomList[0].id || roomList[0]._id);
       }
     } catch (err) {
-      setError(extractErrorMessage(err, 'Failed to fetch rooms list.'));
+      const errMsg = extractErrorMessage(err, 'Failed to fetch rooms list.');
+      console.error('❌ [TIMETABLE] Failed to fetch rooms list:', errMsg);
+      setError(errMsg);
     }
   };
 
@@ -143,7 +145,9 @@ export default function TimetableManager({ user }) {
       const data = await getTimetable(params);
       setTimetable(data?.data || []);
     } catch (err) {
-      setError(extractErrorMessage(err, 'Failed to load timetable schedule.'));
+      const errMsg = extractErrorMessage(err, 'Failed to load timetable schedule.');
+      console.error('❌ [TIMETABLE] Failed to load timetable schedule:', errMsg);
+      setError(errMsg);
     } finally {
       setTableLoading(false);
     }

@@ -34,7 +34,7 @@ export default function HODDashboard({ user }) {
         setStats(res.data);
       }
     } catch (err) {
-      // Handled silently
+      console.error('Failed to fetch department stats in HODDashboard:', err);
     } finally {
       if (isMountedRef.current && isManual) {
         setRefreshing(false);

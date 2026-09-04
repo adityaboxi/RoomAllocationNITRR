@@ -176,6 +176,7 @@ export default function RoomDashboard({ user }) {
         });
       }
     } catch (err) {
+      console.error('❌ [ROOM DASHBOARD] Failed to refresh live room status:', err.message || err);
       if (isMountedRef.current) {
         setError(extractErrorMessage(err, 'Failed to refresh live room status.'));
       }
@@ -201,7 +202,7 @@ export default function RoomDashboard({ user }) {
         }
       }
     } catch (err) {
-      // Handled silently
+      console.error(`❌ [ROOM DASHBOARD] Failed to fetch reviews for room ${roomId}:`, err.message || err);
     } finally {
       if (isMountedRef.current) {
         setLoadingReviews((prev) => ({ ...prev, [roomId]: false }));

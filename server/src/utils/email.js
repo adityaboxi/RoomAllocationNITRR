@@ -64,8 +64,9 @@ exports.sendOTPEmail = async (email, otp, purpose = 'forgot') => {
       subject,
       html,
     });
+    console.log(`📧 [EMAIL] Dispatched OTP email to: ${email}`);
   } catch (error) {
-    // console.error(`❌ [EMAIL ERROR] Failed sending to ${email}:`, error.message);
+    console.error(`❌ [EMAIL ERROR] Failed sending OTP to ${email}:`, error.message);
   }
 };
 
@@ -109,7 +110,10 @@ exports.sendBookingConfirmationEmail = async (booking) => {
       subject: `✅ Booking Confirmed: ${roomName} (${booking.date})`,
       html,
     });
-  } catch (error) {}
+    console.log(`📧 [EMAIL] Booking confirmation sent to ${booking.facultyEmail}`);
+  } catch (error) {
+    console.error(`❌ [EMAIL ERROR] Failed sending booking confirmation to ${booking.facultyEmail}:`, error.message);
+  }
 };
 
 // ---------- SEND BOOKING CANCELLATION EMAIL ----------
@@ -148,7 +152,10 @@ exports.sendBookingCancellationEmail = async (booking, reason) => {
       subject: `❌ Booking Cancelled: ${roomName} on ${booking.date}`,
       html,
     });
-  } catch (error) {}
+    console.log(`📧 [EMAIL] Booking cancellation sent to ${booking.facultyEmail}`);
+  } catch (error) {
+    console.error(`❌ [EMAIL ERROR] Failed sending booking cancellation to ${booking.facultyEmail}:`, error.message);
+  }
 };
 
 // ---------- SEND BOOKING RESTORATION EMAIL (HOD Mistake Revocation) ----------
@@ -196,7 +203,10 @@ exports.sendBookingRestorationEmail = async (booking, holidayTitle) => {
       subject: `🎉 Booking Restored: ${roomName} on ${booking.date}`,
       html,
     });
-  } catch (error) {}
+    console.log(`📧 [EMAIL] Booking restoration sent to ${booking.facultyEmail}`);
+  } catch (error) {
+    console.error(`❌ [EMAIL ERROR] Failed sending booking restoration to ${booking.facultyEmail}:`, error.message);
+  }
 };
 
 // ---------- SEND ROOM DELETED EMAIL (to HOD of that department) ----------
@@ -241,5 +251,8 @@ exports.sendRoomDeletedNotificationEmail = async ({ hodEmail, hodName, roomName,
       subject: `🏫 Admin Action: Room "${roomName}" Removed from ${department} Inventory`,
       html,
     });
-  } catch (error) {}
+    console.log(`📧 [EMAIL] Room deleted notice sent to HOD: ${hodEmail}`);
+  } catch (error) {
+    console.error(`❌ [EMAIL ERROR] Failed sending room deleted notice to ${hodEmail}:`, error.message);
+  }
 };

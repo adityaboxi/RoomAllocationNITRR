@@ -75,7 +75,9 @@ export default function HolidayManager({ user }) {
       const data = await getHolidays({ department: user?.department });
       setHolidays(data?.data || []);
     } catch (err) {
-      setError(extractErrorMessage(err, 'Failed to load department holidays.'));
+      const errMsg = extractErrorMessage(err, 'Failed to load department holidays.');
+      console.error('❌ [HOLIDAY] Failed to load holidays:', errMsg);
+      setError(errMsg);
     } finally {
       setLoading(false);
     }

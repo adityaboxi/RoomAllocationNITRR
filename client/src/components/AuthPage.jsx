@@ -86,6 +86,7 @@ export default function AuthPage({ onLoginSuccess }) {
           }));
         }
       } catch (err) {
+        console.error('❌ [AUTH] Failed to load department branches:', err.message || err);
         setError('Failed to load department branches from the server. Please refresh.');
       } finally {
         setLoadingDepts(false);
@@ -242,7 +243,9 @@ export default function AuthPage({ onLoginSuccess }) {
         return;
       }
     } catch (err) {
-      setError(extractErrorMessage(err, 'Authentication request failed. Please try again.'));
+      const errMsg = extractErrorMessage(err, 'Authentication request failed. Please try again.');
+      console.error('❌ [AUTH] Submit error:', errMsg);
+      setError(errMsg);
     } finally {
       setLoading(false);
     }
@@ -280,7 +283,9 @@ export default function AuthPage({ onLoginSuccess }) {
         setView('reset-password');
       }
     } catch (err) {
-      setError(extractErrorMessage(err, 'OTP verification failed. Please try again.'));
+      const errMsg = extractErrorMessage(err, 'OTP verification failed. Please try again.');
+      console.error('❌ [AUTH] OTP verification error:', errMsg);
+      setError(errMsg);
     } finally {
       setLoading(false);
     }
@@ -306,7 +311,9 @@ export default function AuthPage({ onLoginSuccess }) {
       setOtpTimer(300);
       setSuccessMsg('A fresh verification code has been dispatched to your email.');
     } catch (err) {
-      setError(extractErrorMessage(err, 'Failed to resend OTP. Please try again.'));
+      const errMsg = extractErrorMessage(err, 'Failed to resend OTP. Please try again.');
+      console.error('❌ [AUTH] Resend OTP error:', errMsg);
+      setError(errMsg);
     } finally {
       setResending(false);
     }
@@ -345,7 +352,9 @@ export default function AuthPage({ onLoginSuccess }) {
       }));
       setView('login');
     } catch (err) {
-      setError(extractErrorMessage(err, 'Password reset failed.'));
+      const errMsg = extractErrorMessage(err, 'Password reset failed.');
+      console.error('❌ [AUTH] Password reset error:', errMsg);
+      setError(errMsg);
     } finally {
       setLoading(false);
     }

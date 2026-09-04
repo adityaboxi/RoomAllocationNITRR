@@ -101,7 +101,9 @@ const cancelConflictingBookings = async (timetableEntries, department) => {
         try {
           await sendBookingCancellationEmail(booking, booking.conflictMessage);
           await Booking.findByIdAndUpdate(booking._id, { notified: true });
-        } catch (emailError) {}
+        } catch (emailError) {
+          console.error('❌ [TIMETABLE] Failed sending cancellation email:', emailError.message || emailError);
+        }
 
         const facultyUser = await User.findOne({ email: booking.facultyEmail });
         if (facultyUser) {
@@ -128,7 +130,9 @@ const cancelConflictingBookings = async (timetableEntries, department) => {
             },
           });
         }
-      })().catch(() => {});
+      })().catch((err) => {
+        console.error('❌ [TIMETABLE] Async cancellation notification error:', err.message || err);
+      });
     }
   }
 
@@ -374,6 +378,7 @@ exports.getTimetable = async (req, res) => {
     const formatted = entries.map((e) => ({ ...e, id: e._id.toString() }));
     res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
+    console.error('❌ [TIMETABLE] getTimetable error:', error.message || error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -400,6 +405,7 @@ exports.getTimetableByDepartment = async (req, res) => {
     const formatted = entries.map((e) => ({ ...e, id: e._id.toString() }));
     res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
+    console.error('❌ [TIMETABLE] getTimetableByDepartment error:', error.message || error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -424,6 +430,7 @@ exports.getTimetableByFaculty = async (req, res) => {
     const formatted = entries.map((e) => ({ ...e, id: e._id.toString() }));
     res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
+    console.error('❌ [TIMETABLE] getTimetableByFaculty error:', error.message || error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -449,6 +456,7 @@ exports.getTimetableByRoom = async (req, res) => {
     const formatted = entries.map((e) => ({ ...e, id: e._id.toString() }));
     res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
+    console.error('❌ [TIMETABLE] getTimetableByRoom error:', error.message || error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -492,6 +500,7 @@ exports.replaceTimetable = async (req, res) => {
       data: result,
     });
   } catch (error) {
+    console.error('❌ [TIMETABLE] replaceTimetable error:', error.message || error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -709,6 +718,7 @@ exports.updateRoomDayTimetable = async (req, res) => {
       data: created,
     });
   } catch (error) {
+    console.error('❌ [TIMETABLE] updateRoomDayTimetable error:', error.message || error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -918,6 +928,7 @@ exports.replaceTimetableFromFile = async (req, res) => {
       data: result,
     });
   } catch (error) {
+    console.error('❌ [TIMETABLE] replaceTimetableFromFile error:', error.message || error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -1065,6 +1076,7 @@ exports.updateTimetableEntry = async (req, res) => {
     const updated = await Timetable.findById(id).populate('roomId', 'name roomNumber floor building department');
     res.json({ success: true, message: 'Timetable entry updated successfully', data: updated });
   } catch (error) {
+    console.error('❌ [TIMETABLE] updateTimetableEntry error:', error.message || error);
     res.status(400).json({ success: false, message: error.message });
   }
 };
@@ -1102,6 +1114,7 @@ exports.deleteTimetableEntry = async (req, res) => {
 
     res.json({ success: true, message: 'Timetable entry deleted successfully' });
   } catch (error) {
+    console.error('❌ [TIMETABLE] deleteTimetableEntry error:', error.message || error);
     res.status(400).json({ success: false, message: error.message });
   }
 };

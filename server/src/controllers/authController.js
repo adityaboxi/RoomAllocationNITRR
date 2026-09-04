@@ -2,7 +2,7 @@ const User = require('../models/User');
 const OTP = require('../models/OTP');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const { generateOTP, generateToken } = require('../utils/helpers');
+const { generateOTP, generateToken, getJwtSecret } = require('../utils/helpers');
 const { sendOTPEmail } = require('../utils/email');
 
 // Helper to get configured departments dynamically from environment variables
@@ -37,7 +37,7 @@ const getConfiguredDepartments = () => {
 
 // Helper to safely encrypt temporary password in OTP collection
 const encryptTemporaryPassword = (password) => {
-  const key = crypto.createHash('sha256').update(process.env.JWT_SECRET || 'fallback_secret_key').digest();
+  const key = crypto.createHash('sha256').update(getJwtSecret()).digest();
   const iv = crypto.randomBytes(16);
   const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
   let encrypted = cipher.update(password, 'utf8', 'hex');
@@ -47,7 +47,7 @@ const encryptTemporaryPassword = (password) => {
 
 // Helper to decrypt temporary password during signup verification
 const decryptTemporaryPassword = (encryptedData) => {
-  const key = crypto.createHash('sha256').update(process.env.JWT_SECRET || 'fallback_secret_key').digest();
+  const key = crypto.createHash('sha256').update(getJwtSecret()).digest();
   const [ivHex, encryptedText] = encryptedData.split(':');
   const iv = Buffer.from(ivHex, 'hex');
   const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
@@ -66,6 +66,7 @@ exports.getDepartments = async (req, res) => {
       total: departments.length,
     });
   } catch (error) {
+    console.error('❌ [AUTH] getDepartments error:', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -157,6 +158,7 @@ exports.login = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error('❌ [AUTH] Login error:', error.message || error);
     res.status(500).json({ success: false, message: 'Server error occurred during login' });
   }
 };
@@ -229,6 +231,7 @@ exports.signup = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error('❌ [AUTH] Signup error:', error.message || error);
     if (error.code === 11000) {
       return res.status(400).json({ success: false, message: 'User already exists with this email' });
     }
@@ -275,6 +278,7 @@ exports.changePassword = async (req, res) => {
 
     res.json({ success: true, message: 'Password changed successfully' });
   } catch (error) {
+    console.error('❌ [AUTH] Change password error:', error.message || error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
@@ -312,7 +316,9 @@ exports.forgotPassword = async (req, res) => {
     });
 
     // ⚡ Fast Background Email Dispatch
-    sendOTPEmail(email, otp, 'forgot').catch(() => {});
+    sendOTPEmail(email, otp, 'forgot').catch((err) => {
+      console.error('❌ [AUTH] Forgot password email dispatch error:', err.message || err);
+    });
 
     res.json({
       success: true,
@@ -320,6 +326,7 @@ exports.forgotPassword = async (req, res) => {
       expiresIn: `${expiryMinutes} minutes`,
     });
   } catch (error) {
+    console.error('❌ [AUTH] Forgot password error:', error.message || error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
@@ -346,10 +353,11 @@ exports.verifyResetOtp = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid or expired verification code' });
     }
 
-    const secret = (process.env.JWT_SECRET || 'nitrr_secret_key_default') + 'reset';
+    const secret = getJwtSecret() + 'reset';
     const resetToken = jwt.sign({ email }, secret, { expiresIn: '10m' });
     res.json({ success: true, message: 'OTP verified successfully', resetToken });
   } catch (error) {
+    console.error('❌ [AUTH] Verify reset OTP error:', error.message || error);
     res.status(500).json({ success: false, message: 'OTP verification failed' });
   }
 };
@@ -373,7 +381,7 @@ exports.resetPassword = async (req, res) => {
 
     let decoded;
     try {
-      const secret = (process.env.JWT_SECRET || 'nitrr_secret_key_default') + 'reset';
+      const secret = getJwtSecret() + 'reset';
       decoded = jwt.verify(resetToken, secret);
     } catch {
       return res.status(401).json({ success: false, message: 'Invalid or expired reset token' });
@@ -399,6 +407,7 @@ exports.resetPassword = async (req, res) => {
 
     res.json({ success: true, message: 'Password reset successfully. You may now sign in.' });
   } catch (error) {
+    console.error('❌ [AUTH] Reset password error:', error.message || error);
     res.status(500).json({ success: false, message: 'Password reset failed' });
   }
 };
@@ -425,6 +434,7 @@ exports.getMe = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error('❌ [AUTH] GetMe error:', error.message || error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
@@ -497,7 +507,9 @@ exports.sendSignupOtp = async (req, res) => {
     });
 
     // ⚡ Fast Background Email Dispatch
-    sendOTPEmail(email, otp, 'signup').catch(() => {});
+    sendOTPEmail(email, otp, 'signup').catch((err) => {
+      console.error('❌ [AUTH] Signup OTP email dispatch error:', err.message || err);
+    });
 
     res.json({
       success: true,
@@ -505,6 +517,7 @@ exports.sendSignupOtp = async (req, res) => {
       expiresIn: `${expiryMinutes} minutes`,
     });
   } catch (error) {
+    console.error('❌ [AUTH] Send signup OTP error:', error.message || error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
@@ -566,6 +579,7 @@ exports.verifySignupOtp = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error('❌ [AUTH] Verify signup OTP error:', error.message || error);
     if (error.code === 11000) {
       return res.status(400).json({ success: false, message: 'User already exists with this email' });
     }

@@ -123,7 +123,9 @@ export default function RoomManager({ user }) {
       const freeIds = (availData?.data || []).map((r) => r.id || r._id);
       setAvailableRoomIds(freeIds);
     } catch (err) {
-      setError(extractErrorMessage(err, 'Failed to load department rooms. Please check your connection.'));
+      const errMsg = extractErrorMessage(err, 'Failed to load department rooms. Please check your connection.');
+      console.error('❌ [ROOM MGR] Failed to load rooms:', errMsg);
+      setError(errMsg);
     } finally {
       setFetchLoading(false);
     }

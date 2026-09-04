@@ -32,7 +32,7 @@ export default function FacultyDashboard({ user }) {
         }
       }
     } catch (err) {
-      // Handled silently
+      console.error('Failed to fetch pending reviews in FacultyDashboard:', err);
     }
   };
 

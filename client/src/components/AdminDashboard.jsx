@@ -169,17 +169,23 @@ export default function AdminDashboard({ user, onLogout }) {
     try {
       const res = await getRooms({ department: 'ALL' });
       if (isMountedRef.current) setRooms(res.data || []);
-    } catch (err) {}
+    } catch (err) {
+      console.error('❌ [ADMIN] Failed to fetch rooms:', err.message || err);
+    }
   }, []);
 
   useEffect(() => {
     isMountedRef.current = true;
     fetchRooms();
-    getDepartments().then(res => {
-      const list = (res?.data || []).map(d => typeof d === 'string' ? d : d.code || d.name);
-      if (!list.includes('Common / Institute Level')) list.unshift('Common / Institute Level');
-      if (isMountedRef.current) setDepartments(list);
-    }).catch(() => {});
+    getDepartments()
+      .then((res) => {
+        const list = (res?.data || []).map((d) => (typeof d === 'string' ? d : d.code || d.name));
+        if (!list.includes('Common / Institute Level')) list.unshift('Common / Institute Level');
+        if (isMountedRef.current) setDepartments(list);
+      })
+      .catch((err) => {
+        console.error('❌ [ADMIN] Failed to load departments:', err.message || err);
+      });
 
     const socket = getSocket();
     const handleRoomChange = () => { if (isMountedRef.current) fetchRooms(); };

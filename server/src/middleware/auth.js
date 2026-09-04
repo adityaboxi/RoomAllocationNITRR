@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const AdminUser = require('../models/AdminUser');
+const { getJwtSecret } = require('../utils/helpers');
 
 // ---------- PROTECT MIDDLEWARE (JWT Verification & User Validation) ----------
 exports.protect = async (req, res, next) => {
@@ -22,7 +23,7 @@ exports.protect = async (req, res, next) => {
     // Verify token cryptographic signature
     let decoded;
     try {
-      const secret = process.env.JWT_SECRET || 'nitrr_secret_key_default';
+      const secret = getJwtSecret();
       decoded = jwt.verify(token, secret);
     } catch (jwtError) {
       if (jwtError.name === 'TokenExpiredError') {

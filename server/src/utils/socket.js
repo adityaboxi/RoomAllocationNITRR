@@ -1,5 +1,6 @@
 const socketIo = require('socket.io');
 const jwt = require('jsonwebtoken');
+const { getJwtSecret } = require('./helpers');
 
 let io = null;
 
@@ -30,7 +31,7 @@ exports.initSocket = (server) => {
     }
 
     try {
-      const secret = process.env.JWT_SECRET || 'nitrr_secret_key_default';
+      const secret = getJwtSecret();
       const decoded = jwt.verify(token, secret);
       socket.userId = decoded.userId;
       next();

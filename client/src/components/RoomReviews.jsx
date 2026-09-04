@@ -30,7 +30,7 @@ export default function RoomReviews({ roomId }) {
             setCount(data?.data?.count !== undefined ? data.data.count : reviewList.length);
           }
         } catch (err) {
-          // Handled silently
+          console.error('Failed to fetch reviews for room in RoomReviews:', err);
         } finally {
           if (isMounted) {
             setLoading(false);

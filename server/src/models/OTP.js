@@ -29,7 +29,7 @@ const OTPSchema = new mongoose.Schema(
     expiresAt: {
       type: Date,
       required: true,
-      default: () => new Date(Date.now() + 5 * 60 * 1000), // 5 minutes TTL
+      default: () => new Date(Date.now() + (parseInt(process.env.OTP_EXPIRY_MINUTES, 10) || 5) * 60 * 1000),
     },
     userData: {
       type: mongoose.Schema.Types.Mixed,

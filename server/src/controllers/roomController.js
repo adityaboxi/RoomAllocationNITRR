@@ -450,7 +450,9 @@ exports.updateRoom = async (req, res) => {
         (async () => {
           try {
             await sendBookingCancellationEmail(booking, cancellationReason);
-          } catch (emailErr) {}
+          } catch (emailErr) {
+            console.error('❌ [ROOM] Failed to send re-allocation cancellation email:', emailErr.message || emailErr);
+          }
 
           const facultyUser = await User.findOne({ email: booking.facultyEmail });
           if (facultyUser) {
@@ -477,7 +479,9 @@ exports.updateRoom = async (req, res) => {
               },
             });
           }
-        })().catch(() => {});
+        })().catch((err) => {
+          console.error('❌ [ROOM] Async re-allocation notification error:', err.message || err);
+        });
       }
 
       const io = getIO();
@@ -624,7 +628,9 @@ exports.deleteRoom = async (req, res) => {
               roomId: roomSnapshot,
             };
             await sendBookingCancellationEmail(bookingWithRoom, cancellationReason);
-          } catch (emailErr) {}
+          } catch (emailErr) {
+            console.error('❌ [ROOM] Failed to send delete room cancellation email:', emailErr.message || emailErr);
+          }
 
           const facultyUser = await User.findOne({ email: booking.facultyEmail });
           if (facultyUser) {
@@ -698,9 +704,11 @@ exports.deleteRoom = async (req, res) => {
           });
         }
       } catch (notifyErr) {
-        console.error("❌ [ROOM]", '[deleteRoom] Notification error:', notifyErr);
+        console.error("❌ [ROOM] [deleteRoom] Notification error:", notifyErr.message || notifyErr);
       }
-    })().catch(() => {});
+    })().catch((err) => {
+      console.error('❌ [ROOM] Async deleteRoom cleanup error:', err.message || err);
+    });
 
     // 3. Broadcast to all connected clients (live room list refresh)
     const io = getIO();
