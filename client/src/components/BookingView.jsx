@@ -144,11 +144,30 @@ const getInitialBookingTimes = () => {
   };
 };
 
-const getAvailableEndSlots = (startStr) => {
-  if (startStr < '13:10') {
-    return VALID_END_SLOTS.filter((t) => t > startStr && t <= '13:10');
+const getAvailableStartSlots = (dateStr) => {
+  const today = getTodayDateString();
+  if (dateStr === today) {
+    const currentNow = getCurrentTimeHHMM();
+    const futureSlots = VALID_START_SLOTS.filter((s) => s >= currentNow);
+    return futureSlots.length > 0 ? futureSlots : [VALID_START_SLOTS[VALID_START_SLOTS.length - 1]];
   }
-  return VALID_END_SLOTS.filter((t) => t > startStr && t <= '18:20');
+  return VALID_START_SLOTS;
+};
+
+const getAvailableEndSlots = (startStr, dateStr) => {
+  let ends;
+  if (startStr < '13:10') {
+    ends = VALID_END_SLOTS.filter((t) => t > startStr && t <= '13:10');
+  } else {
+    ends = VALID_END_SLOTS.filter((t) => t > startStr && t <= '18:20');
+  }
+  const today = getTodayDateString();
+  if (dateStr === today) {
+    const currentNow = getCurrentTimeHHMM();
+    const futureEnds = ends.filter((t) => t > currentNow);
+    return futureEnds.length > 0 ? futureEnds : ends;
+  }
+  return ends;
 };
 
 const STANDARD_ROOM_TYPES = [
@@ -219,6 +238,15 @@ export default function BookingView({ user }) {
     purpose: '',
     comment: '',
   });
+
+  // Available institutional periods: for today, only periods ending after the current time are displayed
+  const availablePeriods = useMemo(() => {
+    if (bookingData.date === todayStr) {
+      const currentNow = getCurrentTimeHHMM();
+      return INSTITUTIONAL_PERIODS.filter((p) => p.end > currentNow);
+    }
+    return INSTITUTIONAL_PERIODS;
+  }, [bookingData.date, todayStr]);
 
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [activeLockId, setActiveLockId] = useState(null);
@@ -890,7 +918,7 @@ export default function BookingView({ user }) {
               onChange={handleBookingInput}
               className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
             >
-              {VALID_START_SLOTS.map((t) => (
+              {getAvailableStartSlots(bookingData.date).map((t) => (
                 <option key={'start-' + t} value={t}>
                   {t}
                 </option>
@@ -906,7 +934,7 @@ export default function BookingView({ user }) {
               onChange={handleBookingInput}
               className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
             >
-              {getAvailableEndSlots(bookingData.startTime).map((t) => (
+              {getAvailableEndSlots(bookingData.startTime, bookingData.date).map((t) => (
                 <option key={'end-' + t} value={t}>
                   {t}
                 </option>
@@ -928,37 +956,39 @@ export default function BookingView({ user }) {
           </div>
 
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 text-xs">
-            {INSTITUTIONAL_PERIODS.map((p) => {
-              const isSelected = bookingData.startTime === p.start && bookingData.endTime === p.end;
-              const isPastToday = bookingData.date === todayStr && p.start < currentHHMM;
+            {availablePeriods.length === 0 ? (
+              <div className="text-xs text-slate-400 py-1 italic">
+                All scheduled class periods for today have concluded. Please select an upcoming date to book.
+              </div>
+            ) : (
+              availablePeriods.map((p) => {
+                const isSelected = bookingData.startTime === p.start && bookingData.endTime === p.end;
 
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  disabled={isPastToday}
-                  onClick={() => {
-                    setError('');
-                    setBookingData((prev) => ({
-                      ...prev,
-                      startTime: p.start,
-                      endTime: p.end,
-                    }));
-                  }}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex flex-col items-center flex-shrink-0 ${
-                    isSelected
-                      ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-600/30'
-                      : isPastToday
-                      ? 'bg-slate-100 text-slate-300 cursor-not-allowed border border-slate-100'
-                      : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
-                  }`}
-                  title={isPastToday ? 'This period has already passed today' : `${p.label}`}
-                >
-                  <span className="font-bold text-[11px]">Period {p.id}</span>
-                  <span className="text-[10px] opacity-80">{p.start} - {p.end}</span>
-                </button>
-              );
-            })}
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => {
+                      setError('');
+                      setBookingData((prev) => ({
+                        ...prev,
+                        startTime: p.start,
+                        endTime: p.end,
+                      }));
+                    }}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex flex-col items-center flex-shrink-0 ${
+                      isSelected
+                        ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-600/30'
+                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
+                    }`}
+                    title={`${p.label}`}
+                  >
+                    <span className="font-bold text-[11px]">Period {p.id}</span>
+                    <span className="text-[10px] opacity-80">{p.start} - {p.end}</span>
+                  </button>
+                );
+              })
+            )}
           </div>
         </div>
       </div>
