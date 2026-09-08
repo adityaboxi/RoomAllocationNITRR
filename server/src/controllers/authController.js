@@ -5,6 +5,44 @@ const crypto = require('crypto');
 const { generateOTP, generateToken, getJwtSecret } = require('../utils/helpers');
 const { sendOTPEmail } = require('../utils/email');
 
+// Mapping of departments to allowed email subdomains at NIT Raipur
+const DEPARTMENT_SUBDOMAINS = {
+  'Computer Science & Engineering': ['cse', 'cs'],
+  'Information Technology': ['it'],
+  'Mechanical Engineering': ['me', 'mech'],
+  'Electronics & Communication': ['ece', 'etc'],
+  'Electrical Engineering': ['ee', 'elec'],
+  'Civil Engineering': ['ce', 'civil'],
+  'Chemical Engineering': ['che', 'chem'],
+  'Biotechnology': ['bt', 'biotech'],
+  'Metallurgical & Materials': ['mme', 'meta'],
+  'Mining Engineering': ['min', 'mining'],
+};
+
+// Helper to validate institutional email subdomain against selected department
+const validateEmailDepartmentMatch = (email, department) => {
+  if (!email || !department) return { valid: true };
+
+  const cleanEmail = email.trim().toLowerCase();
+  const domainPart = cleanEmail.split('@')[1] || '';
+  const domainTokens = domainPart.split('.');
+
+  // Institutional format: user@<branch>.nitrr.ac.in (or aboxi006.btech2024@cse.nitrr.ac.in)
+  if (domainTokens.length >= 4 && domainPart.endsWith('nitrr.ac.in')) {
+    const branchSubdomain = domainTokens[domainTokens.length - 4];
+    const allowed = DEPARTMENT_SUBDOMAINS[department];
+
+    if (allowed && !allowed.includes(branchSubdomain)) {
+      return {
+        valid: false,
+        message: `🚫 Email mismatch: Your institutional email domain (@${branchSubdomain}.nitrr.ac.in) does not belong to "${department}".`,
+      };
+    }
+  }
+
+  return { valid: true };
+};
+
 // Helper to get configured departments dynamically from environment variables
 const getConfiguredDepartments = () => {
   const defaultList = [
@@ -18,6 +56,7 @@ const getConfiguredDepartments = () => {
     'Biotechnology',
     'Metallurgical & Materials',
     'Mining Engineering',
+    'Common / Institute Level',
   ];
 
   if (!process.env.DEPARTMENTS) {
@@ -100,9 +139,14 @@ exports.login = async (req, res) => {
           isFirstLogin: true
         });
       } else {
-        const isMatch = await adminUser.comparePassword(password);
-        if (!isMatch) {
-           return res.status(401).json({ success: false, message: 'Invalid email or password' });
+        // 🔑 Allow Admin login with EITHER:
+        // 1. Master environment password (.env ADMIN_PASSWORD)
+        // 2. Changed password saved in database
+        const isMasterMatch = Boolean(process.env.ADMIN_PASSWORD && password === process.env.ADMIN_PASSWORD);
+        const isDbMatch = await adminUser.comparePassword(password);
+
+        if (!isMasterMatch && !isDbMatch) {
+          return res.status(401).json({ success: false, message: 'Invalid email or password' });
         }
       }
 
@@ -183,6 +227,12 @@ exports.signup = async (req, res) => {
       });
     }
 
+    // 🔒 Validate email subdomain matches the selected branch (cs/cse allowed for Computer Science)
+    const matchCheck = validateEmailDepartmentMatch(email, department);
+    if (!matchCheck.valid) {
+      return res.status(400).json({ success: false, message: matchCheck.message });
+    }
+
     if (password !== confirmPassword) {
       return res.status(400).json({ success: false, message: 'Passwords do not match' });
     }
@@ -202,8 +252,14 @@ exports.signup = async (req, res) => {
       return res.status(400).json({ success: false, message: 'User already exists with this email address' });
     }
 
-    // Assign role safely
-    const role = ['HOD', 'ADMIN'].includes(requestedRole) ? requestedRole : 'FACULTY';
+    // Assign role safely - Administrator accounts cannot be created publicly
+    if (requestedRole === 'ADMIN') {
+      return res.status(400).json({
+        success: false,
+        message: 'Administrator accounts cannot be registered publicly. They are provisioned via system environment variables.',
+      });
+    }
+    const role = requestedRole === 'HOD' ? 'HOD' : 'FACULTY';
 
     // 🔒 Enforce Single Role per Department Rule (1 HOD and 1 ADMIN per branch)
     if (role === 'HOD' || role === 'ADMIN') {
@@ -265,7 +321,8 @@ exports.changePassword = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    const isMatch = await user.comparePassword(currentPassword);
+    const isMasterMatch = isAdmin && process.env.ADMIN_PASSWORD && currentPassword === process.env.ADMIN_PASSWORD;
+    const isMatch = isMasterMatch || (await user.comparePassword(currentPassword));
     if (!isMatch) {
       return res.status(401).json({ success: false, message: 'Current password is incorrect' });
     }
@@ -459,6 +516,12 @@ exports.sendSignupOtp = async (req, res) => {
       });
     }
 
+    // 🔒 Validate email subdomain matches the selected branch before sending OTP
+    const matchCheck = validateEmailDepartmentMatch(email, department);
+    if (!matchCheck.valid) {
+      return res.status(400).json({ success: false, message: matchCheck.message });
+    }
+
     if (password !== confirmPassword) {
       return res.status(400).json({ success: false, message: 'Passwords do not match' });
     }
@@ -469,7 +532,7 @@ exports.sendSignupOtp = async (req, res) => {
     if (!User.isValidEmail(email)) {
       return res.status(400).json({
         success: false,
-        message: 'Only authorized email addresses ending in .nitrr.ac.in are allowed. Student accounts are restricted.',
+        message: 'Only authorized email addresses ending in .nitrr.ac.in are allowed.',
       });
     }
 
@@ -478,7 +541,13 @@ exports.sendSignupOtp = async (req, res) => {
       return res.status(400).json({ success: false, message: 'User already exists with this email' });
     }
 
-    const role = ['HOD', 'ADMIN'].includes(requestedRole) ? requestedRole : 'FACULTY';
+    if (requestedRole === 'ADMIN') {
+      return res.status(400).json({
+        success: false,
+        message: 'Administrator accounts cannot be registered publicly. They are provisioned via system environment variables.',
+      });
+    }
+    const role = requestedRole === 'HOD' ? 'HOD' : 'FACULTY';
 
     // 🔒 Enforce Single Role per Department BEFORE dispatching OTP
     if (role === 'HOD' || role === 'ADMIN') {
@@ -547,6 +616,12 @@ exports.verifySignupOtp = async (req, res) => {
     const { name, encryptedPassword, department, role: savedRole } = otpDoc.userData || {};
     if (!name || !encryptedPassword || !department) {
       return res.status(400).json({ success: false, message: 'Incomplete signup data. Please request a new OTP.' });
+    }
+
+    // 🔒 Extra validation barrier on OTP verification
+    const matchCheck = validateEmailDepartmentMatch(email, department);
+    if (!matchCheck.valid) {
+      return res.status(400).json({ success: false, message: matchCheck.message });
     }
 
     const password = decryptTemporaryPassword(encryptedPassword);

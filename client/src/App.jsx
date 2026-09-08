@@ -22,18 +22,34 @@ import {
   onHolidayDeleted,
   offHolidayDeleted,
 } from './services/socket';
-import { getPendingReviews, getNotifications } from './services/api';
+import { getPendingReviews, getNotifications, getMe } from './services/api';
+import { Loader2 } from 'lucide-react';
+
+// Strict Route Guard: Restricts dashboard access strictly to authenticated sessions with verified token
+function ProtectedRoute({ children, user, requiredRole }) {
+  const token = localStorage.getItem('token');
+  if (!user || !token) {
+    return <Navigate to="/auth" replace />;
+  }
+  if (requiredRole && user.role !== requiredRole) {
+    return <Navigate to="/" replace />;
+  }
+  return children;
+}
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       const saved = localStorage.getItem('currentUser');
+      const token = localStorage.getItem('token');
+      if (!token) return null;
       return saved ? JSON.parse(saved) : null;
     } catch {
       return null;
     }
   });
 
+  const [authChecking, setAuthChecking] = useState(true);
   const [notifications, setNotifications] = useState([]);
   const [pendingReviews, setPendingReviews] = useState([]);
   const [currentPending, setCurrentPending] = useState(null);
@@ -42,6 +58,54 @@ export default function App() {
   const socketRef = useRef(null);
   const isMountedRef = useRef(true);
   const notifAbortControllerRef = useRef(null);
+
+  // Verify persistent authentication session on application boot
+  useEffect(() => {
+    let isCancelled = false;
+    const verifyAuthSession = async () => {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        if (!isCancelled) {
+          setCurrentUser(null);
+          setAuthChecking(false);
+        }
+        return;
+      }
+
+      try {
+        const res = await getMe();
+        if (res?.user && !isCancelled) {
+          setCurrentUser(res.user);
+          localStorage.setItem('currentUser', JSON.stringify(res.user));
+        } else if (!isCancelled) {
+          throw new Error('Invalid user session');
+        }
+      } catch (err) {
+        console.warn('⚠️  [APP] Auth session expired or invalid:', err.message || err);
+        if (!isCancelled) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('currentUser');
+          setCurrentUser(null);
+        }
+      } finally {
+        if (!isCancelled) {
+          setAuthChecking(false);
+        }
+      }
+    };
+
+    verifyAuthSession();
+
+    const handleUnauthorized = () => {
+      handleLogout();
+    };
+
+    window.addEventListener('auth:unauthorized', handleUnauthorized);
+    return () => {
+      isCancelled = true;
+      window.removeEventListener('auth:unauthorized', handleUnauthorized);
+    };
+  }, []);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -226,6 +290,20 @@ export default function App() {
     }
   };
 
+  if (authChecking) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 font-sans">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center animate-pulse">
+            <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
+          </div>
+          <div className="text-white font-bold text-lg tracking-tight">NIT Raipur Room Allocation</div>
+          <div className="text-slate-400 text-xs">Verifying authorization session...</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
@@ -237,35 +315,51 @@ export default function App() {
         />
 
         <main className="flex-1">
-          {!currentUser ? (
-            <AuthPage onLoginSuccess={handleLoginSuccess} />
-          ) : (
-            <Routes>
-              <Route path="/" element={<Dashboard user={currentUser} onLogout={handleLogout} />} />
-              <Route
-                path="/admin"
-                element={
-                  currentUser?.role === 'ADMIN' ? (
-                    <AdminDashboard user={currentUser} onLogout={handleLogout} />
-                  ) : (
-                    <Navigate to="/" replace />
-                  )
-                }
-              />
-              <Route
-                path="/notifications"
-                element={
+          <Routes>
+            <Route
+              path="/auth"
+              element={
+                currentUser ? (
+                  <Navigate to={currentUser.role === 'ADMIN' ? '/admin' : '/'} replace />
+                ) : (
+                  <AuthPage onLoginSuccess={handleLoginSuccess} />
+                )
+              }
+            />
+            <Route
+              path="/"
+              element={
+                <ProtectedRoute user={currentUser}>
+                  <Dashboard user={currentUser} onLogout={handleLogout} />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute user={currentUser} requiredRole="ADMIN">
+                  <AdminDashboard user={currentUser} onLogout={handleLogout} />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/notifications"
+              element={
+                <ProtectedRoute user={currentUser}>
                   <NotificationCenter
                     user={currentUser}
                     notifications={notifications}
                     setNotifications={setNotifications}
                     onRefresh={fetchUserNotifications}
                   />
-                }
-              />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          )}
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="*"
+              element={<Navigate to={currentUser ? '/' : '/auth'} replace />}
+            />
+          </Routes>
         </main>
 
         {showReviewPopup && currentPending && (

@@ -85,12 +85,8 @@ exports.generateLockId = () =>
 exports.getJwtSecret = () => {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
-    if (process.env.NODE_ENV === 'production') {
-      console.error('❌ [FATAL] JWT_SECRET environment variable is missing in production!');
-      throw new Error('JWT_SECRET environment variable is not configured');
-    }
-    console.warn('⚠️  [SECURITY WARNING] JWT_SECRET is not set in .env! Using local fallback.');
-    return 'nitrr_development_only_jwt_secret_fallback_2026';
+    console.error('❌ [FATAL] JWT_SECRET environment variable is missing in .env!');
+    throw new Error('JWT_SECRET environment variable is not configured in .env');
   }
   return secret;
 };

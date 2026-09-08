@@ -214,15 +214,73 @@ export default function AdminDashboard({ user, onLogout }) {
     e.preventDefault();
     if (formLoading) return;
     setFormError('');
+
+    const cleanName = (formData.name || '').trim();
+    const cleanRoomNumber = (formData.roomNumber || '').trim().toUpperCase();
+
+    if (!cleanName || cleanName.length < 2) {
+      setFormError('Room name must be at least 2 characters long.');
+      return;
+    }
+    if (cleanName.length > 100) {
+      setFormError('Room name cannot exceed 100 characters.');
+      return;
+    }
+
+    if (!cleanRoomNumber || cleanRoomNumber.length < 1) {
+      setFormError('Room number is required.');
+      return;
+    }
+    if (cleanRoomNumber.length > 20) {
+      setFormError('Room number cannot exceed 20 characters.');
+      return;
+    }
+
+    const capacityNum = parseInt(formData.capacity, 10);
+    if (isNaN(capacityNum) || capacityNum <= 0) {
+      setFormError('Room capacity must be a positive integer greater than 0.');
+      return;
+    }
+    if (capacityNum > 2000) {
+      setFormError('Room capacity cannot exceed 2000 seats.');
+      return;
+    }
+
+    // Duplicate check in selected department
+    const isDuplicate = rooms.some((r) => {
+      const isCurrentEditing = editingId && (r.id === editingId || r._id === editingId);
+      if (isCurrentEditing) return false;
+
+      return (
+        r.department === formData.department &&
+        (r.name.trim().toLowerCase() === cleanName.toLowerCase() ||
+          r.roomNumber.trim().toUpperCase() === cleanRoomNumber)
+      );
+    });
+
+    if (isDuplicate) {
+      setFormError(
+        `A room with the name "${cleanName}" or room number "${cleanRoomNumber}" already exists in "${formData.department}".`
+      );
+      return;
+    }
+
     setFormLoading(true);
+    const payload = {
+      ...formData,
+      name: cleanName,
+      roomNumber: cleanRoomNumber,
+      capacity: capacityNum,
+    };
+
     try {
       if (editingId) {
-        console.log(`🛠️  [ADMIN] Updating room: ${editingId}`, formData);
-        await updateRoom(editingId, formData);
+        console.log(`🛠️  [ADMIN] Updating room: ${editingId}`, payload);
+        await updateRoom(editingId, payload);
         console.log(`✅ [ADMIN] Room updated successfully`);
       } else {
-        console.log(`🛠️  [ADMIN] Creating room: ${formData.roomNumber} (${formData.name})`);
-        await createRoom(formData);
+        console.log(`🛠️  [ADMIN] Creating room: ${cleanRoomNumber} (${cleanName})`);
+        await createRoom(payload);
         console.log(`✅ [ADMIN] Room created successfully`);
       }
       setFormData({

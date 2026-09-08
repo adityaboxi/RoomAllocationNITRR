@@ -639,7 +639,7 @@ exports.lockRoom = async (req, res) => {
       });
     }
 
-    const safeFacultyName = escapeRegex(req.user.name);
+    const safeFacultyName = req.user?.name ? escapeRegex(req.user.name) : '';
     const userEmail = req.user.email ? req.user.email.toLowerCase().trim() : '';
     const facultyTimetableConflict = await Timetable.findOne({
       day,

@@ -23,8 +23,14 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (loading) return;
-    if (rating === 0) {
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
       setError('Please select a star rating between 1 and 5.');
+      return;
+    }
+
+    const cleanComment = (comment || '').trim();
+    if (cleanComment.length > 500) {
+      setError('Feedback comment cannot exceed 500 characters.');
       return;
     }
 
@@ -36,7 +42,7 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
       await createReview(
         bookingId,
         rating,
-        (comment || '').trim() || 'No comment provided'
+        cleanComment || 'No comment provided'
       );
       console.log(`✅ [REVIEW] Review submitted successfully for booking: ${bookingId}`);
       if (onSubmit) {

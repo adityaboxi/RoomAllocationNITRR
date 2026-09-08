@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import axios from 'axios'; // <-- Added to handle cancellation checks
+import axios from 'axios';
 import {
   getRooms,
   getAvailableRooms,
@@ -69,6 +69,15 @@ const getTodayDateString = () => {
   return `${year}-${month}-${day}`;
 };
 
+const getMaxBookingDateString = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 14); // 14 days in advance
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const getCurrentTimeHHMM = () => {
   const now = new Date();
   const h = String(now.getHours()).padStart(2, '0');
@@ -125,6 +134,16 @@ const getDefaultEndHHMM = (startStr) => {
   return '09:00';
 };
 
+// Compute dynamic starting slot based on current clock time
+const getInitialBookingTimes = () => {
+  const currentNow = getCurrentTimeHHMM();
+  const nextSlot = VALID_START_SLOTS.find((s) => s >= currentNow) || '08:10';
+  return {
+    startTime: nextSlot,
+    endTime: getDefaultEndHHMM(nextSlot),
+  };
+};
+
 const getAvailableEndSlots = (startStr) => {
   if (startStr < '13:10') {
     return VALID_END_SLOTS.filter((t) => t > startStr && t <= '13:10');
@@ -162,6 +181,7 @@ const FALLBACK_DEPARTMENTS = [
 
 export default function BookingView({ user }) {
   const todayStr = getTodayDateString();
+  const maxDateStr = getMaxBookingDateString();
   const currentHHMM = getCurrentTimeHHMM();
 
   const [departments, setDepartments] = useState(FALLBACK_DEPARTMENTS);
@@ -189,10 +209,13 @@ export default function BookingView({ user }) {
   const [isHolidayDate, setIsHolidayDate] = useState(false);
   const [holidayDateTitle, setHolidayDateTitle] = useState('');
 
+  // Dynamically default to the current or upcoming slot for today
+  const initialTimes = useMemo(() => getInitialBookingTimes(), []);
+
   const [bookingData, setBookingData] = useState({
     date: todayStr,
-    startTime: '08:10',
-    endTime: '09:00',
+    startTime: initialTimes.startTime,
+    endTime: initialTimes.endTime,
     purpose: '',
     comment: '',
   });
@@ -362,7 +385,6 @@ export default function BookingView({ user }) {
         fetchReviewsForRoom(rId);
       });
     } catch (err) {
-      // PROPERLY IGNORE CANCELLATIONS HERE
       if (
         axios.isCancel(err) ||
         err.message === 'canceled' ||
@@ -384,7 +406,7 @@ export default function BookingView({ user }) {
       let end = endTime;
 
       if (!startTime) {
-        startTime = '08:10';
+        startTime = getInitialBookingTimes().startTime;
       }
 
       if (!end || startTime >= end) {
@@ -416,7 +438,6 @@ export default function BookingView({ user }) {
         setOccupancyMap(data?.occupancyMap || {});
       }
     } catch (err) {
-      // PROPERLY IGNORE CANCELLATIONS HERE
       if (
         axios.isCancel(err) ||
         err.message === 'canceled' ||
@@ -490,6 +511,14 @@ export default function BookingView({ user }) {
       const currentNow = getCurrentTimeHHMM();
 
       if (name === 'date') {
+        if (value < todayStr) {
+          setError('Cannot select a past date.');
+          return prev;
+        }
+        if (value > maxDateStr) {
+          setError('Bookings can only be made up to 14 days in advance.');
+          return prev;
+        }
         if (value === todayStr && prev.startTime < currentNow) {
           const nextSlot = VALID_START_SLOTS.find((s) => s >= currentNow) || '08:10';
           updated.startTime = nextSlot;
@@ -531,6 +560,15 @@ export default function BookingView({ user }) {
     const roomId = room.id || room._id;
     const currentNow = getCurrentTimeHHMM();
 
+    if (bookingData.date < todayStr) {
+      setError('Cannot book a slot on a past date.');
+      return;
+    }
+    if (bookingData.date > maxDateStr) {
+      setError('Bookings can only be made up to 14 days in advance.');
+      return;
+    }
+
     if (bookingData.date === todayStr && bookingData.startTime < currentNow) {
       setError(`Cannot book past slot.`);
       return;
@@ -571,8 +609,33 @@ export default function BookingView({ user }) {
 
     let { date, startTime, endTime, purpose, comment } = bookingData;
 
-    if (!date || !startTime || !endTime || !purpose.trim()) {
+    if (!date || !startTime || !endTime || !purpose || !purpose.trim()) {
       setError('Please provide date, times, and purpose.');
+      return;
+    }
+
+    if (date < todayStr) {
+      setError('Cannot reserve a room on a past date.');
+      return;
+    }
+    if (date > maxDateStr) {
+      setError('Bookings can only be made up to 14 days in advance.');
+      return;
+    }
+
+    const cleanPurpose = purpose.trim();
+    if (cleanPurpose.length < 3) {
+      setError('Please provide a descriptive booking purpose (at least 3 characters).');
+      return;
+    }
+    if (cleanPurpose.length > 200) {
+      setError('Booking purpose cannot exceed 200 characters.');
+      return;
+    }
+
+    const cleanComment = (comment || '').trim();
+    if (cleanComment.length > 500) {
+      setError('Additional comments cannot exceed 500 characters.');
       return;
     }
 
@@ -588,7 +651,6 @@ export default function BookingView({ user }) {
     setLoading(true);
     setError('');
     setSuccess('');
-    console.log(`📌 [BOOKING] Creating reservation: room=${selectedRoom.name} date=${date} ${startTime}-${endTime}`);
 
     try {
       await createBooking({
@@ -596,12 +658,11 @@ export default function BookingView({ user }) {
         date,
         startTime,
         endTime,
-        purpose: purpose.trim(),
-        comment: (comment || '').trim() || 'No comment provided',
+        purpose: cleanPurpose,
+        comment: cleanComment || 'No comment provided',
         lockId: activeLockId,
       });
 
-      console.log(`✅ [BOOKING] Room "${selectedRoom.name}" successfully reserved!`);
       setSuccess(`Room "${selectedRoom.name}" reserved.`);
       setBookingData((prev) => ({ ...prev, purpose: '', comment: '' }));
       setSelectedRoom(null);
@@ -627,11 +688,9 @@ export default function BookingView({ user }) {
     setCancellingBookingId(bookingId);
     setError('');
     setSuccess('');
-    console.log(`🚫 [BOOKING] Cancelling booking: ${bookingId}`);
 
     try {
       await cancelBooking(bookingId);
-      console.log(`✅ [BOOKING] Booking ${bookingId} cancelled successfully`);
       setSuccess('Booking cancelled.');
       await Promise.all([
         fetchMyBookings(),
@@ -816,6 +875,7 @@ export default function BookingView({ user }) {
               type="date"
               name="date"
               min={todayStr}
+              max={maxDateStr}
               value={bookingData.date}
               onChange={handleBookingInput}
               className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"

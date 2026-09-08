@@ -112,8 +112,25 @@ export default function HolidayManager({ user }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (submitting) return;
-    if (!formData.title.trim() || !formData.date) {
+    const trimmedTitle = (formData.title || '').trim();
+    if (!trimmedTitle || !formData.date) {
       setError('Please provide Holiday Title and Date.');
+      return;
+    }
+
+    if (trimmedTitle.length < 2) {
+      setError('Holiday title must be at least 2 characters long.');
+      return;
+    }
+
+    if (trimmedTitle.length > 100) {
+      setError('Holiday title cannot exceed 100 characters.');
+      return;
+    }
+
+    const trimmedDesc = (formData.description || '').trim();
+    if (trimmedDesc.length > 500) {
+      setError('Holiday description cannot exceed 500 characters.');
       return;
     }
 

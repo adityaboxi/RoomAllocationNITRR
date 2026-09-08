@@ -7,7 +7,6 @@ import {
   User,
   ArrowRight,
   CheckCircle2,
-  
   Eye,
   EyeOff,
   KeyRound,
@@ -35,6 +34,44 @@ const extractErrorMessage = (err, fallback) => {
   if (!err) return fallback;
   if (typeof err === 'string') return err;
   return err.response?.data?.message || err.message || fallback;
+};
+
+// Mapping of departments to allowed email subdomains at NIT Raipur
+const DEPARTMENT_SUBDOMAINS = {
+  'Computer Science & Engineering': ['cse', 'cs'],
+  'Information Technology': ['it'],
+  'Mechanical Engineering': ['me', 'mech'],
+  'Electronics & Communication': ['ece', 'etc'],
+  'Electrical Engineering': ['ee', 'elec'],
+  'Civil Engineering': ['ce', 'civil'],
+  'Chemical Engineering': ['che', 'chem'],
+  'Biotechnology': ['bt', 'biotech'],
+  'Metallurgical & Materials': ['mme', 'meta'],
+  'Mining Engineering': ['min', 'mining'],
+};
+
+// Helper to validate institutional email subdomain against selected department
+const validateEmailDepartmentMatch = (email, department) => {
+  if (!email || !department) return { valid: true };
+
+  const cleanEmail = email.trim().toLowerCase();
+  const domainPart = cleanEmail.split('@')[1] || '';
+  const domainTokens = domainPart.split('.');
+
+  // Format: user@<branch>.nitrr.ac.in (or aboxi006.btech2024@cse.nitrr.ac.in)
+  if (domainTokens.length >= 4 && domainPart.endsWith('nitrr.ac.in')) {
+    const branchSubdomain = domainTokens[domainTokens.length - 4];
+    const allowed = DEPARTMENT_SUBDOMAINS[department];
+
+    if (allowed && !allowed.includes(branchSubdomain)) {
+      return {
+        valid: false,
+        message: `🚫 Email Mismatch: Your institutional email domain (@${branchSubdomain}.nitrr.ac.in) does not belong to "${department}".`,
+      };
+    }
+  }
+
+  return { valid: true };
 };
 
 export default function AuthPage({ onLoginSuccess }) {
@@ -132,7 +169,7 @@ export default function AuthPage({ onLoginSuccess }) {
   // ============================================
   // STRICT ROLE-BASED EMAIL VALIDATION
   // ============================================
-  const validateEmailByRole = (email, selectedRole) => {
+  const validateEmailByRole = (email) => {
     const cleanEmail = email.trim().toLowerCase();
     
     // Basic format check
@@ -140,11 +177,7 @@ export default function AuthPage({ onLoginSuccess }) {
       return false;
     }
 
-    if (selectedRole === 'ADMIN') {
-      return true; // Admin can use ANY valid email domain
-    }
-
-    // STRICT DOMAIN CHECK: Faculty & HOD must end with nitrr.ac.in
+    // STRICT DOMAIN CHECK: ALL accounts (including Admin) must end with nitrr.ac.in
     return cleanEmail.endsWith('nitrr.ac.in');
   };
 
@@ -162,12 +195,8 @@ export default function AuthPage({ onLoginSuccess }) {
     const cleanEmail = formData.email.trim().toLowerCase();
 
     // Enforce role-based email rules (skip for forgot-password – server validates user existence)
-    if (view !== 'forgot' && !validateEmailByRole(cleanEmail, role)) {
-      if (role === 'ADMIN') {
-        setError('Please enter a valid email address.');
-      } else {
-        setError(`Access Denied: ${role} accounts must use an institutional .nitrr.ac.in email address.`);
-      }
+    if (view !== 'forgot' && !validateEmailByRole(cleanEmail)) {
+      setError(`Access Denied: ${role} accounts must use an institutional .nitrr.ac.in email address.`);
       return;
     }
 
@@ -192,8 +221,19 @@ export default function AuthPage({ onLoginSuccess }) {
       }
 
       if (view === 'signup') {
-        if (!formData.name.trim()) {
-          setError('Please enter your full name & academic title.');
+        if (role === 'ADMIN') {
+          setError('Admin accounts cannot be created via self-registration. Please sign in directly or register as Faculty / HOD.');
+          setLoading(false);
+          return;
+        }
+        const cleanName = formData.name.trim();
+        if (!cleanName || cleanName.length < 2) {
+          setError('Please enter your full name & academic title (at least 2 characters).');
+          setLoading(false);
+          return;
+        }
+        if (cleanName.length > 80) {
+          setError('Name cannot exceed 80 characters.');
           setLoading(false);
           return;
         }
@@ -202,8 +242,22 @@ export default function AuthPage({ onLoginSuccess }) {
           setLoading(false);
           return;
         }
+
+        // 🔒 INSTANT SUBDOMAIN-TO-BRANCH CROSS CHECK
+        const matchCheck = validateEmailDepartmentMatch(cleanEmail, formData.department);
+        if (!matchCheck.valid) {
+          setError(matchCheck.message);
+          setLoading(false);
+          return;
+        }
+
         if (formData.password.length < 8) {
           setError('Password must be at least 8 characters long.');
+          setLoading(false);
+          return;
+        }
+        if (formData.password.length > 128) {
+          setError('Password cannot exceed 128 characters.');
           setLoading(false);
           return;
         }
@@ -256,8 +310,9 @@ export default function AuthPage({ onLoginSuccess }) {
     setError('');
     setLoading(true);
 
-    if (otp.length !== 6) {
-      setError('Please enter the full 6-digit verification code.');
+    const cleanOtp = (otp || '').trim();
+    if (!/^\d{6}$/.test(cleanOtp)) {
+      setError('Please enter a valid 6-digit numeric verification code.');
       setLoading(false);
       return;
     }
@@ -335,6 +390,10 @@ export default function AuthPage({ onLoginSuccess }) {
     }
     if (newPassword.length < 8) {
       setError('New password must be at least 8 characters long.');
+      return;
+    }
+    if (newPassword.length > 128) {
+      setError('New password cannot exceed 128 characters.');
       return;
     }
 
@@ -608,170 +667,112 @@ export default function AuthPage({ onLoginSuccess }) {
               ) : (
                 <form onSubmit={handleSubmit} className="space-y-3.5">
                   {view === 'signup' && (
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Full Name & Title *
-                    </label>
-                    <div className="relative">
-                      <User className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-                      <input
-                        type="text"
-                        name="name"
-                        value={formData.name}
-                        onChange={handleInputChange}
-                        placeholder="Dr. Rajesh Kumar"
-                        className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
-                        required
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-semibold text-slate-700">
-                      Email Address *
-                    </label>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        role === 'ADMIN'
-                          ? 'bg-purple-100 text-purple-800'
-                          : role === 'HOD'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-indigo-100 text-indigo-800'
-                      }`}
-                    >
-                      {role}
-                    </span>
-                  </div>
-                  <div className="relative">
-                    <Mail className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-                    <input
-                      type="email"
-                      name="email"
-                      value={formData.email}
-                      onChange={handleInputChange}
-                      placeholder={
-                        role === 'ADMIN' ? 'admin@anydomain.com' : 
-                        role === 'HOD' ? 'hod@nitrr.ac.in' : 
-                        'faculty@nitrr.ac.in'
-                      }
-                      className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
-                      required
-                    />
-                  </div>
-                  <span className="text-[11px] text-slate-400 mt-1 block">
-                    {role === 'ADMIN' ? (
-                      <>Supported: <strong className="text-slate-600">Any valid email</strong></>
-                    ) : (
-                      <>Supported: <strong className="text-slate-600">.nitrr.ac.in</strong> domains only</>
-                    )}
-                  </span>
-                </div>
-
-                {view === 'signup' && (
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Department / Branch *
-                    </label>
-                    <select
-                      name="department"
-                      value={formData.department}
-                      onChange={handleInputChange}
-                      disabled={loadingDepts}
-                      className="w-full px-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all disabled:opacity-50"
-                    >
-                      {loadingDepts ? (
-                        <option value="">Loading branches...</option>
-                      ) : (
-                        departments.map((d) => (
-                          <option key={d.code} value={d.code}>
-                            {d.name}
-                          </option>
-                        ))
-                      )}
-                    </select>
-                  </div>
-                )}
-
-                <div>
-                  <div className="flex justify-between items-center mb-1">
-                    <label className="block text-xs font-semibold text-slate-700">Password *</label>
-                    {view === 'login' && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setView('forgot');
-                          setError('');
-                          setSuccessMsg('');
-                          setOtpPurpose('forgot');
-                        }}
-                        className="text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
-                      >
-                        Forgot Password?
-                      </button>
-                    )}
-                  </div>
-                  <div className="relative">
-                    <Lock className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      name="password"
-                      value={formData.password}
-                      onChange={handleInputChange}
-                      placeholder="••••••••"
-                      className="w-full pl-10 pr-10 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
-                      required
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-600"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-
-                  {view === 'signup' && formData.password && (
-                    <div className="mt-2">
-                      <div className="flex items-center justify-between text-[11px] mb-1">
-                        <span className="text-slate-400">Strength:</span>
-                        <span className="font-semibold text-slate-600">
-                          {passwordStrength.label}
-                        </span>
-                      </div>
-                      <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden flex gap-1">
-                        <div
-                          className={`h-full flex-1 rounded-full ${
-                            passwordStrength.score >= 1 ? passwordStrength.color : 'bg-slate-200'
-                          }`}
-                        />
-                        <div
-                          className={`h-full flex-1 rounded-full ${
-                            passwordStrength.score >= 2 ? passwordStrength.color : 'bg-slate-200'
-                          }`}
-                        />
-                        <div
-                          className={`h-full flex-1 rounded-full ${
-                            passwordStrength.score >= 3 ? passwordStrength.color : 'bg-slate-200'
-                          }`}
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Full Name & Title *
+                      </label>
+                      <div className="relative">
+                        <User className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
+                        <input
+                          type="text"
+                          name="name"
+                          value={formData.name}
+                          onChange={handleInputChange}
+                          placeholder="Dr. Rajesh Kumar"
+                          className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                          required
                         />
                       </div>
                     </div>
                   )}
-                </div>
 
-                {view === 'signup' && (
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Confirm Password *
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-slate-700">
+                        Email Address *
+                      </label>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          role === 'ADMIN'
+                            ? 'bg-purple-100 text-purple-800'
+                            : role === 'HOD'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-indigo-100 text-indigo-800'
+                        }`}
+                      >
+                        {role}
+                      </span>
+                    </div>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
+                      <input
+                        type="email"
+                        name="email"
+                        value={formData.email}
+                        onChange={handleInputChange}
+                        placeholder={
+                          role === 'ADMIN' ? 'admin@nitrr.ac.in' : 
+                          role === 'HOD' ? 'hod@nitrr.ac.in' : 
+                          'faculty@nitrr.ac.in'
+                        }
+                        className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                        required
+                      />
+                    </div>
+                    <span className="text-[11px] text-slate-400 mt-1 block">
+                      Supported: <strong className="text-slate-600">.nitrr.ac.in</strong> domains only
+                    </span>
+                  </div>
+
+                  {view === 'signup' && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Department / Branch *
+                      </label>
+                      <select
+                        name="department"
+                        value={formData.department}
+                        onChange={handleInputChange}
+                        disabled={loadingDepts}
+                        className="w-full px-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all disabled:opacity-50"
+                      >
+                        {loadingDepts ? (
+                          <option value="">Loading branches...</option>
+                        ) : (
+                          departments.map((d) => (
+                            <option key={d.code} value={d.code}>
+                              {d.name}
+                            </option>
+                          ))
+                        )}
+                      </select>
+                    </div>
+                  )}
+
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="block text-xs font-semibold text-slate-700">Password *</label>
+                      {view === 'login' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setView('forgot');
+                            setError('');
+                            setSuccessMsg('');
+                            setOtpPurpose('forgot');
+                          }}
+                          className="text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
+                        >
+                          Forgot Password?
+                        </button>
+                      )}
+                    </div>
                     <div className="relative">
                       <Lock className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
                       <input
-                        type={showConfirmPassword ? 'text' : 'password'}
-                        name="confirmPassword"
-                        value={formData.confirmPassword}
+                        type={showPassword ? 'text' : 'password'}
+                        name="password"
+                        value={formData.password}
                         onChange={handleInputChange}
                         placeholder="••••••••"
                         className="w-full pl-10 pr-10 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
@@ -779,39 +780,93 @@ export default function AuthPage({ onLoginSuccess }) {
                       />
                       <button
                         type="button"
-                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        onClick={() => setShowPassword(!showPassword)}
                         className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-600"
                       >
-                        {showConfirmPassword ? (
-                          <EyeOff className="w-4 h-4" />
-                        ) : (
-                          <Eye className="w-4 h-4" />
-                        )}
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
-                  </div>
-                )}
 
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full mt-3 flex items-center justify-center py-3 px-4 rounded-xl text-white bg-slate-950 hover:bg-slate-800 font-bold text-sm shadow-md transition-all active:scale-[0.99] disabled:opacity-50 gap-2"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="animate-spin h-4 w-4 text-white" />
-                      <span>Processing...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>
-                        {view === 'login' ? `Sign In as ${role}` : `Register & Enter Portal`}
-                      </span>
-                      <ArrowRight className="w-4 h-4" />
-                    </>
+                    {view === 'signup' && formData.password && (
+                      <div className="mt-2">
+                        <div className="flex items-center justify-between text-[11px] mb-1">
+                          <span className="text-slate-400">Strength:</span>
+                          <span className="font-semibold text-slate-600">
+                            {passwordStrength.label}
+                          </span>
+                        </div>
+                        <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden flex gap-1">
+                          <div
+                            className={`h-full flex-1 rounded-full ${
+                              passwordStrength.score >= 1 ? passwordStrength.color : 'bg-slate-200'
+                            }`}
+                          />
+                          <div
+                            className={`h-full flex-1 rounded-full ${
+                              passwordStrength.score >= 2 ? passwordStrength.color : 'bg-slate-200'
+                            }`}
+                          />
+                          <div
+                            className={`h-full flex-1 rounded-full ${
+                              passwordStrength.score >= 3 ? passwordStrength.color : 'bg-slate-200'
+                            }`}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {view === 'signup' && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Confirm Password *
+                      </label>
+                      <div className="relative">
+                        <Lock className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
+                        <input
+                          type={showConfirmPassword ? 'text' : 'password'}
+                          name="confirmPassword"
+                          value={formData.confirmPassword}
+                          onChange={handleInputChange}
+                          placeholder="••••••••"
+                          className="w-full pl-10 pr-10 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                          className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-600"
+                        >
+                          {showConfirmPassword ? (
+                            <EyeOff className="w-4 h-4" />
+                          ) : (
+                            <Eye className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
                   )}
-                </button>
-              </form>
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full mt-3 flex items-center justify-center py-3 px-4 rounded-xl text-white bg-slate-950 hover:bg-slate-800 font-bold text-sm shadow-md transition-all active:scale-[0.99] disabled:opacity-50 gap-2"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="animate-spin h-4 w-4 text-white" />
+                        <span>Processing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>
+                          {view === 'login' ? `Sign In as ${role}` : `Register & Enter Portal`}
+                        </span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </form>
               )}
             </div>
           )}

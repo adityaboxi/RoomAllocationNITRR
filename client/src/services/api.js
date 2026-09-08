@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -24,9 +24,10 @@ api.interceptors.response.use(
   (response) => response.data,
   (error) => {
     if (error.response?.status === 401) {
-      if (error.response?.data?.expired || error.response?.data?.message?.includes('expired')) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('currentUser');
+      localStorage.removeItem('token');
+      localStorage.removeItem('currentUser');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('auth:unauthorized'));
       }
     }
     const message =

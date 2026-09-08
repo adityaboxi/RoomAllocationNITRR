@@ -1,7 +1,3 @@
-cd /Users/adityaboxi/Desktop/WebDev/project/RoomAllocationNITRR
-
-# Write the complete unified .gitignore with ios_app ignored
-cat << 'EOF' > .gitignore
 # =================================================================
 # 🔐 1. ENVIRONMENT VARIABLES & SECRETS (NEVER COMMIT)
 # =================================================================
@@ -13,10 +9,13 @@ client/.env
 client/.env.*
 RoomAllocationNITRR_ios/.env
 RoomAllocationNITRR_ios/.env.*
+ios_app/.env
+ios_app/.env.*
 !.env.example
 !server/.env.example
 !client/.env.example
 !RoomAllocationNITRR_ios/.env.example
+!ios_app/.env.example
 
 # =================================================================
 # 📦 2. DEPENDENCIES & PACKAGE CACHES
@@ -25,6 +24,7 @@ node_modules/
 server/node_modules/
 client/node_modules/
 RoomAllocationNITRR_ios/node_modules/
+ios_app/node_modules/
 
 # =================================================================
 # 🔒 3. LOCK FILES
@@ -33,14 +33,17 @@ package-lock.json
 server/package-lock.json
 client/package-lock.json
 RoomAllocationNITRR_ios/package-lock.json
+ios_app/package-lock.json
 yarn.lock
 server/yarn.lock
 client/yarn.lock
 RoomAllocationNITRR_ios/yarn.lock
+ios_app/yarn.lock
 pnpm-lock.yaml
 server/pnpm-lock.yaml
 client/pnpm-lock.yaml
 RoomAllocationNITRR_ios/pnpm-lock.yaml
+ios_app/pnpm-lock.yaml
 
 # =================================================================
 # 🏗️ 4. WEB & REACT BUILD OUTPUTS
@@ -52,6 +55,7 @@ server/build/
 client/dist/
 client/build/
 RoomAllocationNITRR_ios/dist/
+ios_app/dist/
 .vite/
 .cache/
 .temp/
@@ -62,12 +66,28 @@ RoomAllocationNITRR_ios/dist/
 # =================================================================
 # 📱 5. IOS & XCODE GENERATED NATIVE FOLDERS
 # =================================================================
-# Ignore the entire iOS app folder
 RoomAllocationNITRR_ios/
 ios_app/
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+*.xcworkspace/*
+!*.xcworkspace/contents.xcworkspacedata
+Pods/
+DerivedData/
+build/
 
 # =================================================================
-# 📋 6. LOGS & RUNTIME DATA
+# 📁 6. SAMPLE DATA, UPLOADS & LOCAL TEST ASSETS
+# =================================================================
+sample-data/
+server/sample_timetables/
+client/public/sample_timetables/
+server/uploads/*
+!server/uploads/.gitkeep
+server/uploads/
+
+# =================================================================
+# 📋 7. LOGS & RUNTIME DATA
 # =================================================================
 logs/
 *.log
@@ -77,9 +97,10 @@ yarn-error.log*
 server/logs/
 client/logs/
 RoomAllocationNITRR_ios/logs/
+ios_app/logs/
 
 # =================================================================
-# 🍎 7. OS & IDE SYSTEM FILES
+# 🍎 8. OS & IDE SYSTEM FILES
 # =================================================================
 .DS_Store
 .DS_Store?
@@ -98,7 +119,7 @@ ehthumbs.db
 *.ipr
 
 # =================================================================
-# 🔑 8. CERTIFICATES & KEYS
+# 🔑 9. CERTIFICATES & KEYS
 # =================================================================
 *.pem
 *.key
@@ -108,17 +129,3 @@ ehthumbs.db
 *.p8
 credentials.json
 service-account.json
-EOF
-
-# Remove the iOS folder from Git tracking (keep locally)
-git rm -r --cached RoomAllocationNITRR_ios/ 2>/dev/null || true
-git rm -r --cached ios_app/ 2>/dev/null || true
-
-# Refresh git index
-git add .gitignore
-git commit -m "Ignore iOS app folders"
-git push
-
-
-ios_app/
-sample-data/

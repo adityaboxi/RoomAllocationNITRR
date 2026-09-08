@@ -102,29 +102,13 @@ UserSchema.methods.updateLastLogin = async function () {
   return await this.save({ validateModifiedOnly: true });
 };
 
-// Static helper to validate email domain and block students
+// Static helper to validate email domain
 UserSchema.statics.isValidEmail = function (email) {
   if (!email || typeof email !== 'string') return false;
   const cleanEmail = email.trim().toLowerCase();
 
-  // 1. MUST end with nitrr.ac.in (allows subdomains like @cse.nitrr.ac.in)
-  if (!cleanEmail.endsWith('nitrr.ac.in')) {
-    return false;
-  }
-
-  // 2. MUST NOT be a student email (block btech, mca, mtech, phd, etc.)
-  const studentTags = ['btech', 'mca', 'mtech', 'phd', 'barch'];
-  const hasStudentTag = studentTags.some(tag => cleanEmail.includes(tag));
-  
-  // 3. MUST NOT contain numbers before the @ (blocks roll numbers like aboxi006)
-  const usernamePart = cleanEmail.split('@')[0];
-  const hasNumbers = /\d/.test(usernamePart);
-
-  if (hasStudentTag || hasNumbers) {
-    return false;
-  }
-
-  return true; // Passes all checks
+  // MUST end with nitrr.ac.in (allows subdomains like @cse.nitrr.ac.in, @me.nitrr.ac.in, etc.)
+  return cleanEmail.endsWith('nitrr.ac.in');
 };
 
 // Static helper to detect default role
@@ -143,8 +127,7 @@ UserSchema.statics.detectRole = function (email) {
     localPart.startsWith('hod.') ||
     localPart.startsWith('head.') ||
     localPart === 'hod' ||
-    localPart.includes('hod') ||
-    domain === 'cse.nitrr.ac.in'
+    localPart.includes('hod')
   ) {
     return 'HOD';
   }

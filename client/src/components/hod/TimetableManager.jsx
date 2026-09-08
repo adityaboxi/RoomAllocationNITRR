@@ -384,9 +384,44 @@ export default function TimetableManager({ user }) {
 
   const handleUpdateEntry = async (entryId, updatedData) => {
     if (loading) return;
-    if (!updatedData.startTime || !updatedData.endTime || !updatedData.subject || !updatedData.faculty) {
+    const trimmedSubject = (updatedData.subject || '').trim();
+    const trimmedFaculty = (updatedData.faculty || '').trim();
+    const trimmedClassGroup = (updatedData.classGroup || '').trim();
+    const trimmedEmail = (updatedData.facultyEmail || '').trim().toLowerCase();
+
+    if (!updatedData.startTime || !updatedData.endTime || !trimmedSubject || !trimmedFaculty) {
       setError('Start Time, End Time, Subject, and Faculty are all required.');
       return;
+    }
+
+    if (trimmedSubject.length < 2) {
+      setError('Subject must be at least 2 characters long.');
+      return;
+    }
+    if (trimmedSubject.length > 100) {
+      setError('Subject cannot exceed 100 characters.');
+      return;
+    }
+
+    if (trimmedFaculty.length < 2) {
+      setError('Faculty name must be at least 2 characters long.');
+      return;
+    }
+    if (trimmedFaculty.length > 100) {
+      setError('Faculty name cannot exceed 100 characters.');
+      return;
+    }
+
+    if (trimmedClassGroup.length > 50) {
+      setError('Class Group cannot exceed 50 characters.');
+      return;
+    }
+
+    if (trimmedEmail) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+        setError('Faculty email format is invalid. Please enter a valid email address.');
+        return;
+      }
     }
 
     const slotKey = `${updatedData.startTime}-${updatedData.endTime}`;

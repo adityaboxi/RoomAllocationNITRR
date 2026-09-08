@@ -156,8 +156,41 @@ export default function RoomManager({ user }) {
     const trimmedName = formData.name.trim();
     const trimmedNumber = formData.roomNumber.trim().toUpperCase();
 
-    if (!trimmedName || !trimmedNumber) {
-      setError('Please provide a valid room name and room number.');
+    if (!trimmedName || trimmedName.length < 2) {
+      setError('Room name must be at least 2 characters long.');
+      return;
+    }
+    if (trimmedName.length > 100) {
+      setError('Room name cannot exceed 100 characters.');
+      return;
+    }
+
+    if (!trimmedNumber || trimmedNumber.length < 1) {
+      setError('Please provide a valid room number.');
+      return;
+    }
+    if (trimmedNumber.length > 20) {
+      setError('Room number cannot exceed 20 characters.');
+      return;
+    }
+
+    const trimmedFloor = (formData.floor || '').trim();
+    if (!trimmedFloor) {
+      setError('Please specify the floor location (e.g., Ground Floor, 1st Floor).');
+      return;
+    }
+    if (trimmedFloor.length > 50) {
+      setError('Floor name cannot exceed 50 characters.');
+      return;
+    }
+
+    const trimmedBuilding = (formData.building || '').trim();
+    if (!trimmedBuilding) {
+      setError('Please specify the building name (e.g., Main Building).');
+      return;
+    }
+    if (trimmedBuilding.length > 100) {
+      setError('Building name cannot exceed 100 characters.');
       return;
     }
 
@@ -182,6 +215,10 @@ export default function RoomManager({ user }) {
     const capacityNum = parseInt(formData.capacity, 10);
     if (isNaN(capacityNum) || capacityNum <= 0) {
       setError('Room capacity must be a positive number greater than 0.');
+      return;
+    }
+    if (capacityNum > 2000) {
+      setError('Room capacity cannot exceed 2000 seats.');
       return;
     }
 
