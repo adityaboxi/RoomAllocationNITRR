@@ -356,26 +356,83 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
   };
 };
 
+// Natural academic calendar day order
+const DAY_ORDER = {
+  Monday: 1,
+  Tuesday: 2,
+  Wednesday: 3,
+  Thursday: 4,
+  Friday: 5,
+  Saturday: 6,
+  Sunday: 7,
+};
+
+// Helper to sort timetable entries chronologically by day of week then startTime
+const sortTimetableEntries = (entries) => {
+  return entries.sort((a, b) => {
+    const orderA = DAY_ORDER[a.day] || 99;
+    const orderB = DAY_ORDER[b.day] || 99;
+    if (orderA !== orderB) return orderA - orderB;
+    return (a.startTime || '').localeCompare(b.startTime || '');
+  });
+};
+
+// Helper to construct flexible semester regex (matches "5", "5th", "5th Sem", "5th Semester", etc.)
+const normalizeSemesterRegex = (sem) => {
+  if (!sem || sem === 'ALL') return null;
+  const str = String(sem).trim();
+  const digitMatch = str.match(/\d+/);
+  if (digitMatch) {
+    const d = digitMatch[0];
+    return new RegExp(`(^|\\b)(${d}|${d}(st|nd|rd|th)?)(\\s*sem(ester)?)?(\\b|$)`, 'i');
+  }
+  return new RegExp(`^${escapeRegex(str)}$`, 'i');
+};
+
 // ---------- GET TIMETABLE ----------
 exports.getTimetable = async (req, res) => {
   try {
-    const { department, semester, section, day, faculty, roomId } = req.query;
+    const { department, semester, section, day, faculty, roomId, search } = req.query;
     const query = { isActive: true };
 
     if (req.user.role === 'HOD') query.department = req.user.department;
-    if (department) query.department = department.trim();
-    if (semester && semester !== 'ALL') query.semester = semester.trim();
-    if (section && section !== 'ALL') query.section = section.trim();
-    if (day && day !== 'ALL') query.day = day.trim();
-    if (roomId && roomId !== 'ALL' && mongoose.Types.ObjectId.isValid(roomId)) query.roomId = roomId;
-    if (faculty) query.faculty = { $regex: escapeRegex(faculty.trim()), $options: 'i' };
+    if (department && department !== 'ALL') query.department = department.trim();
+
+    if (semester && semester !== 'ALL') {
+      const semRegex = normalizeSemesterRegex(semester);
+      if (semRegex) query.semester = semRegex;
+    }
+
+    if (section && section !== 'ALL') {
+      query.section = { $regex: new RegExp(`^${escapeRegex(section.trim())}$`, 'i') };
+    }
+
+    if (day && day !== 'ALL') {
+      query.day = { $regex: new RegExp(`^${escapeRegex(day.trim())}$`, 'i') };
+    }
+
+    if (roomId && roomId !== 'ALL' && mongoose.Types.ObjectId.isValid(roomId)) {
+      query.roomId = new mongoose.Types.ObjectId(roomId);
+    }
+
+    if (faculty && faculty.trim()) {
+      query.faculty = { $regex: escapeRegex(faculty.trim()), $options: 'i' };
+    }
+
+    if (search && search.trim()) {
+      const s = escapeRegex(search.trim());
+      query.$or = [
+        { subject: { $regex: s, $options: 'i' } },
+        { faculty: { $regex: s, $options: 'i' } },
+        { classGroup: { $regex: s, $options: 'i' } },
+      ];
+    }
 
     const entries = await Timetable.find(query)
       .populate('roomId', 'name roomNumber floor building department')
-      .sort({ day: 1, startTime: 1 })
       .lean();
 
-    const formatted = entries.map((e) => ({ ...e, id: e._id.toString() }));
+    const formatted = sortTimetableEntries(entries.map((e) => ({ ...e, id: e._id.toString() })));
     res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
     console.error('❌ [TIMETABLE] getTimetable error:', error.message || error);
@@ -394,15 +451,19 @@ exports.getTimetableByDepartment = async (req, res) => {
     }
 
     const query = { department: department.trim(), isActive: true };
-    if (semester) query.semester = semester.trim();
-    if (section) query.section = section.trim();
+    if (semester && semester !== 'ALL') {
+      const semRegex = normalizeSemesterRegex(semester);
+      if (semRegex) query.semester = semRegex;
+    }
+    if (section && section !== 'ALL') {
+      query.section = { $regex: new RegExp(`^${escapeRegex(section.trim())}$`, 'i') };
+    }
 
     const entries = await Timetable.find(query)
       .populate('roomId', 'name roomNumber floor building department')
-      .sort({ day: 1, startTime: 1 })
       .lean();
 
-    const formatted = entries.map((e) => ({ ...e, id: e._id.toString() }));
+    const formatted = sortTimetableEntries(entries.map((e) => ({ ...e, id: e._id.toString() })));
     res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
     console.error('❌ [TIMETABLE] getTimetableByDepartment error:', error.message || error);
@@ -420,14 +481,13 @@ exports.getTimetableByFaculty = async (req, res) => {
       faculty: { $regex: escapeRegex(facultyName.trim()), $options: 'i' },
       isActive: true,
     };
-    if (department) query.department = department.trim();
+    if (department && department !== 'ALL') query.department = department.trim();
 
     const entries = await Timetable.find(query)
       .populate('roomId', 'name roomNumber floor building department')
-      .sort({ day: 1, startTime: 1 })
       .lean();
 
-    const formatted = entries.map((e) => ({ ...e, id: e._id.toString() }));
+    const formatted = sortTimetableEntries(entries.map((e) => ({ ...e, id: e._id.toString() })));
     res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
     console.error('❌ [TIMETABLE] getTimetableByFaculty error:', error.message || error);
@@ -445,15 +505,16 @@ exports.getTimetableByRoom = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid room ID format' });
     }
 
-    const query = { roomId, isActive: true };
-    if (day) query.day = day.trim();
+    const query = { roomId: new mongoose.Types.ObjectId(roomId), isActive: true };
+    if (day && day !== 'ALL') {
+      query.day = { $regex: new RegExp(`^${escapeRegex(day.trim())}$`, 'i') };
+    }
 
     const entries = await Timetable.find(query)
       .populate('roomId', 'name roomNumber floor building department')
-      .sort({ day: 1, startTime: 1 })
       .lean();
 
-    const formatted = entries.map((e) => ({ ...e, id: e._id.toString() }));
+    const formatted = sortTimetableEntries(entries.map((e) => ({ ...e, id: e._id.toString() })));
     res.json({ success: true, data: formatted, total: formatted.length });
   } catch (error) {
     console.error('❌ [TIMETABLE] getTimetableByRoom error:', error.message || error);

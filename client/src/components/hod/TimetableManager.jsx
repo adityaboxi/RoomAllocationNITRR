@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import api, {
   getRooms,
   getTimetable,
@@ -22,6 +22,9 @@ import {
   X,
   FileText,
   Loader2,
+  Search,
+  Filter,
+  RotateCcw,
 } from 'lucide-react';
 
 // ============================================================================
@@ -79,14 +82,17 @@ export default function TimetableManager({ user }) {
 
   // Schedule Multi-Criteria View Filters
   const [filterSemester, setFilterSemester] = useState('ALL');
+  const [filterSection, setFilterSection] = useState('ALL');
   const [filterRoomId, setFilterRoomId] = useState('ALL');
   const [filterDay, setFilterDay] = useState('ALL');
+  const [filterSearch, setFilterSearch] = useState('');
 
   const [editingEntry, setEditingEntry] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
   const fileInputRef = useRef(null);
+  const reqSeqRef = useRef(0);
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
   useEffect(() => {
@@ -117,7 +123,7 @@ export default function TimetableManager({ user }) {
 
   useEffect(() => {
     fetchScheduleTable();
-  }, [filterSemester, filterRoomId, filterDay, user?.department]);
+  }, [filterSemester, filterSection, filterRoomId, filterDay, user?.department]);
 
   const fetchRooms = async () => {
     try {
@@ -135,22 +141,101 @@ export default function TimetableManager({ user }) {
   };
 
   const fetchScheduleTable = async () => {
+    const seq = ++reqSeqRef.current;
     setTableLoading(true);
     try {
       const params = { department: user?.department };
       if (filterSemester !== 'ALL') params.semester = filterSemester;
+      if (filterSection !== 'ALL') params.section = filterSection;
       if (filterRoomId !== 'ALL') params.roomId = filterRoomId;
       if (filterDay !== 'ALL') params.day = filterDay;
+      if (filterSearch.trim()) params.search = filterSearch.trim();
 
       const data = await getTimetable(params);
-      setTimetable(data?.data || []);
+      if (seq === reqSeqRef.current) {
+        setTimetable(data?.data || []);
+      }
     } catch (err) {
-      const errMsg = extractErrorMessage(err, 'Failed to load timetable schedule.');
-      console.error('❌ [TIMETABLE] Failed to load timetable schedule:', errMsg);
-      setError(errMsg);
+      if (seq === reqSeqRef.current) {
+        const errMsg = extractErrorMessage(err, 'Failed to load timetable schedule.');
+        console.error('❌ [TIMETABLE] Failed to load timetable schedule:', errMsg);
+        setError(errMsg);
+      }
     } finally {
-      setTableLoading(false);
+      if (seq === reqSeqRef.current) {
+        setTableLoading(false);
+      }
     }
+  };
+
+  // Instant client-side multi-layer filter ensuring 100% responsiveness & accuracy
+  const displayedTimetable = useMemo(() => {
+    return (timetable || []).filter((entry) => {
+      // 1. Room filter (robust check across id and _id)
+      if (filterRoomId !== 'ALL') {
+        const entryRoomId = String(entry.roomId?._id || entry.roomId?.id || entry.roomId || '');
+        if (entryRoomId !== String(filterRoomId)) return false;
+      }
+
+      // 2. Semester filter (flexible digit check so "5th", "5th Sem", "5" all match correctly)
+      if (filterSemester !== 'ALL') {
+        const targetDigit = filterSemester.match(/\d+/)?.[0];
+        const entrySemStr = String(entry.semester || entry.classGroup || '');
+        const entryDigit = entrySemStr.match(/\d+/)?.[0];
+        if (targetDigit && entryDigit && targetDigit !== entryDigit) return false;
+        if (!targetDigit && !entrySemStr.toLowerCase().includes(filterSemester.toLowerCase())) return false;
+      }
+
+      // 3. Section filter
+      if (filterSection !== 'ALL') {
+        const sec = String(entry.section || '').trim().toUpperCase();
+        const classGroup = String(entry.classGroup || '').toUpperCase();
+        const targetSec = filterSection.toUpperCase();
+        const matchSec =
+          sec === targetSec ||
+          classGroup.includes(`SEC ${targetSec}`) ||
+          classGroup.includes(`SECTION ${targetSec}`) ||
+          classGroup.endsWith(` ${targetSec}`);
+        if (!matchSec) return false;
+      }
+
+      // 4. Day filter
+      if (filterDay !== 'ALL') {
+        if (String(entry.day || '').trim().toLowerCase() !== filterDay.trim().toLowerCase()) return false;
+      }
+
+      // 5. Search text (Subject, Faculty, Faculty Email, Class Group, Room Name/Number)
+      if (filterSearch.trim()) {
+        const q = filterSearch.trim().toLowerCase();
+        const corpus = [
+          entry.subject || '',
+          entry.faculty || '',
+          entry.facultyEmail || '',
+          entry.classGroup || '',
+          entry.roomId?.name || '',
+          entry.roomId?.roomNumber || '',
+          entry.roomId?.building || '',
+        ].join(' ').toLowerCase();
+        if (!corpus.includes(q)) return false;
+      }
+
+      return true;
+    });
+  }, [timetable, filterRoomId, filterSemester, filterSection, filterDay, filterSearch]);
+
+  const hasActiveFilters =
+    filterRoomId !== 'ALL' ||
+    filterSemester !== 'ALL' ||
+    filterSection !== 'ALL' ||
+    filterDay !== 'ALL' ||
+    Boolean(filterSearch.trim());
+
+  const resetFilters = () => {
+    setFilterRoomId('ALL');
+    setFilterSemester('ALL');
+    setFilterSection('ALL');
+    setFilterDay('ALL');
+    setFilterSearch('');
   };
 
   // ----- Client-Side CSV Pre-Verification -----
@@ -645,25 +730,58 @@ export default function TimetableManager({ user }) {
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
             {/* Filter Bar Header */}
             <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50/50 space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-2">
                   <BookOpen className="w-5 h-5 text-indigo-600" />
                   <h3 className="text-base font-bold text-slate-900">
-                    Published Schedule ({timetable.length} Active Slots)
+                    Published Schedule ({displayedTimetable.length}{displayedTimetable.length !== timetable.length ? ` of ${timetable.length}` : ''} Slots)
                   </h3>
                 </div>
-                <button
-                  type="button"
-                  onClick={fetchScheduleTable}
-                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition-colors"
-                  title="Refresh Schedule"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-2">
+                  {hasActiveFilters && (
+                    <button
+                      type="button"
+                      onClick={resetFilters}
+                      className="px-2.5 py-1 text-xs font-semibold text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-lg transition-colors inline-flex items-center gap-1"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Reset</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={fetchScheduleTable}
+                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition-colors"
+                    title="Refresh Schedule"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
-              {/* View Filters */}
-              <div className="grid grid-cols-3 gap-2 pt-1">
+              {/* Quick Search Bar */}
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={filterSearch}
+                  onChange={(e) => setFilterSearch(e.target.value)}
+                  placeholder="Search by subject, professor, or group..."
+                  className="w-full border border-slate-200 rounded-xl pl-8 pr-8 py-1.5 text-xs bg-white text-slate-800 placeholder-slate-400 outline-none focus:ring-2 focus:ring-indigo-600"
+                />
+                {filterSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setFilterSearch('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Multi-Criteria View Filters */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
                     Room
@@ -671,7 +789,7 @@ export default function TimetableManager({ user }) {
                   <select
                     value={filterRoomId}
                     onChange={(e) => setFilterRoomId(e.target.value)}
-                    className="w-full border border-slate-200 rounded-lg px-2 py-1 text-xs bg-white font-medium outline-none"
+                    className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white font-medium text-slate-800 outline-none"
                   >
                     <option value="ALL">All Rooms</option>
                     {rooms.map((r) => (
@@ -689,11 +807,27 @@ export default function TimetableManager({ user }) {
                   <select
                     value={filterSemester}
                     onChange={(e) => setFilterSemester(e.target.value)}
-                    className="w-full border border-slate-200 rounded-lg px-2 py-1 text-xs bg-white font-medium outline-none"
+                    className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white font-medium text-slate-800 outline-none"
                   >
                     <option value="ALL">All Semesters</option>
                     {['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'].map((s) => (
                       <option key={s} value={s}>{s} Sem</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                    Section
+                  </label>
+                  <select
+                    value={filterSection}
+                    onChange={(e) => setFilterSection(e.target.value)}
+                    className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white font-medium text-slate-800 outline-none"
+                  >
+                    <option value="ALL">All Sections</option>
+                    {['A', 'B', 'C', 'D'].map((sec) => (
+                      <option key={sec} value={sec}>Section {sec}</option>
                     ))}
                   </select>
                 </div>
@@ -705,7 +839,7 @@ export default function TimetableManager({ user }) {
                   <select
                     value={filterDay}
                     onChange={(e) => setFilterDay(e.target.value)}
-                    className="w-full border border-slate-200 rounded-lg px-2 py-1 text-xs bg-white font-medium outline-none"
+                    className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white font-medium text-slate-800 outline-none"
                   >
                     <option value="ALL">All Days</option>
                     {days.map((d) => (
@@ -718,11 +852,23 @@ export default function TimetableManager({ user }) {
 
             {tableLoading ? (
               <div className="p-12 text-center text-slate-400 text-sm">Loading timetable slots...</div>
-            ) : timetable.length === 0 ? (
+            ) : displayedTimetable.length === 0 ? (
               <div className="p-12 text-center text-slate-500">
                 <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                 <p className="text-sm font-medium">No published slots match your filter selection.</p>
-                <p className="text-xs text-slate-400 mt-1">Select "All Rooms" or "All Semesters" to see all classes.</p>
+                <p className="text-xs text-slate-400 mt-1">
+                  {hasActiveFilters ? 'Try resetting your filters or adjusting your search keyword.' : 'Upload a timetable spreadsheet to get started.'}
+                </p>
+                {hasActiveFilters && (
+                  <button
+                    type="button"
+                    onClick={resetFilters}
+                    className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Clear All Filters</span>
+                  </button>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
@@ -747,7 +893,7 @@ export default function TimetableManager({ user }) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
-                    {timetable.map((entry) => {
+                    {displayedTimetable.map((entry) => {
                       const entryId = entry.id || entry._id;
                       const isRowBusy = actionLoadingId === entryId;
 
@@ -777,8 +923,18 @@ export default function TimetableManager({ user }) {
 
                           <td className="px-4 py-3.5 text-sm">
                             <div className="text-slate-800 font-medium">{entry.faculty}</div>
-                            <div className="text-[11px] text-slate-400 flex items-center flex-wrap gap-1 mt-0.5">
-                              <span>{entry.classGroup}</span>
+                            <div className="text-[11px] text-slate-500 flex items-center flex-wrap gap-1 mt-1">
+                              {entry.semester && (
+                                <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
+                                  {String(entry.semester).toLowerCase().includes('sem') ? entry.semester : `${entry.semester} Sem`}
+                                </span>
+                              )}
+                              {entry.section && (
+                                <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100">
+                                  Sec {entry.section}
+                                </span>
+                              )}
+                              <span className="text-slate-600 font-medium">{entry.classGroup}</span>
                               {entry.facultyEmail && (
                                 <span className="text-[10px] text-indigo-600 font-mono bg-indigo-50 px-1 py-0.5 rounded border border-indigo-100">
                                   {entry.facultyEmail}
