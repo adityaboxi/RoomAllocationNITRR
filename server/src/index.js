@@ -79,6 +79,14 @@ async function startServer() {
     // 4. Start Background Cleanup Scheduler
     startCleanupScheduler();
 
+    // Production Security Verification
+    if (process.env.NODE_ENV === 'production') {
+      const secret = process.env.JWT_SECRET || '';
+      if (secret.includes('example') || secret.length < 32) {
+        console.warn('⚠️  [SECURITY WARNING] Weak or default JWT_SECRET detected in production! Please generate a unique >= 32-char key.');
+      }
+    }
+
     // 5. Listen
     server.listen(PORT, () => {
       console.log(`\n======================================================`);
@@ -87,7 +95,11 @@ async function startServer() {
       console.log(`🔌 Socket.IO  : Initialized`);
       console.log(`🔐 JWT Expiry : ${process.env.JWT_EXPIRES_IN}`);
       console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
-      console.log(`🧹 Cleanup    : Every ${process.env.CLEANUP_CRON_INTERVAL_HOURS}h`);
+      const cleanupText = process.env.CLEANUP_CRON_INTERVAL_HOURS
+        ? `${Math.round(parseInt(process.env.CLEANUP_CRON_INTERVAL_HOURS, 10) / 24)} days (${process.env.CLEANUP_CRON_INTERVAL_HOURS}h)`
+        : '20 days';
+      console.log(`🧹 Cleanup    : Every ${cleanupText}`);
+      console.log(`🛡️  Security   : Helmet Headers & Rate Limit Active`);
       console.log(`======================================================\n`);
     });
   } catch (err) {
