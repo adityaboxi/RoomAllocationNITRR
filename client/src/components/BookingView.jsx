@@ -170,6 +170,36 @@ const getAvailableEndSlots = (startStr, dateStr) => {
   return ends;
 };
 
+const normalizeFloor = (floorVal) => {
+  if (floorVal === undefined || floorVal === null) return '';
+  const s = String(floorVal).trim().toLowerCase();
+  if (s === '0' || s.startsWith('ground')) return '0';
+  const m = s.match(/^(\d+)/);
+  if (m) return m[1];
+  return s;
+};
+
+const matchFloor = (roomFloor, filterFloor) => {
+  if (!filterFloor || filterFloor === 'ALL') return true;
+  return normalizeFloor(roomFloor) === normalizeFloor(filterFloor);
+};
+
+const getFloorNumeric = (floorVal) => {
+  if (!floorVal) return 0;
+  const s = String(floorVal).trim().toLowerCase();
+  if (s === '0' || s.startsWith('ground')) return 0;
+  const match = s.match(/^(\d+)/);
+  if (match) return parseInt(match[1], 10);
+  return 99;
+};
+
+const matchRoomType = (roomType, filterType) => {
+  if (!filterType || filterType === 'ALL') return true;
+  if (!roomType) return false;
+  if (filterType === 'Computer Lab' && /lab/i.test(roomType)) return true;
+  return roomType.trim().toLowerCase() === filterType.trim().toLowerCase();
+};
+
 const STANDARD_ROOM_TYPES = [
   'ALL',
   'Classroom',
@@ -221,6 +251,14 @@ export default function BookingView({ user }) {
   const [rooms, setRooms] = useState([]);
   const [availableRoomIds, setAvailableRoomIds] = useState([]);
   const [occupancyMap, setOccupancyMap] = useState({});
+
+  const floorOptions = useMemo(() => {
+    const standard = ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'];
+    const fromRooms = (rooms || []).map((r) => r.floor).filter(Boolean);
+    const set = new Set(standard);
+    fromRooms.forEach((f) => set.add(f));
+    return Array.from(set).sort((a, b) => getFloorNumeric(a) - getFloorNumeric(b));
+  }, [rooms]);
   const [myBookings, setMyBookings] = useState([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -735,11 +773,8 @@ export default function BookingView({ user }) {
 
   const isRoomAvailable = (room) => {
     if (isHolidayDate) return false;
-    const currentNow = getCurrentTimeHHMM();
-    if (bookingData.date === todayStr && bookingData.startTime < currentNow) {
-      return false;
-    }
     const id = String(room.id || room._id);
+    if (occupancyMap && occupancyMap[id]) return false;
     return availableRoomIds.map(String).includes(id);
   };
 
@@ -757,47 +792,105 @@ export default function BookingView({ user }) {
     setFilterWiFi(false);
   };
 
+  // Base filtered rooms matching all criteria except statusFilter (All / Free / Occupied)
+  const baseFilteredRooms = useMemo(() => {
+    return rooms.filter((room) => {
+      // 1. Department Filter
+      if (selectedBranch !== 'ALL' && room.department !== selectedBranch) {
+        return false;
+      }
+
+      // 2. Floor Filter
+      if (!matchFloor(room.floor, selectedFloor)) {
+        return false;
+      }
+
+      // 3. Room Type Filter
+      if (!matchRoomType(room.type, selectedType)) {
+        return false;
+      }
+
+      // 4. Minimum Capacity Filter
+      if (minCapacity !== 'ALL' && (room.capacity || 0) < Number(minCapacity)) {
+        return false;
+      }
+
+      // 5. Amenities Filters (checking both boolean flags and amenities string array)
+      const hasProj = !!(
+        room.hasProjector ||
+        (Array.isArray(room.amenities) && room.amenities.some((a) => /projector/i.test(a)))
+      );
+      if (filterProjector && !hasProj) return false;
+
+      const hasAirCond = !!(
+        room.hasAC ||
+        (Array.isArray(room.amenities) && room.amenities.some((a) => /ac|air\s*conditioning|cooler/i.test(a)))
+      );
+      if (filterAC && !hasAirCond) return false;
+
+      const hasSmart = !!(
+        room.hasSmartBoard ||
+        (Array.isArray(room.amenities) && room.amenities.some((a) => /smart\s*board|digital\s*board/i.test(a)))
+      );
+      if (filterSmartBoard && !hasSmart) return false;
+
+      const hasNet = !!(
+        room.hasWiFi ||
+        (Array.isArray(room.amenities) && room.amenities.some((a) => /wi-?fi|internet|wireless/i.test(a)))
+      );
+      if (filterWiFi && !hasNet) return false;
+
+      // 6. Search Term Filter
+      if (searchTerm.trim()) {
+        const tokens = searchTerm.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        const amenityWords = [
+          hasProj ? 'projector screen' : '',
+          hasAirCond ? 'ac air conditioning cooler' : '',
+          hasSmart ? 'smartboard smart board digital board' : '',
+          hasNet ? 'wifi wi-fi wireless internet' : '',
+        ].join(' ');
+
+        const corpus = [
+          room.name || '',
+          room.roomNumber || '',
+          room.building || '',
+          room.floor ? `floor ${room.floor}` : '',
+          room.type || '',
+          room.department || '',
+          room.capacity ? `capacity ${room.capacity} seats ${room.capacity}` : '',
+          amenityWords,
+        ]
+          .join(' ')
+          .toLowerCase();
+
+        const allMatch = tokens.every((token) => corpus.includes(token));
+        if (!allMatch) return false;
+      }
+
+      return true;
+    });
+  }, [
+    rooms,
+    selectedBranch,
+    selectedFloor,
+    selectedType,
+    minCapacity,
+    filterProjector,
+    filterAC,
+    filterSmartBoard,
+    filterWiFi,
+    searchTerm,
+  ]);
+
+  const freeCount = baseFilteredRooms.filter((r) => isRoomAvailable(r)).length;
+  const occupiedCount = baseFilteredRooms.length - freeCount;
+
   const filteredRooms = useMemo(() => {
-    return rooms
+    return baseFilteredRooms
       .filter((room) => {
         const available = isRoomAvailable(room);
-
         if (statusFilter === 'AVAILABLE' && !available) return false;
         if (statusFilter === 'OCCUPIED' && available) return false;
-        if (selectedType !== 'ALL' && room.type !== selectedType) return false;
-        if (minCapacity !== 'ALL' && (room.capacity || 0) < Number(minCapacity)) return false;
-
-        if (filterProjector && !room.hasProjector) return false;
-        if (filterAC && !room.hasAC) return false;
-        if (filterSmartBoard && !room.hasSmartBoard) return false;
-        if (filterWiFi && !room.hasWiFi) return false;
-
-        if (searchTerm.trim()) {
-          const tokens = searchTerm.trim().toLowerCase().split(/\s+/).filter(Boolean);
-          const amenityWords = [
-            room.hasProjector ? 'projector screen' : '',
-            room.hasAC ? 'ac air conditioning cooler' : '',
-            room.hasSmartBoard ? 'smartboard smart board digital board' : '',
-            room.hasWiFi ? 'wifi wireless internet' : '',
-          ].join(' ');
-
-          const corpus = [
-            room.name || '',
-            room.roomNumber || '',
-            room.building || '',
-            room.floor !== undefined ? `floor ${room.floor}` : '',
-            room.type || '',
-            room.department || '',
-            room.capacity ? `capacity ${room.capacity} seats ${room.capacity}` : '',
-            amenityWords,
-          ]
-            .join(' ')
-            .toLowerCase();
-
-          const allMatch = tokens.every((token) => corpus.includes(token));
-          if (!allMatch) return false;
-        }
-
         return true;
       })
       .sort((a, b) => {
@@ -808,27 +901,31 @@ export default function BookingView({ user }) {
           return (b.capacity || 0) - (a.capacity || 0);
         }
         if (sortBy === 'FLOOR_ASC') {
-          return String(a.floor || 0).localeCompare(String(b.floor || 0));
+          return getFloorNumeric(a.floor) - getFloorNumeric(b.floor);
         }
         return 0;
       });
   }, [
-    rooms,
-    availableRoomIds,
-    isHolidayDate,
+    baseFilteredRooms,
     statusFilter,
-    selectedType,
-    minCapacity,
-    filterProjector,
-    filterAC,
-    filterSmartBoard,
-    filterWiFi,
-    searchTerm,
+    availableRoomIds,
+    occupancyMap,
+    isHolidayDate,
     sortBy,
   ]);
 
-  const freeCount = rooms.filter((r) => isRoomAvailable(r)).length;
-  const occupiedCount = rooms.length - freeCount;
+  const hasActiveFilters =
+    selectedBranch !== 'ALL' ||
+    selectedFloor !== 'ALL' ||
+    statusFilter !== 'ALL' ||
+    searchTerm.trim() !== '' ||
+    selectedType !== 'ALL' ||
+    minCapacity !== 'ALL' ||
+    filterProjector ||
+    filterAC ||
+    filterSmartBoard ||
+    filterWiFi ||
+    sortBy !== 'DEFAULT';
 
   return (
     <div className="space-y-6 font-sans">
@@ -890,10 +987,11 @@ export default function BookingView({ user }) {
               className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
             >
               <option value="ALL">All Floors</option>
-              <option value="0">Ground Floor (0)</option>
-              <option value="1">1st Floor</option>
-              <option value="2">2nd Floor</option>
-              <option value="3">3rd Floor</option>
+              {floorOptions.map((fl) => (
+                <option key={fl} value={fl}>
+                  {fl}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -1024,7 +1122,7 @@ export default function BookingView({ user }) {
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              All ({rooms.length})
+              All ({baseFilteredRooms.length})
             </button>
             <button
               type="button"
@@ -1110,8 +1208,12 @@ export default function BookingView({ user }) {
             <button
               type="button"
               onClick={resetFilters}
-              title="Reset"
-              className="p-1.5 border border-slate-200 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+              title="Reset all filters"
+              className={`p-1.5 border rounded-lg transition-colors flex items-center justify-center ${
+                hasActiveFilters
+                  ? 'border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 shadow-sm'
+                  : 'border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+              }`}
             >
               <RotateCcw className="w-3.5 h-3.5" />
             </button>

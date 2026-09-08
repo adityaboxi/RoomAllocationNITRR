@@ -11,6 +11,20 @@ const { getDayOfWeek } = require('../utils/helpers');
 
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const getFloorRegex = (floorVal) => {
+  if (!floorVal || floorVal === 'ALL') return null;
+  const f = floorVal.trim();
+  if (f === '0' || /^ground/i.test(f)) {
+    return /^(0|ground(\s*floor)?)$/i;
+  }
+  const match = f.match(/^(\d+)/);
+  if (match) {
+    const num = match[1];
+    return new RegExp(`^(${num}|${num}(st|nd|rd|th)?(\\s*floor)?)$`, 'i');
+  }
+  return new RegExp(`^${escapeRegex(f)}$`, 'i');
+};
+
 const getTodayDateString = () => {
   const now = new Date();
   const year = now.getFullYear();
@@ -44,10 +58,20 @@ exports.getRooms = async (req, res) => {
     // Note: No auto-restriction for HOD — they can browse ALL rooms (incl. Common/Institute Level)
     // HOD restriction is only applied in timetable management, NOT room browsing/booking
 
-    if (floor) query.floor = floor.trim();
-    if (building) query.building = building.trim();
+    if (floor && floor !== 'ALL') {
+      const floorRegex = getFloorRegex(floor);
+      if (floorRegex) query.floor = { $regex: floorRegex };
+    }
+    if (building && building !== 'ALL') query.building = building.trim();
     if (isAvailable !== undefined) query.isAvailable = isAvailable === 'true';
-    if (roomType) query.type = roomType.trim();
+    if (roomType && roomType !== 'ALL') {
+      const rt = roomType.trim();
+      if (/^lab$/i.test(rt) || /computer\s*lab/i.test(rt)) {
+        query.type = { $regex: /lab/i };
+      } else {
+        query.type = { $regex: new RegExp(`^${escapeRegex(rt)}$`, 'i') };
+      }
+    }
     if (hasProjector === 'true') query.hasProjector = true;
     if (hasAC === 'true') query.hasAC = true;
     if (hasSmartBoard === 'true') query.hasSmartBoard = true;
@@ -183,9 +207,19 @@ exports.getAvailableRooms = async (req, res) => {
       });
     }
 
-    if (floor) baseQuery.floor = floor.trim();
-    if (building) baseQuery.building = building.trim();
-    if (roomType) baseQuery.type = roomType.trim();
+    if (floor && floor !== 'ALL') {
+      const floorRegex = getFloorRegex(floor);
+      if (floorRegex) baseQuery.floor = { $regex: floorRegex };
+    }
+    if (building && building !== 'ALL') baseQuery.building = building.trim();
+    if (roomType && roomType !== 'ALL') {
+      const rt = roomType.trim();
+      if (/^lab$/i.test(rt) || /computer\s*lab/i.test(rt)) {
+        baseQuery.type = { $regex: /lab/i };
+      } else {
+        baseQuery.type = { $regex: new RegExp(`^${escapeRegex(rt)}$`, 'i') };
+      }
+    }
     if (hasProjector === 'true') baseQuery.hasProjector = true;
     if (hasAC === 'true') baseQuery.hasAC = true;
     if (hasSmartBoard === 'true') baseQuery.hasSmartBoard = true;
