@@ -7,9 +7,9 @@ const connectDB = async () => {
     process.exit(1);
   }
   const mongoUri = uri;
-  const maxPoolSize = parseInt(process.env.DB_MAX_POOL_SIZE, 10) || 50;
-  const minPoolSize = parseInt(process.env.DB_MIN_POOL_SIZE, 10) || 10;
-  const serverSelectionTimeoutMS = parseInt(process.env.DB_TIMEOUT_MS, 10) || 5000;
+  const maxPoolSize = parseInt(process.env.DB_MAX_POOL_SIZE, 10);
+  const minPoolSize = parseInt(process.env.DB_MIN_POOL_SIZE, 10);
+  const serverSelectionTimeoutMS = parseInt(process.env.DB_TIMEOUT_MS, 10);
 
   try {
     const conn = await mongoose.connect(mongoUri, {

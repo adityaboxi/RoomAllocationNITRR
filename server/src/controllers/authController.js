@@ -120,38 +120,35 @@ exports.login = async (req, res) => {
 
     email = email.trim().toLowerCase();
 
-    const isSuperAdminEmail = Boolean(
-      process.env.ADMIN_EMAIL && email === process.env.ADMIN_EMAIL.trim().toLowerCase()
-    );
+    // 🔒 1. GLOBAL SUPER-ADMIN FLOW (Runs strictly when role selected is ADMIN)
+    if (role === 'ADMIN') {
+      const isCorrectAdminEmail = Boolean(
+        process.env.ADMIN_EMAIL && email === process.env.ADMIN_EMAIL.trim().toLowerCase()
+      );
+      const isCorrectAdminPass = Boolean(
+        process.env.ADMIN_PASSWORD && password === process.env.ADMIN_PASSWORD
+      );
 
-    // 🔒 1. GLOBAL SUPER-ADMIN FLOW (Runs if email matches ADMIN_EMAIL in .env or role is ADMIN)
-    if (isSuperAdminEmail || (role === 'ADMIN' && process.env.ADMIN_EMAIL && email === process.env.ADMIN_EMAIL.trim().toLowerCase())) {
+      if (!isCorrectAdminEmail || !isCorrectAdminPass) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid administrator credentials.',
+        });
+      }
+
       const AdminUser = require('../models/AdminUser');
-      let adminUser = await AdminUser.findOne({ email }).select('+password');
+      let adminUser = await AdminUser.findOne({ email });
       
-      // Seed the super admin account if it doesn't exist yet
+      // Seed or ensure admin account exists in MongoDB
       if (!adminUser) {
-        if (password !== process.env.ADMIN_PASSWORD) {
-          return res.status(401).json({ success: false, message: 'Invalid super-admin credentials' });
-        }
         adminUser = await AdminUser.create({
           name: 'System Admin',
           email,
-          password,
+          password: process.env.ADMIN_PASSWORD,
           role: 'ADMIN',
           department: 'ALL',
           isFirstLogin: false
         });
-      } else {
-        // 🔑 Allow Admin login with EITHER:
-        // 1. Master environment password (.env ADMIN_PASSWORD)
-        // 2. Changed password saved in database
-        const isMasterMatch = Boolean(process.env.ADMIN_PASSWORD && password === process.env.ADMIN_PASSWORD);
-        const isDbMatch = await adminUser.comparePassword(password);
-
-        if (!isMasterMatch && !isDbMatch) {
-          return res.status(401).json({ success: false, message: 'Invalid email or password' });
-        }
       }
 
       await adminUser.updateLastLogin();
@@ -164,9 +161,9 @@ exports.login = async (req, res) => {
           id: adminUser.id,
           name: adminUser.name,
           email: adminUser.email,
-          role: adminUser.role,
-          department: adminUser.department,
-          isFirstLogin: adminUser.isFirstLogin
+          role: 'ADMIN',
+          department: 'ALL',
+          isFirstLogin: false
         },
       });
     }
@@ -313,35 +310,24 @@ exports.changePassword = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Password must be at least 8 characters long' });
     }
 
-    let user;
-    let isAdmin = req.user?.role === 'ADMIN';
-    if (isAdmin) {
-      const AdminUser = require('../models/AdminUser');
-      user = await AdminUser.findById(req.user.id).select('+password');
+    if (req.user?.role === 'ADMIN') {
+      return res.status(403).json({
+        success: false,
+        message: 'Administrator password cannot be changed via the dashboard. Please update ADMIN_PASSWORD in your server .env file.',
+      });
     }
-    if (!user) {
-      user = await User.findById(req.user.id).select('+password');
-      if (!user) {
-        const AdminUser = require('../models/AdminUser');
-        user = await AdminUser.findById(req.user.id).select('+password');
-        if (user) isAdmin = true;
-      }
-    }
-    
+
+    const user = await User.findById(req.user.id).select('+password');
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    const isMasterMatch = isAdmin && process.env.ADMIN_PASSWORD && currentPassword === process.env.ADMIN_PASSWORD;
-    const isMatch = isMasterMatch || (await user.comparePassword(currentPassword));
+    const isMatch = await user.comparePassword(currentPassword);
     if (!isMatch) {
       return res.status(401).json({ success: false, message: 'Current password is incorrect' });
     }
 
     user.password = newPassword;
-    if (isAdmin && user.isFirstLogin) {
-      user.isFirstLogin = false;
-    }
     await user.save();
 
     res.json({ success: true, message: 'Password changed successfully' });
@@ -354,39 +340,21 @@ exports.changePassword = async (req, res) => {
 // ---------- FORGOT PASSWORD (NON-BLOCKING FAST DISPATCH) ----------
 exports.forgotPassword = async (req, res) => {
   try {
-    let { email } = req.body;
+    let { email, role } = req.body;
     if (!email) {
       return res.status(400).json({ success: false, message: 'Email is required' });
     }
 
-    email = email.trim().toLowerCase();
-    const isSuperAdmin = Boolean(
-      process.env.ADMIN_EMAIL && email === process.env.ADMIN_EMAIL.trim().toLowerCase()
-    );
-
-    let user;
-    if (isSuperAdmin) {
-      const AdminUser = require('../models/AdminUser');
-      user = await AdminUser.findOne({ email });
-      // If admin account hasn't been created yet in fresh DB, seed it automatically
-      if (!user) {
-        user = await AdminUser.create({
-          name: 'System Admin',
-          email,
-          password: process.env.ADMIN_PASSWORD || 'adminsecret123',
-          role: 'ADMIN',
-          department: 'ALL',
-          isFirstLogin: false,
-        });
-      }
-    } else {
-      user = await User.findOne({ email });
-      if (!user) {
-        const AdminUser = require('../models/AdminUser');
-        user = await AdminUser.findOne({ email });
-      }
+    if (role === 'ADMIN') {
+      return res.status(403).json({
+        success: false,
+        message: 'Password reset is disabled for Administrator accounts.',
+      });
     }
 
+    email = email.trim().toLowerCase();
+
+    const user = await User.findOne({ email });
     if (!user) {
       return res.status(404).json({ success: false, message: 'No account found with this email address' });
     }
@@ -395,7 +363,7 @@ exports.forgotPassword = async (req, res) => {
     await OTP.deleteMany({ email, purpose: 'forgot' });
 
     const otp = generateOTP();
-    const expiryMinutes = parseInt(process.env.OTP_EXPIRY_MINUTES, 10) || 5;
+    const expiryMinutes = parseInt(process.env.OTP_EXPIRY_MINUTES, 10);
 
     await OTP.create({
       email,
@@ -480,47 +448,13 @@ exports.resetPassword = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Reset token does not match provided email' });
     }
 
-    const isSuperAdmin = Boolean(
-      process.env.ADMIN_EMAIL && email === process.env.ADMIN_EMAIL.trim().toLowerCase()
-    );
-
-    if (isSuperAdmin) {
-      const AdminUser = require('../models/AdminUser');
-      let admin = await AdminUser.findOne({ email });
-      if (!admin) {
-        admin = await AdminUser.create({
-          name: 'System Admin',
-          email,
-          password: newPassword,
-          role: 'ADMIN',
-          department: 'ALL',
-          isFirstLogin: false,
-        });
-      } else {
-        admin.password = newPassword;
-        admin.isFirstLogin = false;
-        await admin.save();
-      }
-
-      // Also synchronize regular User collection if a duplicate record exists with this email
-      const regularUser = await User.findOne({ email });
-      if (regularUser) {
-        regularUser.password = newPassword;
-        await regularUser.save();
-      }
-    } else {
-      let user = await User.findOne({ email });
-      if (!user) {
-        const AdminUser = require('../models/AdminUser');
-        user = await AdminUser.findOne({ email });
-      }
-      if (!user) {
-        return res.status(404).json({ success: false, message: 'User not found' });
-      }
-
-      user.password = newPassword;
-      await user.save();
+    let user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
+
+    user.password = newPassword;
+    await user.save();
 
     await OTP.deleteMany({ email, purpose: 'forgot' });
 
@@ -606,7 +540,7 @@ exports.sendSignupOtp = async (req, res) => {
     if (requestedRole === 'ADMIN') {
       return res.status(400).json({
         success: false,
-        message: 'Administrator accounts cannot be registered publicly. They are provisioned via system environment variables.',
+        message: 'Administrator accounts cannot be registered publicly.',
       });
     }
     const role = requestedRole === 'HOD' ? 'HOD' : 'FACULTY';
@@ -625,7 +559,7 @@ exports.sendSignupOtp = async (req, res) => {
     await OTP.deleteMany({ email, purpose: 'signup' });
 
     const otp = generateOTP();
-    const expiryMinutes = parseInt(process.env.OTP_EXPIRY_MINUTES, 10) || 5;
+    const expiryMinutes = parseInt(process.env.OTP_EXPIRY_MINUTES, 10);
 
     const encryptedPassword = encryptTemporaryPassword(password);
 

@@ -192,7 +192,7 @@ exports.getAvailableRooms = async (req, res) => {
     if (hasWiFi === 'true') baseQuery.hasWiFi = true;
 
     // 🧹 Auto-clean expired temporary locks so they never show as falsely occupied
-    const lockExpirySecs = parseInt(process.env.LOCK_EXPIRY_SECONDS, 10) || 300;
+    const lockExpirySecs = parseInt(process.env.LOCK_EXPIRY_SECONDS, 10);
     const lockCutoff = new Date(Date.now() - lockExpirySecs * 1000);
     await Booking.deleteMany({
       purpose: 'TEMPORARY_LOCK',

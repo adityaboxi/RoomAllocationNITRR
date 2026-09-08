@@ -35,7 +35,7 @@ const VALID_TIMETABLE_SLOTS = [
 ];
 
 // ---------- MULTER STORAGE ----------
-const maxUploadBytes = (parseInt(process.env.MAX_FILE_UPLOAD_MB, 10) || 5) * 1024 * 1024;
+const maxUploadBytes = parseInt(process.env.MAX_FILE_UPLOAD_MB, 10) * 1024 * 1024;
 const upload = multer({
   storage: multer.memoryStorage(),
   fileFilter: (req, file, cb) => {

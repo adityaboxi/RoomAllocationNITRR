@@ -6,9 +6,9 @@ export default defineConfig(({ mode }) => {
   // Load environment variables based on the current mode (development / production)
   const env = loadEnv(mode, process.cwd(), '');
 
-  // Extract API URL and Port from .env with fallback defaults
-  const apiUrl = env.VITE_API_URL || 'http://localhost:3000';
-  const port = parseInt(env.VITE_PORT || '5173', 10);
+  // Extract API URL and Port from .env
+  const apiUrl = env.VITE_API_URL;
+  const port = parseInt(env.VITE_PORT, 10);
 
   return {
     plugins: [react(), tailwindcss()],

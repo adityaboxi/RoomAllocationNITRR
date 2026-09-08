@@ -106,7 +106,7 @@ export default function FacultyDashboard({ user }) {
                 Department of {user?.department} — NIT Raipur
               </p>
               <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" /> Live Socket Active
+                <CheckCircle2 className="w-3 h-3" /> Live Updates Active
               </span>
             </div>
           </div>

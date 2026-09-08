@@ -1,29 +1,29 @@
 const nodemailer = require('nodemailer');
 
 const isLoggingOnly = process.env.ENABLE_EMAIL_LOGGING_ONLY === 'true';
-const smtpUser = process.env.SMTP_USER || process.env.FROM_EMAIL;
+const smtpUser = process.env.SMTP_USER;
 const smtpPass = process.env.SMTP_PASS;
 
 let transporter = null;
 
 if (smtpUser && smtpPass && !isLoggingOnly) {
   transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.SMTP_PORT, 10) || 587,
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT, 10),
     secure: process.env.SMTP_SECURE === 'true',
     auth: {
       user: smtpUser,
       pass: smtpPass,
     },
     pool: true,
-    maxConnections: parseInt(process.env.SMTP_MAX_CONNECTIONS, 10) || 5,
-    maxMessages: parseInt(process.env.SMTP_MAX_MESSAGES, 10) || 100,
+    maxConnections: parseInt(process.env.SMTP_MAX_CONNECTIONS, 10),
+    maxMessages: parseInt(process.env.SMTP_MAX_MESSAGES, 10),
   });
 }
 
 const getSenderAddress = () => {
-  const fromName = process.env.FROM_NAME || 'NIT Raipur Room Allocation';
-  const fromEmail = process.env.FROM_EMAIL || process.env.SMTP_USER || 'noreply@nitrr.ac.in';
+  const fromName = process.env.FROM_NAME;
+  const fromEmail = process.env.FROM_EMAIL;
   return `"${fromName}" <${fromEmail}>`;
 };
 
@@ -34,7 +34,7 @@ exports.sendOTPEmail = async (email, otp, purpose = 'forgot') => {
       ? 'NIT Raipur: Password Reset OTP'
       : 'NIT Raipur: Account Verification OTP';
 
-  const expiryMin = parseInt(process.env.OTP_EXPIRY_MINUTES, 10) || 5;
+  const expiryMin = parseInt(process.env.OTP_EXPIRY_MINUTES, 10);
 
   const html = `
   <div style="font-family:Arial, sans-serif;max-width:500px;margin:30px auto;background:#ffffff;padding:30px;border-radius:16px;border:1px solid #e2e8f0;box-shadow:0 4px 12px rgba(0,0,0,0.05)">

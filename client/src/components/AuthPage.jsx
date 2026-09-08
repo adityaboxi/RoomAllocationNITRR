@@ -124,7 +124,7 @@ export default function AuthPage({ onLoginSuccess }) {
         }
       } catch (err) {
         console.error('❌ [AUTH] Failed to load department branches:', err.message || err);
-        setError('Failed to load department branches from the server. Please refresh.');
+        setError('Unable to load department branches right now. Please refresh the page to try again.');
       } finally {
         setLoadingDepts(false);
       }
@@ -753,7 +753,7 @@ export default function AuthPage({ onLoginSuccess }) {
                   <div>
                     <div className="flex justify-between items-center mb-1">
                       <label className="block text-xs font-semibold text-slate-700">Password *</label>
-                      {view === 'login' && (
+                      {view === 'login' && role !== 'ADMIN' && (
                         <button
                           type="button"
                           onClick={() => {

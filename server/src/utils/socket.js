@@ -14,8 +14,8 @@ exports.initSocket = (server) => {
       credentials: true,
     },
     transports: ['websocket', 'polling'],
-    pingTimeout: parseInt(process.env.SOCKET_PING_TIMEOUT, 10) || 30000,
-    pingInterval: parseInt(process.env.SOCKET_PING_INTERVAL, 10) || 25000,
+    pingTimeout: parseInt(process.env.SOCKET_PING_TIMEOUT, 10),
+    pingInterval: parseInt(process.env.SOCKET_PING_INTERVAL, 10),
   });
 
   // JWT Authentication middleware for Socket.IO

@@ -14,12 +14,12 @@ const runDatabaseCleanup = async () => {
   const todayStr = getTodayDateString();
   const currentHHMM = getCurrentTimeHHMM();
 
-  const cancelledDays = parseInt(process.env.PRUNE_CANCELLED_BOOKINGS_DAYS, 10) || 90;
-  const completedDays = parseInt(process.env.PRUNE_COMPLETED_BOOKINGS_DAYS, 10) || 90;
-  const reviewDays = parseInt(process.env.PRUNE_REVIEWS_DAYS, 10) || 90;
-  const readNotifDays = parseInt(process.env.PRUNE_READ_NOTIFICATIONS_DAYS, 10) || 90;
-  const unreadNotifDays = parseInt(process.env.PRUNE_UNREAD_NOTIFICATIONS_DAYS, 10) || 90;
-  const otpHours = parseInt(process.env.PRUNE_OTP_HOURS, 10) || 24;
+  const cancelledDays = parseInt(process.env.PRUNE_CANCELLED_BOOKINGS_DAYS, 10);
+  const completedDays = parseInt(process.env.PRUNE_COMPLETED_BOOKINGS_DAYS, 10);
+  const reviewDays = parseInt(process.env.PRUNE_REVIEWS_DAYS, 10);
+  const readNotifDays = parseInt(process.env.PRUNE_READ_NOTIFICATIONS_DAYS, 10);
+  const unreadNotifDays = parseInt(process.env.PRUNE_UNREAD_NOTIFICATIONS_DAYS, 10);
+  const otpHours = parseInt(process.env.PRUNE_OTP_HOURS, 10);
 
   const cancelledCutoff = new Date(now.getTime() - cancelledDays * 24 * 60 * 60 * 1000);
   const completedCutoff = new Date(now.getTime() - completedDays * 24 * 60 * 60 * 1000);
@@ -133,7 +133,7 @@ const startCleanupScheduler = () => {
     runDatabaseCleanup();
   }, 10000);
 
-  const intervalHours = parseInt(process.env.CLEANUP_CRON_INTERVAL_HOURS, 10) || 24;
+  const intervalHours = parseInt(process.env.CLEANUP_CRON_INTERVAL_HOURS, 10);
   const intervalMs = intervalHours * 60 * 60 * 1000;
 
   cleanupTimer = setInterval(() => {

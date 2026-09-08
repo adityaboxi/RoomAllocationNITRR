@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
+const API_BASE = import.meta.env.VITE_API_URL;
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -19,7 +19,86 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response Interceptor with Human-Readable Error Extraction
+// Helper to transform technical or network errors into clean, user-friendly language
+const sanitizeErrorMessage = (rawMessage, status) => {
+  if (!rawMessage || typeof rawMessage !== 'string') {
+    return 'An unexpected issue occurred. Please try again or refresh the page.';
+  }
+
+  const msg = rawMessage.trim();
+
+  // If already canceled, preserve it for axios cancellation logic
+  if (msg.toLowerCase() === 'canceled' || msg.toLowerCase() === 'cancelled') {
+    return 'canceled';
+  }
+
+  // Hide internal server errors, database error codes, and technical stack details
+  if (
+    status === 500 ||
+    msg.includes('Request failed with status code 500') ||
+    msg.toLowerCase() === 'server error' ||
+    msg.toLowerCase().includes('internal server error') ||
+    msg.includes('Mongo') ||
+    msg.includes('E11000') ||
+    msg.includes('Cast to ObjectId') ||
+    msg.includes('SyntaxError') ||
+    msg.includes('TypeError') ||
+    msg.includes('ReferenceError') ||
+    msg.includes('UnhandledPromiseRejection')
+  ) {
+    return 'An unexpected issue occurred while processing your request. Please try again in a few moments.';
+  }
+
+  // Network / Connection issues
+  if (
+    msg.includes('Network Error') ||
+    msg.includes('ECONNREFUSED') ||
+    msg.includes('ERR_CONNECTION_REFUSED') ||
+    msg.includes('ERR_NETWORK') ||
+    msg.toLowerCase().includes('timeout')
+  ) {
+    return 'Unable to reach the server. Please check your network connection and try again.';
+  }
+
+  // Session / Authorization issues
+  if (
+    status === 401 ||
+    msg.toLowerCase().includes('jwt') ||
+    msg.toLowerCase().includes('token expired') ||
+    msg.toLowerCase().includes('invalid token') ||
+    msg.toLowerCase().includes('authentication token')
+  ) {
+    if (msg.toLowerCase().includes('password') || msg.toLowerCase().includes('credential')) {
+      return msg; // Preserves messages like "Invalid email or password"
+    }
+    return 'Your session has expired. Please sign in again to continue.';
+  }
+
+  // Permission issues
+  if (status === 403) {
+    if (
+      msg.toLowerCase().includes('disabled') ||
+      msg.toLowerCase().includes('administrator') ||
+      msg.toLowerCase().includes('reserved') ||
+      msg.toLowerCase().includes('registered as')
+    ) {
+      return msg; // Preserves informative business rule messages
+    }
+    return 'You do not have permission to perform this action.';
+  }
+
+  // Generic status code errors from Axios
+  if (msg.includes('Request failed with status code 404')) {
+    return 'The requested item or classroom could not be found.';
+  }
+  if (msg.includes('Request failed with status code')) {
+    return 'Unable to complete your request at this time. Please try again.';
+  }
+
+  return msg;
+};
+
+// Response Interceptor with Human-Readable Error Extraction (Zero Developer Jargon)
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
@@ -30,12 +109,14 @@ api.interceptors.response.use(
         window.dispatchEvent(new CustomEvent('auth:unauthorized'));
       }
     }
-    const message =
+    const rawMessage =
       error.response?.data?.message ||
       (typeof error.response?.data === 'string' ? error.response.data : null) ||
       error.message ||
-      'Server request failed. Please check your connection.';
-    console.error(`❌ [API ERROR] ${error.config?.method?.toUpperCase() || 'REQ'} ${error.config?.url || ''}:`, message);
+      '';
+
+    const message = sanitizeErrorMessage(rawMessage, error.response?.status);
+    console.error(`❌ [API ERROR] ${error.config?.method?.toUpperCase() || 'REQ'} ${error.config?.url || ''}:`, rawMessage);
     return Promise.reject(new Error(message));
   }
 );

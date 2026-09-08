@@ -20,7 +20,7 @@ const app = express();
 app.set('trust proxy', 1);
 
 // ---------- GLOBAL CORS CONFIGURATION (iOS WKWebView & Web Support) ----------
-const rawOrigins = process.env.CORS_ORIGIN || process.env.CLIENT_URL || '';
+const rawOrigins = process.env.CORS_ORIGIN || process.env.CLIENT_URL;
 const allowedOrigins = rawOrigins
   ? rawOrigins.split(',').map((url) => url.trim()).filter(Boolean)
   : [];
@@ -56,7 +56,7 @@ app.use(cors(corsOptions));
 app.options('*', cors(corsOptions)); // Explicitly handle preflight OPTIONS for iOS
 
 // Body Parsing Middlewares
-const bodyLimit = process.env.BODY_LIMIT || '10mb';
+const bodyLimit = process.env.BODY_LIMIT;
 app.use(express.json({ limit: bodyLimit }));
 app.use(express.urlencoded({ extended: true, limit: bodyLimit }));
 

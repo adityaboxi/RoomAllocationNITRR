@@ -257,7 +257,7 @@ exports.createBooking = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Cannot book past hours or dates' });
     }
 
-    const maxDaysAdvance = parseInt(process.env.MAX_BOOKING_DAYS_ADVANCE, 10) || 7;
+    const maxDaysAdvance = parseInt(process.env.MAX_BOOKING_DAYS_ADVANCE, 10);
     const todayDate = new Date(todayStr);
     const maxBookingDate = new Date(todayDate);
     maxBookingDate.setDate(maxBookingDate.getDate() + maxDaysAdvance);
@@ -268,7 +268,7 @@ exports.createBooking = async (req, res) => {
     }
 
     // 🧹 Auto-clean expired temporary locks so they never cause false collision
-    const lockExpirySecs = parseInt(process.env.LOCK_EXPIRY_SECONDS, 10) || 300;
+    const lockExpirySecs = parseInt(process.env.LOCK_EXPIRY_SECONDS, 10);
     const lockCutoff = new Date(Date.now() - lockExpirySecs * 1000);
     await Booking.deleteMany({
       purpose: 'TEMPORARY_LOCK',
@@ -582,7 +582,7 @@ exports.lockRoom = async (req, res) => {
     }
 
     // 🧹 Auto-clean expired temporary locks
-    const lockExpirySecs = parseInt(process.env.LOCK_EXPIRY_SECONDS, 10) || 300;
+    const lockExpirySecs = parseInt(process.env.LOCK_EXPIRY_SECONDS, 10);
     const lockCutoff = new Date(Date.now() - lockExpirySecs * 1000);
     await Booking.deleteMany({
       purpose: 'TEMPORARY_LOCK',
@@ -706,7 +706,7 @@ exports.lockRoom = async (req, res) => {
       success: true,
       message: 'Room locked successfully',
       lockId,
-      expiresIn: `${parseInt(process.env.LOCK_EXPIRY_SECONDS, 10) || 300} seconds`,
+      expiresIn: `${parseInt(process.env.LOCK_EXPIRY_SECONDS, 10)} seconds`,
       data: lock,
     });
   } catch (error) {

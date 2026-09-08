@@ -564,7 +564,7 @@ export default function BookingView({ user }) {
           return prev;
         }
         if (prev.date === todayStr && value < currentNow) {
-          setError(`Slot time has already passed.`);
+          setError('The selected start time has already passed for today.');
         }
         updated.endTime = getDefaultEndHHMM(value);
       }
@@ -598,7 +598,7 @@ export default function BookingView({ user }) {
     }
 
     if (bookingData.date === todayStr && bookingData.startTime < currentNow) {
-      setError(`Cannot book past slot.`);
+      setError('The selected time slot has already passed for today.');
       return;
     }
 
