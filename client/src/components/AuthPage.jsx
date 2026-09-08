@@ -404,6 +404,7 @@ export default function AuthPage({ onLoginSuccess }) {
       setSuccessMsg('Password updated successfully! Please sign in with your new password.');
       setFormData((prev) => ({
         ...prev,
+        email: emailForReset || prev.email,
         password: '',
         confirmPassword: '',
         newPassword: '',
