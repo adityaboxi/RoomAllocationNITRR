@@ -5,6 +5,7 @@ const {
   getRooms,
   getRoom,
   getAvailableRooms,
+  getAllRoomsStatus,
   getRoomsByFloor,
   getRoomsByBuilding,
   getRoomsByDepartment,
@@ -21,6 +22,7 @@ router.use(protect);
 // Query Endpoints
 router.get('/', getRooms);
 router.get('/available', getAvailableRooms);
+router.get('/status', getAllRoomsStatus);
 router.get('/floors', getRoomsByFloor);
 router.get('/buildings', getRoomsByBuilding);
 router.get('/department/:department', getRoomsByDepartment);

@@ -1,19 +1,66 @@
-import React from 'react';
-import { Star, X, MessageSquare } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Star, X, MessageSquare, Loader2 } from 'lucide-react';
 import { formatDate } from '../utils/helpers';
+import { getRoomReviews } from '../services/api';
 
-export default function ReviewModal({ room, reviews = [], onClose }) {
+export default function ReviewModal({ room, onClose }) {
+  const [reviews, setReviews] = useState([]);
+  const [avgRating, setAvgRating] = useState(null);
+  const [totalCount, setTotalCount] = useState(0);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loading, setLoading] = useState(true);
+  
+  const observerRef = useRef(null);
+
+  const fetchReviews = useCallback(async (pageNum) => {
+    if (!room || !room.id && !room._id) return;
+    try {
+      setLoading(true);
+      const roomId = room.id || room._id;
+      const res = await getRoomReviews(roomId, pageNum);
+      const data = res?.data || res;
+      
+      const newReviews = data.reviews || [];
+      
+      setReviews(prev => pageNum === 1 ? newReviews : [...prev, ...newReviews]);
+      setAvgRating(data.avgRating !== undefined ? data.avgRating : null);
+      setTotalCount(data.count || 0);
+      setHasMore(data.hasMore || false);
+    } catch (err) {
+      console.error('❌ Failed to fetch room reviews:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [room]);
+
+  useEffect(() => {
+    fetchReviews(1);
+  }, [fetchReviews]);
+
+  const handleObserver = useCallback(
+    (entries) => {
+      const target = entries[0];
+      if (target.isIntersecting && hasMore && !loading) {
+        setPage((prev) => {
+          const nextPage = prev + 1;
+          fetchReviews(nextPage);
+          return nextPage;
+        });
+      }
+    },
+    [hasMore, loading, fetchReviews]
+  );
+
+  useEffect(() => {
+    const element = document.getElementById('review-scroll-trigger');
+    if (!element) return;
+    const observer = new IntersectionObserver(handleObserver, { root: null, rootMargin: '20px', threshold: 1.0 });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [handleObserver, reviews]);
+
   if (!room) return null;
-
-  const reviewsArray = Array.isArray(reviews) ? reviews : [];
-
-  const avgRating =
-    reviewsArray.length > 0
-      ? (
-          reviewsArray.reduce((acc, r) => acc + (r.rating || 0), 0) /
-          reviewsArray.length
-        ).toFixed(1)
-      : null;
 
   return (
     <div
@@ -40,7 +87,7 @@ export default function ReviewModal({ room, reviews = [], onClose }) {
                 <span>
                   {avgRating !== null ? (
                     <strong className="text-amber-600 font-semibold">
-                      {avgRating} ★ ({reviewsArray.length} reviews)
+                      {avgRating} ★ ({totalCount} reviews)
                     </strong>
                   ) : (
                     'No reviews yet'
@@ -60,8 +107,8 @@ export default function ReviewModal({ room, reviews = [], onClose }) {
         </div>
 
         {/* Reviews List */}
-        <div className="p-5 overflow-y-auto flex-1 space-y-3.5 divide-y divide-slate-100">
-          {reviewsArray.length === 0 ? (
+        <div className="p-5 overflow-y-auto flex-1 space-y-3.5 divide-y divide-slate-100 relative">
+          {reviews.length === 0 && !loading ? (
             <div className="p-8 text-center text-slate-400">
               <MessageSquare className="w-10 h-10 text-slate-300 mx-auto mb-2" />
               <p className="text-sm font-semibold text-slate-700">No reviews yet</p>
@@ -70,7 +117,7 @@ export default function ReviewModal({ room, reviews = [], onClose }) {
               </p>
             </div>
           ) : (
-            reviewsArray.map((r, idx) => {
+            reviews.map((r, idx) => {
               const reviewId = r.id || r._id || idx;
               return (
                 <div key={reviewId} className="pt-3.5 first:pt-0 space-y-1.5">
@@ -100,6 +147,18 @@ export default function ReviewModal({ room, reviews = [], onClose }) {
                 </div>
               );
             })
+          )}
+          
+          {hasMore && (
+            <div id="review-scroll-trigger" className="h-10 flex items-center justify-center pt-4">
+              {loading && <Loader2 className="w-5 h-5 animate-spin text-slate-400" />}
+            </div>
+          )}
+          
+          {!hasMore && reviews.length > 0 && (
+             <div className="text-center text-xs text-slate-400 pt-4 pb-2 border-t border-slate-100">
+               End of reviews
+             </div>
           )}
         </div>
       </div>

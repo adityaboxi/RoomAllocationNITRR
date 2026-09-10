@@ -30,8 +30,19 @@ const isBookingEnded = (booking) => {
 // ---------- GET PENDING REVIEWS ----------
 exports.getPendingReviews = async (req, res) => {
   try {
+    // Admins don't book rooms — skip review queries entirely
+    if (req.user.role === 'ADMIN') {
+      return res.json({ success: true, data: [], total: 0 });
+    }
+
     const todayStr = getTodayDateString();
     const currentHHMM = getCurrentTimeHHMM();
+
+    // Limit lookback to 30 days: Prevents scanning the entire database and overloading
+    // the $nin array if old data isn't deleted by the cron job.
+    const lookbackDate = new Date();
+    lookbackDate.setDate(lookbackDate.getDate() - 30);
+    const lookbackDateStr = `${lookbackDate.getFullYear()}-${String(lookbackDate.getMonth() + 1).padStart(2, '0')}-${String(lookbackDate.getDate()).padStart(2, '0')}`;
 
     const reviewedBookingIds = await Review.distinct('bookingId', {
       facultyId: req.user._id || req.user.id,
@@ -41,10 +52,11 @@ exports.getPendingReviews = async (req, res) => {
       facultyEmail: req.user.email,
       status: { $in: ['active', 'completed'] },
       _id: { $nin: reviewedBookingIds },
-      date: { $lte: todayStr },
+      date: { $lte: todayStr, $gte: lookbackDateStr },
     })
       .populate('roomId', 'name roomNumber floor building')
-      .sort({ date: -1, endTime: -1 });
+      .sort({ date: -1, endTime: -1 })
+      .limit(20); // Only queue up to 20 popups at a time
 
     const pendingReviews = candidateBookings.filter((booking) => {
       if (booking.date < todayStr) return true;
@@ -136,25 +148,47 @@ exports.submitReview = async (req, res) => {
 exports.getRoomReviews = async (req, res) => {
   try {
     const { roomId } = req.params;
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = 20; // Load 20 reviews per page
+    const skip = (page - 1) * limit;
 
     if (!mongoose.Types.ObjectId.isValid(roomId)) {
       return res.status(400).json({ success: false, message: 'Invalid room ID format' });
     }
 
+    const roomIdObj = new mongoose.Types.ObjectId(roomId);
+
+    // 1. Calculate Average Rating via DB Aggregation (O(1) memory instead of loading all docs)
+    const stats = await Review.aggregate([
+      { $match: { roomId: roomIdObj } },
+      {
+        $group: {
+          _id: null,
+          avgRating: { $avg: '$rating' },
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const count = stats.length > 0 ? stats[0].count : 0;
+    const avgRating = stats.length > 0 ? Number(stats[0].avgRating.toFixed(1)) : 0;
+
+    // 2. Fetch paginated reviews
     const reviews = await Review.find({ roomId })
       .populate('facultyId', 'name email department')
       .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
       .lean();
-
-    const totalRatings = reviews.reduce((sum, r) => sum + r.rating, 0);
-    const avgRating = reviews.length > 0 ? Number((totalRatings / reviews.length).toFixed(1)) : 0;
 
     res.json({
       success: true,
       data: {
         reviews,
         avgRating,
-        count: reviews.length,
+        count,
+        page,
+        hasMore: count > page * limit
       },
     });
   } catch (error) {
@@ -169,6 +203,7 @@ exports.getMyReviews = async (req, res) => {
     const reviews = await Review.find({ facultyId: req.user._id || req.user.id })
       .populate('roomId', 'name roomNumber building floor')
       .sort({ createdAt: -1 })
+      .limit(100) // Safety Limit: prevent huge payloads
       .lean();
 
     res.json({

@@ -33,8 +33,6 @@ const handleGracefulShutdown = async (signal) => {
   isShuttingDown = true;
   console.log(`\n🛑 [SERVER] Received ${signal}. Starting graceful shutdown...`);
 
-  stopCleanupScheduler();
-
   const forceExitTimer = setTimeout(() => {
     console.warn('[SERVER] Force exit after 2.5s timeout');
     process.exit(0);
@@ -76,8 +74,8 @@ async function startServer() {
     // 3. Attach Socket.IO
     initSocket(server);
 
-    // 4. Start Background Cleanup Scheduler
-    startCleanupScheduler();
+    // 4. Start Background Cleanup Scheduler (Disabled per user request)
+    // startCleanupScheduler();
 
     // Production Security Verification
     if (process.env.NODE_ENV === 'production') {

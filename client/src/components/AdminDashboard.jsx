@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { getRooms, createRoom, updateRoom, deleteRoom, getDepartments } from '../services/api';
-import { Building2, Plus, Edit2, Trash2, Eye, EyeOff, AlertTriangle, Loader2, X, CheckSquare, Square } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { getRooms, createRoom, updateRoom, deleteRoom, getDepartments, getAllRoomsStatus } from '../services/api';
+import { Building2, Plus, Edit2, Trash2, Eye, EyeOff, AlertTriangle, Loader2, X, CheckSquare, Square, Activity, Clock, Users, Search, Filter, RotateCcw, RefreshCw, Calendar } from 'lucide-react';
 import { getSocket } from '../services/socket';
+import TimetableManager from './hod/TimetableManager';
 
 // ── Delete Confirmation Modal ──────────────────────────────────────────────
 function DeleteConfirmModal({ room, onConfirm, onCancel }) {
@@ -162,6 +163,15 @@ export default function AdminDashboard({ user, onLogout }) {
   const [formError, setFormError] = useState('');
   const [formLoading, setFormLoading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [activeTab, setActiveTab] = useState('rooms'); // 'rooms' | 'status'
+
+  // Room Status Dashboard State
+  const [statusRooms, setStatusRooms] = useState([]);
+  const [statusSummary, setStatusSummary] = useState(null);
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'free' | 'occupied'
+  const [statusDeptFilter, setStatusDeptFilter] = useState('ALL');
+  const [statusSearch, setStatusSearch] = useState('');
 
   const isMountedRef = useRef(true);
 
@@ -171,6 +181,28 @@ export default function AdminDashboard({ user, onLogout }) {
       if (isMountedRef.current) setRooms(res.data || []);
     } catch (err) {
       console.error('❌ [ADMIN] Failed to fetch rooms:', err.message || err);
+    }
+  }, []);
+
+  const statusLoadingRef = useRef(false);
+
+  const fetchRoomStatus = useCallback(async () => {
+    if (statusLoadingRef.current) return;
+    statusLoadingRef.current = true;
+    setStatusLoading(true);
+    try {
+      const res = await getAllRoomsStatus();
+      if (isMountedRef.current) {
+        setStatusRooms(res.data || []);
+        setStatusSummary(res.summary || null);
+      }
+    } catch (err) {
+      console.error('❌ [ADMIN] Failed to fetch room status:', err.message || err);
+    } finally {
+      if (isMountedRef.current) {
+        setStatusLoading(false);
+        statusLoadingRef.current = false;
+      }
     }
   }, []);
 
@@ -188,7 +220,7 @@ export default function AdminDashboard({ user, onLogout }) {
       });
 
     const socket = getSocket();
-    const handleRoomChange = () => { if (isMountedRef.current) fetchRooms(); };
+    const handleRoomChange = () => { if (isMountedRef.current) { fetchRooms(); fetchRoomStatus(); } };
     if (socket) {
       socket.on('room-created', handleRoomChange);
       socket.on('room-updated', handleRoomChange);
@@ -208,7 +240,35 @@ export default function AdminDashboard({ user, onLogout }) {
         socket.off('booking-cancelled', handleRoomChange);
       }
     };
-  }, [fetchRooms]);
+  }, [fetchRooms, fetchRoomStatus]);
+
+  // Auto-refresh room status when tab is active
+  useEffect(() => {
+    if (activeTab === 'status') {
+      fetchRoomStatus();
+      const interval = setInterval(fetchRoomStatus, 15000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, fetchRoomStatus]);
+
+  // Filtered status rooms
+  const filteredStatusRooms = useMemo(() => {
+    return statusRooms.filter((r) => {
+      if (statusFilter !== 'ALL' && r.currentStatus !== statusFilter) return false;
+      if (statusDeptFilter !== 'ALL' && r.department !== statusDeptFilter) return false;
+      if (statusSearch.trim()) {
+        const q = statusSearch.trim().toLowerCase();
+        const match =
+          (r.name || '').toLowerCase().includes(q) ||
+          (r.roomNumber || '').toLowerCase().includes(q) ||
+          (r.building || '').toLowerCase().includes(q) ||
+          (r.occupancy?.facultyName || '').toLowerCase().includes(q) ||
+          (r.occupancy?.purpose || '').toLowerCase().includes(q);
+        if (!match) return false;
+      }
+      return true;
+    });
+  }, [statusRooms, statusFilter, statusDeptFilter, statusSearch]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -386,8 +446,218 @@ export default function AdminDashboard({ user, onLogout }) {
       )}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 font-sans">
-        
-        {/* Golden Ratio Split: ~38.2% Form (col-span-5) & ~61.8% List (col-span-7) */}
+
+        {/* ── Tab Navigation ────────────────────────────────────── */}
+        <div className="flex gap-1 bg-slate-100 rounded-2xl p-1 w-fit">
+          <button
+            onClick={() => setActiveTab('rooms')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              activeTab === 'rooms'
+                ? 'bg-white text-indigo-700 shadow-sm border border-slate-200'
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Building2 className="w-3.5 h-3.5" /> Room Manager
+          </button>
+          <button
+            onClick={() => setActiveTab('status')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              activeTab === 'status'
+                ? 'bg-white text-emerald-700 shadow-sm border border-slate-200'
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Activity className="w-3.5 h-3.5" /> Live Room Status
+          </button>
+          <button
+            onClick={() => setActiveTab('timetable')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+              activeTab === 'timetable'
+                ? 'bg-white text-indigo-700 shadow-sm border border-slate-200'
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5" /> Master Timetables
+          </button>
+        </div>
+
+        {/* ── Live Room Status Panel ──────────────────────────── */}
+        {activeTab === 'status' && (
+          <div className="space-y-4">
+            {/* Summary Cards */}
+            {statusSummary && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 text-center shadow-sm">
+                  <p className="text-2xl font-black text-slate-800">{statusSummary.total}</p>
+                  <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mt-0.5">Total Rooms</p>
+                </div>
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-center shadow-sm">
+                  <p className="text-2xl font-black text-emerald-700">{statusSummary.free}</p>
+                  <p className="text-[11px] font-semibold text-emerald-600 uppercase tracking-wide mt-0.5">Free Now</p>
+                </div>
+                <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-center shadow-sm">
+                  <p className="text-2xl font-black text-rose-700">{statusSummary.occupied}</p>
+                  <p className="text-[11px] font-semibold text-rose-600 uppercase tracking-wide mt-0.5">Occupied</p>
+                </div>
+                <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 text-center shadow-sm">
+                  <p className="text-lg font-bold text-indigo-700">{statusSummary.asOf}</p>
+                  <p className="text-[11px] font-semibold text-indigo-500 uppercase tracking-wide mt-0.5">{statusSummary.day}, {statusSummary.date}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Filters */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Status Filter */}
+                <div className="flex gap-1 bg-slate-100 rounded-xl p-0.5">
+                  {[
+                    { val: 'ALL', label: 'All', count: statusRooms.length },
+                    { val: 'free', label: '🟢 Free', count: statusRooms.filter(r => r.currentStatus === 'free').length },
+                    { val: 'occupied', label: '🔴 Occupied', count: statusRooms.filter(r => r.currentStatus === 'occupied').length },
+                  ].map(({ val, label, count }) => (
+                    <button
+                      key={val}
+                      onClick={() => setStatusFilter(val)}
+                      className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                        statusFilter === val
+                          ? 'bg-white text-slate-800 shadow-sm border border-slate-200'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      {label} ({count})
+                    </button>
+                  ))}
+                </div>
+
+                {/* Department Filter */}
+                <select
+                  value={statusDeptFilter}
+                  onChange={(e) => setStatusDeptFilter(e.target.value)}
+                  className="px-2.5 py-1.5 border border-slate-200 rounded-xl text-xs font-medium bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                >
+                  <option value="ALL">All Departments</option>
+                  {departments.map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+
+                {/* Search */}
+                <div className="relative flex-1 min-w-[160px]">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={statusSearch}
+                    onChange={(e) => setStatusSearch(e.target.value)}
+                    placeholder="Search room, faculty, purpose..."
+                    className="w-full pl-8 pr-3 py-1.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  />
+                </div>
+
+                {/* Refresh */}
+                <button
+                  onClick={fetchRoomStatus}
+                  disabled={statusLoading}
+                  className="p-1.5 text-slate-500 hover:text-indigo-600 bg-slate-50 hover:bg-indigo-50 rounded-lg transition-colors border border-slate-200 disabled:opacity-50"
+                  title="Refresh status"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${statusLoading ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+            </div>
+
+            {/* Room Status List */}
+            {statusLoading && statusRooms.length === 0 ? (
+              <div className="p-10 text-center text-slate-400 bg-white border border-slate-200 rounded-2xl">
+                <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2 text-slate-300" />
+                <p className="text-xs font-medium">Loading live room status...</p>
+              </div>
+            ) : filteredStatusRooms.length === 0 ? (
+              <div className="p-10 text-center text-slate-400 bg-white border border-slate-200 rounded-2xl">
+                <Building2 className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                <p className="text-xs font-medium">No rooms match your filters.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredStatusRooms.map((room) => (
+                  <div
+                    key={room.id}
+                    className={`bg-white border rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all ${
+                      room.currentStatus === 'occupied'
+                        ? 'border-rose-200 hover:border-rose-300'
+                        : 'border-emerald-200 hover:border-emerald-300'
+                    }`}
+                  >
+                    {/* Left: Room Info */}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {/* Status Dot */}
+                        <span
+                          className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                            room.currentStatus === 'occupied' ? 'bg-rose-500 animate-pulse' : 'bg-emerald-500'
+                          }`}
+                        />
+                        <h3 className="font-bold text-sm text-slate-900 truncate">{room.name}</h3>
+                        <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[10px] font-mono flex-shrink-0">
+                          #{room.roomNumber}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-md bg-indigo-50 border border-indigo-100 text-indigo-700 text-[10px] font-semibold flex-shrink-0">
+                          {room.department}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        {room.building} • Floor {room.floor} • {room.type} • {room.capacity} seats
+                      </p>
+                    </div>
+
+                    {/* Right: Status Details */}
+                    <div className="flex-shrink-0 text-right min-w-[220px]">
+                      {room.currentStatus === 'occupied' && room.occupancy ? (
+                        <div>
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            room.occupancy.type === 'BOOKING'
+                              ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                              : 'bg-violet-100 text-violet-800 border border-violet-200'
+                          }`}>
+                            {room.occupancy.type === 'BOOKING' ? '📅 Booking' : '📚 Timetable'}
+                          </span>
+                          <p className="text-xs font-semibold text-slate-800 mt-1 truncate">
+                            {room.occupancy.facultyName}
+                          </p>
+                          <p className="text-[11px] text-slate-500 truncate">{room.occupancy.purpose}</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5 flex items-center justify-end gap-1">
+                            <Clock className="w-3 h-3" />
+                            {room.occupancy.startTime} – {room.occupancy.endTime}
+                          </p>
+                        </div>
+                      ) : (
+                        <div>
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-bold border border-emerald-200">
+                            ✅ Available
+                          </span>
+                          {room.upcoming && (
+                            <p className="text-[10px] text-slate-400 mt-1.5 flex items-center justify-end gap-1">
+                              <Clock className="w-3 h-3" />
+                              Next: {room.upcoming.startTime} – {room.upcoming.facultyName}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Auto-refresh indicator */}
+            <p className="text-center text-[10px] text-slate-400 pt-1">
+              Auto-refreshes every 15 seconds • {filteredStatusRooms.length} of {statusRooms.length} rooms shown
+            </p>
+          </div>
+        )}
+
+        {/* ── Room Manager Panel (existing) ──────────────────── */}
+        {activeTab === 'rooms' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
           {/* Add / Edit Form */}
           <div className="lg:col-span-5">
@@ -629,6 +899,12 @@ export default function AdminDashboard({ user, onLogout }) {
             )}
           </div>
         </div>
+        )}
+
+        {/* ── Master Timetables Panel ──────────────────────────── */}
+        {activeTab === 'timetable' && (
+          <TimetableManager user={{ role: 'ADMIN' }} isAdmin={true} />
+        )}
       </div>
     </>
   );

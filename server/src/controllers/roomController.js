@@ -126,6 +126,141 @@ exports.getRoom = async (req, res) => {
   }
 };
 
+// ---------- GET ALL ROOMS STATUS (ADMIN LIVE DASHBOARD) ----------
+exports.getAllRoomsStatus = async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN') {
+      return res.status(403).json({ success: false, message: 'Admin access required.' });
+    }
+
+    const todayStr = getTodayDateString();
+    const now = new Date();
+    const currentHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const currentDay = dayNames[now.getDay()];
+
+    // 1. Fetch all active rooms
+    const allRooms = await Room.find({ isActive: true }).sort({ department: 1, floor: 1, roomNumber: 1 }).lean();
+    const allRoomIds = allRooms.map((r) => r._id.toString());
+
+    // 2. Auto-complete past bookings
+    await Booking.updateMany(
+      {
+        status: 'active',
+        purpose: { $ne: 'TEMPORARY_LOCK' },
+        $or: [
+          { date: { $lt: todayStr } },
+          { date: todayStr, endTime: { $lte: currentHHMM } },
+        ],
+      },
+      { $set: { status: 'completed' } }
+    );
+
+    // 3. Find rooms currently occupied by active bookings RIGHT NOW
+    const activeBookingsNow = await Booking.find({
+      roomId: { $in: allRoomIds },
+      date: todayStr,
+      status: 'active',
+      purpose: { $ne: 'TEMPORARY_LOCK' },
+      startTime: { $lte: currentHHMM },
+      endTime: { $gt: currentHHMM },
+    }).lean();
+
+    // 4. Find rooms currently occupied by timetable classes RIGHT NOW
+    const activeTimetableNow = await Timetable.find({
+      roomId: { $in: allRoomIds },
+      day: currentDay,
+      isActive: true,
+      startTime: { $lte: currentHHMM },
+      endTime: { $gt: currentHHMM },
+    }).lean();
+
+    // 5. Build occupancy map
+    const occupancyMap = {};
+    for (const b of activeBookingsNow) {
+      occupancyMap[b.roomId.toString()] = {
+        status: 'occupied',
+        type: 'BOOKING',
+        facultyName: b.facultyName,
+        facultyEmail: b.facultyEmail,
+        purpose: b.purpose,
+        startTime: b.startTime,
+        endTime: b.endTime,
+      };
+    }
+    for (const tt of activeTimetableNow) {
+      const rid = tt.roomId.toString();
+      if (!occupancyMap[rid]) {
+        occupancyMap[rid] = {
+          status: 'occupied',
+          type: 'TIMETABLE',
+          facultyName: tt.faculty,
+          facultyEmail: tt.facultyEmail || '',
+          purpose: `${tt.subject} (${tt.classGroup})`,
+          startTime: tt.startTime,
+          endTime: tt.endTime,
+        };
+      }
+    }
+
+    // 6. Find upcoming bookings for today (next slot after current)
+    const upcomingBookings = await Booking.find({
+      roomId: { $in: allRoomIds },
+      date: todayStr,
+      status: 'active',
+      purpose: { $ne: 'TEMPORARY_LOCK' },
+      startTime: { $gt: currentHHMM },
+    }).sort({ startTime: 1 }).lean();
+
+    const upcomingMap = {};
+    for (const b of upcomingBookings) {
+      const rid = b.roomId.toString();
+      if (!upcomingMap[rid]) {
+        upcomingMap[rid] = {
+          facultyName: b.facultyName,
+          purpose: b.purpose,
+          startTime: b.startTime,
+          endTime: b.endTime,
+        };
+      }
+    }
+
+    // 7. Build response
+    const roomsWithStatus = allRooms.map((r) => {
+      const rid = r._id.toString();
+      const occupancy = occupancyMap[rid] || null;
+      const upcoming = upcomingMap[rid] || null;
+
+      return {
+        ...r,
+        id: rid,
+        currentStatus: occupancy ? 'occupied' : 'free',
+        occupancy,
+        upcoming,
+      };
+    });
+
+    const totalFree = roomsWithStatus.filter((r) => r.currentStatus === 'free').length;
+    const totalOccupied = roomsWithStatus.filter((r) => r.currentStatus === 'occupied').length;
+
+    res.json({
+      success: true,
+      data: roomsWithStatus,
+      summary: {
+        total: allRooms.length,
+        free: totalFree,
+        occupied: totalOccupied,
+        asOf: currentHHMM,
+        date: todayStr,
+        day: currentDay,
+      },
+    });
+  } catch (error) {
+    console.error('❌ [ROOM] getAllRoomsStatus error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // ---------- GET AVAILABLE ROOMS (WITH AUTO-ADJUSTING TIME GUARD) ----------
 exports.getAvailableRooms = async (req, res) => {
   try {

@@ -211,15 +211,7 @@ export default function RoomDashboard({ user }) {
   };
 
   const handleViewReviews = (room) => {
-    const roomId = room.id || room._id;
     setSelectedRoom(room);
-
-    if (reviews[roomId]) {
-      setSelectedRoomReviews(reviews[roomId]);
-    } else {
-      setSelectedRoomReviews([]);
-      fetchReviewsForRoom(roomId);
-    }
   };
 
   // 1. Initial fetch & 15-second Clock Ticker (rolls statuses when time boundaries pass)
@@ -821,14 +813,10 @@ export default function RoomDashboard({ user }) {
         </div>
       )}
 
-      {selectedRoom && selectedRoomReviews !== null && (
+      {selectedRoom && (
         <ReviewsModal
           room={selectedRoom}
-          reviews={selectedRoomReviews}
-          onClose={() => {
-            setSelectedRoom(null);
-            setSelectedRoomReviews(null);
-          }}
+          onClose={() => setSelectedRoom(null)}
         />
       )}
     </div>

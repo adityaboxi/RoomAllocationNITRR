@@ -446,11 +446,15 @@ exports.getTimetableByDepartment = async (req, res) => {
     const { department } = req.params;
     const { semester, section } = req.query;
 
-    if (req.user.role === 'HOD' && req.user.department !== department) {
+    if (req.user.role !== 'ADMIN' && req.user.department !== department && department !== 'ALL') {
       return res.status(403).json({ success: false, message: 'You can only view your own department timetable' });
     }
 
-    const query = { department: department.trim(), isActive: true };
+    const query = { isActive: true };
+    if (department !== 'ALL') {
+      query.department = department.trim();
+    }
+    
     if (semester && semester !== 'ALL') {
       const semRegex = normalizeSemesterRegex(semester);
       if (semRegex) query.semester = semRegex;

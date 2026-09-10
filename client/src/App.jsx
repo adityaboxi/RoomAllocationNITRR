@@ -139,9 +139,12 @@ export default function App() {
     }
   }, [currentUser]);
 
+  const fetchingReviewsRef = useRef(false);
+
   // Safe pending reviews fetcher
   const fetchPendingReviews = useCallback(async () => {
-    if (!currentUser) return;
+    if (!currentUser || currentUser.role === 'ADMIN' || fetchingReviewsRef.current) return;
+    fetchingReviewsRef.current = true;
     try {
       const res = await getPendingReviews();
       const pending = res?.data || [];
@@ -157,6 +160,8 @@ export default function App() {
       }
     } catch (err) {
       console.error('❌ [APP] Failed to fetch pending reviews:', err.message || err);
+    } finally {
+      fetchingReviewsRef.current = false;
     }
   }, [currentUser]);
 
@@ -165,15 +170,21 @@ export default function App() {
     if (!currentUser) return;
 
     fetchUserNotifications();
-    fetchPendingReviews();
 
-    const reviewInterval = setInterval(() => {
-      if (isMountedRef.current) {
-        fetchPendingReviews();
-      }
-    }, 30000);
+    // Only fetch reviews for non-ADMIN users
+    if (currentUser.role !== 'ADMIN') {
+      fetchPendingReviews();
+    }
 
-    return () => clearInterval(reviewInterval);
+    const reviewInterval = currentUser.role !== 'ADMIN'
+      ? setInterval(() => {
+          if (isMountedRef.current) {
+            fetchPendingReviews();
+          }
+        }, 30000)
+      : null;
+
+    return () => { if (reviewInterval) clearInterval(reviewInterval); };
   }, [currentUser, fetchUserNotifications, fetchPendingReviews]);
 
   // Socket Connection Lifecycle & Real-Time Listeners

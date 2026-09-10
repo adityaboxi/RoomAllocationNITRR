@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import api, {
   getRooms,
   getTimetable,
@@ -66,13 +66,15 @@ const isOverlapping = (s1, e1, s2, e2) => {
   return toMinutes(s1) < toMinutes(e2) && toMinutes(s2) < toMinutes(e1);
 };
 
-export default function TimetableManager({ user }) {
+export default function TimetableManager({ user, isAdmin = false }) {
   const [rooms, setRooms] = useState([]);
   const [timetable, setTimetable] = useState([]);
   const [tableLoading, setTableLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState(null);
+
+  const [departments, setDepartments] = useState([]); // for admin
 
   // File Upload State
   const [uploadSemester, setUploadSemester] = useState('5th');
@@ -81,6 +83,7 @@ export default function TimetableManager({ user }) {
   const [selectedFile, setSelectedFile] = useState(null);
 
   // Schedule Multi-Criteria View Filters
+  const [filterDepartment, setFilterDepartment] = useState('ALL');
   const [filterSemester, setFilterSemester] = useState('ALL');
   const [filterSection, setFilterSection] = useState('ALL');
   const [filterRoomId, setFilterRoomId] = useState('ALL');
@@ -94,6 +97,19 @@ export default function TimetableManager({ user }) {
   const fileInputRef = useRef(null);
   const reqSeqRef = useRef(0);
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+  const getEffectiveDepartment = useCallback(() => {
+    if (isAdmin) return filterDepartment;
+    return user?.department;
+  }, [isAdmin, filterDepartment, user?.department]);
+
+  useEffect(() => {
+    if (isAdmin) {
+      api.get('/api/auth/departments')
+        .then((res) => setDepartments((res?.data || []).map(d => typeof d === 'string' ? d : d.code || d.name)))
+        .catch(console.error);
+    }
+  }, [isAdmin]);
 
   useEffect(() => {
     fetchRooms();
@@ -119,15 +135,16 @@ export default function TimetableManager({ user }) {
       socket.off('room-updated', handleRoomLiveSync);
       socket.off('room-deleted', handleRoomLiveSync);
     };
-  }, [user?.department]);
+  }, [getEffectiveDepartment]);
 
   useEffect(() => {
     fetchScheduleTable();
-  }, [filterSemester, filterSection, filterRoomId, filterDay, user?.department]);
+  }, [filterSemester, filterSection, filterRoomId, filterDay, filterDepartment, getEffectiveDepartment]);
 
   const fetchRooms = async () => {
     try {
-      const data = await getRooms({ department: user?.department });
+      const dep = getEffectiveDepartment();
+      const data = await getRooms(dep !== 'ALL' ? { department: dep } : {});
       const roomList = data?.data || [];
       setRooms(roomList);
       if (roomList.length > 0 && !uploadRoomId) {
@@ -144,7 +161,10 @@ export default function TimetableManager({ user }) {
     const seq = ++reqSeqRef.current;
     setTableLoading(true);
     try {
-      const params = { department: user?.department };
+      const dep = getEffectiveDepartment();
+      const params = {};
+      if (dep && dep !== 'ALL') params.department = dep;
+      
       if (filterSemester !== 'ALL') params.semester = filterSemester;
       if (filterSection !== 'ALL') params.section = filterSection;
       if (filterRoomId !== 'ALL') params.roomId = filterRoomId;
@@ -258,7 +278,7 @@ export default function TimetableManager({ user }) {
           if (missing.length > 0) {
             return reject(
               new Error(
-                `Wrong format: Missing required columns [${missing.join(', ')}].\nExpected Header: Day, Start Time, End Time, Subject, Class Group, Faculty`
+                `Wrong format: Missing required columns [${missing.join(', ')}].\nExpected Header: Day, Start Time, End Time, Subject, Faculty`
               )
             );
           }
@@ -325,7 +345,7 @@ export default function TimetableManager({ user }) {
                   } else {
                     return reject(
                       new Error(
-                        `🚫 Faculty Collision in File:\n• Row #${a.rowNumber}: "${a.faculty}" (${a.startTime} - ${a.endTime})\n• Row #${b.rowNumber}: "${b.faculty}" (${b.startTime} - ${b.endTime})\nBoth classes are assigned to the same faculty at overlapping times on ${a.day}. Add 'Faculty Email' to distinguish professors with identical names.`
+                        `🚫 Faculty Collision in File:\n• Row #${a.rowNumber}: "${a.faculty}" (${a.startTime} - ${a.endTime})\n• Row #${b.rowNumber}: "${b.faculty}" (${b.startTime} - ${b.endTime})\nBoth classes are assigned to the same faculty at overlapping times on ${a.day}.`
                       )
                     );
                   }
@@ -441,17 +461,17 @@ export default function TimetableManager({ user }) {
       { s: '17:30', e: '18:20' } 
     ];
 
-    let csvContent = 'Day,Start Time,End Time,Subject,Class Group,Faculty,Faculty Email\n';
+    let csvContent = 'Day,Start Time,End Time,Subject,Faculty\n';
 
     templateDays.forEach((day) => {
       timeSlots.forEach((slot) => {
         if (slot.isBreak) {
           // Break row
-          csvContent += `${day},${slot.s},${slot.e},,,,\n`;
+          csvContent += `${day},${slot.s},${slot.e},,\n`;
         } else if (day === 'Monday' && slot.s === '08:10') {
-          csvContent += `${day},${slot.s},${slot.e},Data Structures,${group},Dr. Rajesh Kumar,rkumar.cse@nitrr.ac.in\n`;
+          csvContent += `${day},${slot.s},${slot.e},Data Structures,Dr. Rajesh Kumar\n`;
         } else {
-          csvContent += `${day},${slot.s},${slot.e},,,${group},\n`;
+          csvContent += `${day},${slot.s},${slot.e},,\n`;
         }
       });
     });
@@ -592,7 +612,8 @@ export default function TimetableManager({ user }) {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Dedicated CSV / Excel Upload Card & Template Section */}
-        <div className="lg:col-span-5 space-y-6">
+        {!isAdmin && (
+          <div className="lg:col-span-5 space-y-6">
           <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm">
             <div className="flex items-center gap-2.5 mb-5 pb-3 border-b border-slate-100">
               <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
@@ -723,10 +744,11 @@ export default function TimetableManager({ user }) {
               )}
             </div>
           </div>
-        </div>
+          </div>
+        )}
 
         {/* Right Column: Published Timetable Table with View Filters */}
-        <div className="lg:col-span-7 space-y-4">
+        <div className={isAdmin ? "lg:col-span-12 space-y-4" : "lg:col-span-7 space-y-4"}>
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
             {/* Filter Bar Header */}
             <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50/50 space-y-3">
@@ -781,7 +803,28 @@ export default function TimetableManager({ user }) {
               </div>
 
               {/* Multi-Criteria View Filters */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+              <div className={`grid grid-cols-2 ${isAdmin ? 'sm:grid-cols-5' : 'sm:grid-cols-4'} gap-2 pt-1`}>
+                {isAdmin && (
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                      Department
+                    </label>
+                    <select
+                      value={filterDepartment}
+                      onChange={(e) => {
+                        setFilterDepartment(e.target.value);
+                        setFilterRoomId('ALL');
+                      }}
+                      className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white font-medium text-slate-800 outline-none"
+                    >
+                      <option value="ALL">All Branches</option>
+                      {departments.map((d) => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
                     Room
@@ -885,7 +928,7 @@ export default function TimetableManager({ user }) {
                         Room
                       </th>
                       <th className="text-left px-4 py-3 text-xs font-bold text-slate-600 uppercase tracking-wider">
-                        Faculty / Group
+                        Faculty
                       </th>
                       <th className="text-right px-4 py-3 text-xs font-bold text-slate-600 uppercase tracking-wider">
                         Actions
@@ -932,12 +975,6 @@ export default function TimetableManager({ user }) {
                               {entry.section && (
                                 <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100">
                                   Sec {entry.section}
-                                </span>
-                              )}
-                              <span className="text-slate-600 font-medium">{entry.classGroup}</span>
-                              {entry.facultyEmail && (
-                                <span className="text-[10px] text-indigo-600 font-mono bg-indigo-50 px-1 py-0.5 rounded border border-indigo-100">
-                                  {entry.facultyEmail}
                                 </span>
                               )}
                             </div>
@@ -1046,32 +1083,11 @@ export default function TimetableManager({ user }) {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Class Group</label>
-                  <input
-                    type="text"
-                    value={editingEntry.classGroup}
-                    onChange={(e) => setEditingEntry({ ...editingEntry, classGroup: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-600"
-                  />
-                </div>
-                <div>
                   <label className="block text-[11px] font-bold text-slate-600 mb-1">Faculty Name</label>
                   <input
                     type="text"
                     value={editingEntry.faculty}
                     onChange={(e) => setEditingEntry({ ...editingEntry, faculty: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-600"
-                  />
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                    Faculty Email <span className="text-slate-400 font-normal">(Optional — disambiguates professors with identical names)</span>
-                  </label>
-                  <input
-                    type="email"
-                    placeholder="e.g. rkumar.cse@nitrr.ac.in"
-                    value={editingEntry.facultyEmail || ''}
-                    onChange={(e) => setEditingEntry({ ...editingEntry, facultyEmail: e.target.value })}
                     className="w-full border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-600"
                   />
                 </div>

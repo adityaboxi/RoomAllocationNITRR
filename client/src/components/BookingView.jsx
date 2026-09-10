@@ -550,23 +550,8 @@ export default function BookingView({ user }) {
   };
 
   const handleViewReviews = (room) => {
-    const roomId = room.id || room._id;
-    const raw = reviews[roomId] || [];
-    const list = Array.isArray(raw) ? raw : raw.reviews || [];
-
     setSelectedReviewRoom(room);
-    setSelectedRoomReviews(list);
-    fetchReviewsForRoom(roomId);
   };
-
-  useEffect(() => {
-    if (selectedReviewRoom) {
-      const roomId = selectedReviewRoom.id || selectedReviewRoom._id;
-      const raw = reviews[roomId] || [];
-      const list = Array.isArray(raw) ? raw : raw.reviews || [];
-      setSelectedRoomReviews(list);
-    }
-  }, [reviews, selectedReviewRoom]);
 
   const handleBookingInput = (e) => {
     const { name, value } = e.target;
@@ -1651,14 +1636,10 @@ export default function BookingView({ user }) {
       </div>
 
       {/* Reviews Modal */}
-      {selectedReviewRoom && selectedRoomReviews !== null && (
+      {selectedReviewRoom && (
         <ReviewsModal
           room={selectedReviewRoom}
-          reviews={selectedRoomReviews}
-          onClose={() => {
-            setSelectedReviewRoom(null);
-            setSelectedRoomReviews(null);
-          }}
+          onClose={() => setSelectedReviewRoom(null)}
         />
       )}
     </div>

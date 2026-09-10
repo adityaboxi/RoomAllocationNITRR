@@ -167,6 +167,7 @@ export const getAvailableRooms = (date, startTime, endTime, filters = {}, option
 
 export const getRoomsByFloor = () => api.get('/api/rooms/floors');
 export const getRoomsByBuilding = () => api.get('/api/rooms/buildings');
+export const getAllRoomsStatus = () => api.get('/api/rooms/status');
 export const getRoomsByDepartment = (department) => api.get(`/api/rooms/department/${department}`);
 export const createRoom = (data) => api.post('/api/rooms', data);
 export const updateRoom = (id, data) => api.put(`/api/rooms/${id}`, data);
@@ -224,7 +225,7 @@ export const deleteAll = () => api.delete('/api/notifications');
 // Reviews
 export const createReview = (bookingId, rating, comment) =>
   api.post('/api/reviews', { bookingId, rating, comment });
-export const getRoomReviews = (roomId) => api.get(`/api/reviews/room/${roomId}`);
+export const getRoomReviews = (roomId, page = 1) => api.get(`/api/reviews/room/${roomId}?page=${page}`);
 export const getPendingReviews = () => api.get('/api/reviews/pending');
 export const getMyReviews = () => api.get('/api/reviews/my');
 

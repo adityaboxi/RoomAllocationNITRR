@@ -15,6 +15,9 @@ const escapeRegex = (string) => {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
 
+// In-Memory Mutex Lock to prevent overlapping race conditions on simultaneous requests
+const activeProcessingLocks = new Set();
+
 // Institutional timetable slot definitions (08:10 to 18:20, excluding 13:10-14:10 lunch break)
 const VALID_START_TIMES = ['08:10', '09:00', '09:50', '10:40', '11:30', '12:20', '14:10', '15:00', '15:50', '16:40', '17:30'];
 const VALID_END_TIMES = ['09:00', '09:50', '10:40', '11:30', '12:20', '13:10', '15:00', '15:50', '16:40', '17:30', '18:20'];
@@ -89,6 +92,7 @@ exports.getBookings = async (req, res) => {
     const bookings = await Booking.find(query)
       .populate('roomId', 'name roomNumber floor building department capacity type')
       .sort({ date: -1, startTime: -1 })
+      .limit(300) // Safety limit: Prevent crashing the client if cron is deleted
       .lean();
 
     const formatted = bookings.map((b) => ({ ...b, id: b._id.toString() }));
@@ -111,6 +115,7 @@ exports.getMyBookings = async (req, res) => {
     })
       .populate('roomId', 'name roomNumber floor building department capacity type')
       .sort({ date: -1, startTime: -1 })
+      .limit(300) // Safety limit: only load recent 300
       .lean();
 
     const formatted = bookings.map((b) => ({ ...b, id: b._id.toString() }));
