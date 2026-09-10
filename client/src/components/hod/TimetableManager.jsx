@@ -1,55 +1,55 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import api, {
-  getRooms,
-  getTimetable,
-  updateTimetableEntry,
-  deleteTimetableEntry,
+ getRooms,
+ getTimetable,
+ updateTimetableEntry,
+ deleteTimetableEntry,
 } from '../../services/api';
 import { getSocket } from '../../services/socket';
 import {
-  Calendar,
-  Download,
-  Upload,
-  Trash2,
-  Edit2,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
-  BookOpen,
-  Building2,
-  FileSpreadsheet,
-  RefreshCw,
-  X,
-  FileText,
-  Loader2,
-  Search,
-  Filter,
-  RotateCcw,
+ Calendar,
+ Download,
+ Upload,
+ Trash2,
+ Edit2,
+ CheckCircle2,
+ AlertCircle,
+ Clock,
+ BookOpen,
+ Building2,
+ FileSpreadsheet,
+ RefreshCw,
+ X,
+ FileText,
+ Loader2,
+ Search,
+ Filter,
+ RotateCcw,
 } from 'lucide-react';
 
 // ============================================================================
 // STRICT INSTITUTIONAL TIME GRID
 // ============================================================================
 const VALID_TIMETABLE_SLOTS = [
-  '08:10-09:00',
-  '09:00-09:50',
-  '09:50-10:40',
-  '10:40-11:30',
-  '11:30-12:20',
-  '12:20-13:10',
-  '13:10-14:10', // LUNCH BREAK
-  '14:10-15:00',
-  '15:00-15:50',
-  '15:50-16:40',
-  '16:40-17:30',
-  '17:30-18:20'
+ '08:10-09:00',
+ '09:00-09:50',
+ '09:50-10:40',
+ '10:40-11:30',
+ '11:30-12:20',
+ '12:20-13:10',
+ '13:10-14:10', // LUNCH BREAK
+ '14:10-15:00',
+ '15:00-15:50',
+ '15:50-16:40',
+ '16:40-17:30',
+ '17:30-18:20'
 ];
 
 // Helper to safely extract error messages
 const extractErrorMessage = (err, fallback) => {
-  if (!err) return fallback;
-  if (typeof err === 'string') return err;
-  return err.response?.data?.message || err.message || fallback;
+ if (!err) return fallback;
+ if (typeof err === 'string') return err;
+ return err.response?.data?.message || err.message || fallback;
 };
 
 // Helper to validate 24-hour HH:mm time
@@ -57,1064 +57,1064 @@ const isValidTimeFormat = (time) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(time);
 
 // Helper to convert HH:mm to minutes
 const toMinutes = (timeStr) => {
-  const [h, m] = String(timeStr).trim().split(':').map(Number);
-  return (h || 0) * 60 + (m || 0);
+ const [h, m] = String(timeStr).trim().split(':').map(Number);
+ return (h || 0) * 60 + (m || 0);
 };
 
 // Helper to check if two time ranges overlap
 const isOverlapping = (s1, e1, s2, e2) => {
-  return toMinutes(s1) < toMinutes(e2) && toMinutes(s2) < toMinutes(e1);
+ return toMinutes(s1) < toMinutes(e2) && toMinutes(s2) < toMinutes(e1);
 };
 
 export default function TimetableManager({ user, isAdmin = false }) {
-  const [rooms, setRooms] = useState([]);
-  const [timetable, setTimetable] = useState([]);
-  const [tableLoading, setTableLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [actionLoadingId, setActionLoadingId] = useState(null);
-
-  const [departments, setDepartments] = useState([]); // for admin
-
-  // File Upload State
-  const [uploadSemester, setUploadSemester] = useState('5th');
-  const [uploadSection, setUploadSection] = useState('A');
-  const [uploadRoomId, setUploadRoomId] = useState('');
-  const [selectedFile, setSelectedFile] = useState(null);
-
-  // Schedule Multi-Criteria View Filters
-  const [filterDepartment, setFilterDepartment] = useState('ALL');
-  const [filterSemester, setFilterSemester] = useState('ALL');
-  const [filterSection, setFilterSection] = useState('ALL');
-  const [filterRoomId, setFilterRoomId] = useState('ALL');
-  const [filterDay, setFilterDay] = useState('ALL');
-  const [filterSearch, setFilterSearch] = useState('');
-
-  const [editingEntry, setEditingEntry] = useState(null);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-
-  const fileInputRef = useRef(null);
-  const reqSeqRef = useRef(0);
-  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-
-  const getEffectiveDepartment = useCallback(() => {
-    if (isAdmin) return filterDepartment;
-    return user?.department;
-  }, [isAdmin, filterDepartment, user?.department]);
-
-  useEffect(() => {
-    if (isAdmin) {
-      api.get('/api/auth/departments')
-        .then((res) => setDepartments((res?.data || []).map(d => typeof d === 'string' ? d : d.code || d.name)))
-        .catch(console.error);
-    }
-  }, [isAdmin]);
-
-  useEffect(() => {
-    fetchRooms();
-
-    const socket = getSocket();
-    if (!socket) return;
-
-    const handleTimetableLiveSync = () => {
-      fetchScheduleTable();
-    };
-    const handleRoomLiveSync = () => {
-      fetchRooms();
-    };
-
-    socket.on('timetable-updated', handleTimetableLiveSync);
-    socket.on('room-created', handleRoomLiveSync);
-    socket.on('room-updated', handleRoomLiveSync);
-    socket.on('room-deleted', handleRoomLiveSync);
-
-    return () => {
-      socket.off('timetable-updated', handleTimetableLiveSync);
-      socket.off('room-created', handleRoomLiveSync);
-      socket.off('room-updated', handleRoomLiveSync);
-      socket.off('room-deleted', handleRoomLiveSync);
-    };
-  }, [getEffectiveDepartment]);
-
-  useEffect(() => {
-    fetchScheduleTable();
-  }, [filterSemester, filterSection, filterRoomId, filterDay, filterDepartment, getEffectiveDepartment]);
-
-  const fetchRooms = async () => {
-    try {
-      const dep = getEffectiveDepartment();
-      const data = await getRooms(dep !== 'ALL' ? { department: dep } : {});
-      const roomList = data?.data || [];
-      setRooms(roomList);
-      if (roomList.length > 0 && !uploadRoomId) {
-        setUploadRoomId(roomList[0].id || roomList[0]._id);
-      }
-    } catch (err) {
-      const errMsg = extractErrorMessage(err, 'Failed to fetch rooms list.');
-      console.error('❌ [TIMETABLE] Failed to fetch rooms list:', errMsg);
-      setError(errMsg);
-    }
-  };
-
-  const fetchScheduleTable = async () => {
-    const seq = ++reqSeqRef.current;
-    setTableLoading(true);
-    try {
-      const dep = getEffectiveDepartment();
-      const params = {};
-      if (dep && dep !== 'ALL') params.department = dep;
-      
-      if (filterSemester !== 'ALL') params.semester = filterSemester;
-      if (filterSection !== 'ALL') params.section = filterSection;
-      if (filterRoomId !== 'ALL') params.roomId = filterRoomId;
-      if (filterDay !== 'ALL') params.day = filterDay;
-      if (filterSearch.trim()) params.search = filterSearch.trim();
-
-      const data = await getTimetable(params);
-      if (seq === reqSeqRef.current) {
-        setTimetable(data?.data || []);
-      }
-    } catch (err) {
-      if (seq === reqSeqRef.current) {
-        const errMsg = extractErrorMessage(err, 'Failed to load timetable schedule.');
-        console.error('❌ [TIMETABLE] Failed to load timetable schedule:', errMsg);
-        setError(errMsg);
-      }
-    } finally {
-      if (seq === reqSeqRef.current) {
-        setTableLoading(false);
-      }
-    }
-  };
-
-  // Instant client-side multi-layer filter ensuring 100% responsiveness & accuracy
-  const displayedTimetable = useMemo(() => {
-    return (timetable || []).filter((entry) => {
-      // 1. Room filter (robust check across id and _id)
-      if (filterRoomId !== 'ALL') {
-        const entryRoomId = String(entry.roomId?._id || entry.roomId?.id || entry.roomId || '');
-        if (entryRoomId !== String(filterRoomId)) return false;
-      }
-
-      // 2. Semester filter (flexible digit check so "5th", "5th Sem", "5" all match correctly)
-      if (filterSemester !== 'ALL') {
-        const targetDigit = filterSemester.match(/\d+/)?.[0];
-        const entrySemStr = String(entry.semester || entry.classGroup || '');
-        const entryDigit = entrySemStr.match(/\d+/)?.[0];
-        if (targetDigit && entryDigit && targetDigit !== entryDigit) return false;
-        if (!targetDigit && !entrySemStr.toLowerCase().includes(filterSemester.toLowerCase())) return false;
-      }
-
-      // 3. Section filter
-      if (filterSection !== 'ALL') {
-        const sec = String(entry.section || '').trim().toUpperCase();
-        const classGroup = String(entry.classGroup || '').toUpperCase();
-        const targetSec = filterSection.toUpperCase();
-        const matchSec =
-          sec === targetSec ||
-          classGroup.includes(`SEC ${targetSec}`) ||
-          classGroup.includes(`SECTION ${targetSec}`) ||
-          classGroup.endsWith(` ${targetSec}`);
-        if (!matchSec) return false;
-      }
-
-      // 4. Day filter
-      if (filterDay !== 'ALL') {
-        if (String(entry.day || '').trim().toLowerCase() !== filterDay.trim().toLowerCase()) return false;
-      }
-
-      // 5. Search text (Subject, Faculty, Faculty Email, Class Group, Room Name/Number)
-      if (filterSearch.trim()) {
-        const q = filterSearch.trim().toLowerCase();
-        const corpus = [
-          entry.subject || '',
-          entry.faculty || '',
-          entry.facultyEmail || '',
-          entry.classGroup || '',
-          entry.roomId?.name || '',
-          entry.roomId?.roomNumber || '',
-          entry.roomId?.building || '',
-        ].join(' ').toLowerCase();
-        if (!corpus.includes(q)) return false;
-      }
-
-      return true;
-    });
-  }, [timetable, filterRoomId, filterSemester, filterSection, filterDay, filterSearch]);
-
-  const hasActiveFilters =
-    filterRoomId !== 'ALL' ||
-    filterSemester !== 'ALL' ||
-    filterSection !== 'ALL' ||
-    filterDay !== 'ALL' ||
-    Boolean(filterSearch.trim());
-
-  const resetFilters = () => {
-    setFilterRoomId('ALL');
-    setFilterSemester('ALL');
-    setFilterSection('ALL');
-    setFilterDay('ALL');
-    setFilterSearch('');
-  };
-
-  // ----- Client-Side CSV Pre-Verification -----
-  const verifyCSVContent = async (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const text = e.target.result;
-          const lines = text.split(/\r\n|\n/).filter((l) => l.trim() !== '');
-
-          if (lines.length <= 1) {
-            return reject(new Error('The spreadsheet file is empty or contains no data rows.'));
-          }
-
-          const headers = lines[0].split(',').map((h) => h.trim().toLowerCase().replace(/[\s_-]/g, ''));
-          const required = ['day', 'starttime', 'endtime', 'subject', 'faculty'];
-          const missing = required.filter((r) => !headers.includes(r));
-
-          if (missing.length > 0) {
-            return reject(
-              new Error(
-                `Wrong format: Missing required columns [${missing.join(', ')}].\nExpected Header: Day, Start Time, End Time, Subject, Faculty`
-              )
-            );
-          }
-
-          const dayIdx = headers.indexOf('day');
-          const startIdx = headers.indexOf('starttime');
-          const endIdx = headers.indexOf('endtime');
-          const subjIdx = headers.indexOf('subject');
-          const facultyIdx = headers.indexOf('faculty');
-          const emailIdx = headers.findIndex((h) => ['facultyemail', 'email', 'professoremail'].includes(h));
-
-          const parsedRows = [];
-          for (let i = 1; i < lines.length; i++) {
-            const cols = lines[i].split(',').map((c) => c.trim());
-            if (cols.length < 5) continue;
-
-            const day = cols[dayIdx];
-            const startTime = cols[startIdx];
-            const endTime = cols[endIdx];
-            const subject = cols[subjIdx] || '';
-            const faculty = cols[facultyIdx] || '';
-            const facultyEmail = emailIdx !== -1 ? (cols[emailIdx] || '') : '';
-
-            const isSubjectEmpty = subject === '';
-            const isFacultyEmpty = faculty === '';
-
-            if (isSubjectEmpty !== isFacultyEmpty) {
-              return reject(new Error(`Row #${i}: Both Subject and Faculty must be provided together, or both must be empty to indicate a free slot.`));
-            }
-
-            if (!days.includes(day)) {
-              return reject(new Error(`Row #${i}: Invalid Day "${day}". Must be one of ${days.join(', ')}.`));
-            }
-            if (!isValidTimeFormat(startTime) || !isValidTimeFormat(endTime)) {
-              return reject(new Error(`Row #${i}: Invalid time format (${startTime} - ${endTime}). Must be 24-hour HH:mm.`));
-            }
-
-            const slotKey = `${startTime}-${endTime}`;
-            
-            if (!VALID_TIMETABLE_SLOTS.includes(slotKey)) {
-              return reject(new Error(`Row #${i}: Invalid time slot ${slotKey}. You must use the exact 50-minute institutional slots.`));
-            }
-
-            if (slotKey === '13:10-14:10' && (!isSubjectEmpty || !isFacultyEmpty)) {
-              return reject(new Error(`Row #${i}: The 13:10-14:10 slot is reserved for lunch break. You must leave Subject and Faculty blank.`));
-            }
-
-            if (isSubjectEmpty && isFacultyEmpty) {
-              continue;
-            }
-
-            parsedRows.push({ rowNumber: i, day, startTime, endTime, subject, faculty, facultyEmail });
-          }
-
-          for (let i = 0; i < parsedRows.length; i++) {
-            for (let j = i + 1; j < parsedRows.length; j++) {
-              const a = parsedRows[i];
-              const b = parsedRows[j];
-
-              if (a.day === b.day && isOverlapping(a.startTime, a.endTime, b.startTime, b.endTime)) {
-                if (a.faculty.toLowerCase() === b.faculty.toLowerCase()) {
-                  if (a.facultyEmail && b.facultyEmail && a.facultyEmail.toLowerCase() !== b.facultyEmail.toLowerCase()) {
-                    // Distinct professors with identical names
-                  } else {
-                    return reject(
-                      new Error(
-                        `🚫 Faculty Collision in File:\n• Row #${a.rowNumber}: "${a.faculty}" (${a.startTime} - ${a.endTime})\n• Row #${b.rowNumber}: "${b.faculty}" (${b.startTime} - ${b.endTime})\nBoth classes are assigned to the same faculty at overlapping times on ${a.day}.`
-                      )
-                    );
-                  }
-                }
-              }
-            }
-          }
-
-          resolve(true);
-        } catch (err) {
-          reject(err);
-        }
-      };
-      reader.readAsText(file);
-    });
-  };
-
-  const handleFileSelect = async (e) => {
-    const file = e.target.files?.[0];
-    setError('');
-    setSuccess('');
-
-    if (!file) {
-      setSelectedFile(null);
-      return;
-    }
-
-    const validExtensions = ['.csv', '.xlsx', '.xls'];
-    const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
-
-    if (!validExtensions.includes(ext)) {
-      setError(`Invalid format (${ext}). Only .csv, .xlsx, and .xls spreadsheets are permitted.`);
-      setSelectedFile(null);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
-    }
-
-    if (ext === '.csv') {
-      try {
-        await verifyCSVContent(file);
-      } catch (validationErr) {
-        setError(extractErrorMessage(validationErr, 'Spreadsheet format verification failed.'));
-        setSelectedFile(null);
-        if (fileInputRef.current) fileInputRef.current.value = '';
-        return;
-      }
-    }
-
-    setSelectedFile(file);
-  };
-
-  const handleSubmitFile = async () => {
-    if (uploading) return;
-    if (!selectedFile) {
-      setError('Please choose a valid spreadsheet file first.');
-      return;
-    }
-    if (!uploadRoomId) {
-      setError('Please select a Target Room from the dropdown.');
-      return;
-    }
-
-    setError('');
-    setSuccess('');
-    setUploading(true);
-    console.log(`📊 [TIMETABLE] Uploading schedule: sem=${uploadSemester} sec=${uploadSection} room=${uploadRoomId}`);
-
-    const formData = new FormData();
-    formData.append('file', selectedFile);
-    formData.append('semester', uploadSemester);
-    formData.append('section', uploadSection);
-    formData.append('roomId', uploadRoomId);
-
-    try {
-      const data = await api.post('/api/timetable/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-
-      console.log(`✅ [TIMETABLE] Upload succeeded`);
-      setSuccess(data.data?.message || 'Timetable published successfully!');
-      setSelectedFile(null);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-
-      setFilterSemester('ALL');
-      setFilterRoomId(uploadRoomId);
-      await fetchScheduleTable();
-    } catch (err) {
-      const errMsg = extractErrorMessage(err, 'Failed to upload timetable file.');
-      console.error('❌ [TIMETABLE] Upload failed:', errMsg);
-      setError(errMsg);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  // ----- DYNAMIC FULL-WEEK DOWNLOAD TEMPLATE -----
-  const downloadTemplate = () => {
-    const group = `${uploadSemester} Sem Sec ${uploadSection}`;
-    const templateDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    
-    const timeSlots = [
-      { s: '08:10', e: '09:00' },
-      { s: '09:00', e: '09:50' },
-      { s: '09:50', e: '10:40' },
-      { s: '10:40', e: '11:30' },
-      { s: '11:30', e: '12:20' },
-      { s: '12:20', e: '13:10' },
-      { s: '13:10', e: '14:10', isBreak: true }, 
-      { s: '14:10', e: '15:00' },
-      { s: '15:00', e: '15:50' },
-      { s: '15:50', e: '16:40' },
-      { s: '16:40', e: '17:30' },
-      { s: '17:30', e: '18:20' } 
-    ];
-
-    let csvContent = 'Day,Start Time,End Time,Subject,Faculty\n';
-
-    templateDays.forEach((day) => {
-      timeSlots.forEach((slot) => {
-        if (slot.isBreak) {
-          // Break row
-          csvContent += `${day},${slot.s},${slot.e},,\n`;
-        } else if (day === 'Monday' && slot.s === '08:10') {
-          csvContent += `${day},${slot.s},${slot.e},Data Structures,Dr. Rajesh Kumar\n`;
-        } else {
-          csvContent += `${day},${slot.s},${slot.e},,\n`;
-        }
-      });
-    });
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `NITRR_Timetable_Template_${uploadSemester}_Sec${uploadSection}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
-  const handleUpdateEntry = async (entryId, updatedData) => {
-    if (loading) return;
-    const trimmedSubject = (updatedData.subject || '').trim();
-    const trimmedFaculty = (updatedData.faculty || '').trim();
-    const trimmedClassGroup = (updatedData.classGroup || '').trim();
-    const trimmedEmail = (updatedData.facultyEmail || '').trim().toLowerCase();
-
-    if (!updatedData.startTime || !updatedData.endTime || !trimmedSubject || !trimmedFaculty) {
-      setError('Start Time, End Time, Subject, and Faculty are all required.');
-      return;
-    }
-
-    if (trimmedSubject.length < 2) {
-      setError('Subject must be at least 2 characters long.');
-      return;
-    }
-    if (trimmedSubject.length > 100) {
-      setError('Subject cannot exceed 100 characters.');
-      return;
-    }
-
-    if (trimmedFaculty.length < 2) {
-      setError('Faculty name must be at least 2 characters long.');
-      return;
-    }
-    if (trimmedFaculty.length > 100) {
-      setError('Faculty name cannot exceed 100 characters.');
-      return;
-    }
-
-    if (trimmedClassGroup.length > 50) {
-      setError('Class Group cannot exceed 50 characters.');
-      return;
-    }
-
-    if (trimmedEmail) {
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-        setError('Faculty email format is invalid. Please enter a valid email address.');
-        return;
-      }
-    }
-
-    const slotKey = `${updatedData.startTime}-${updatedData.endTime}`;
-    
-    if (!VALID_TIMETABLE_SLOTS.includes(slotKey)) {
-      setError(`Invalid time slot ${slotKey}. You must use the exact 50-minute institutional slots.`);
-      return;
-    }
-
-    if (slotKey === '13:10-14:10') {
-      setError('The 13:10-14:10 slot is reserved for the institutional break and cannot be assigned a class.');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-    console.log(`📝 [TIMETABLE] Updating entry: ${entryId}`, updatedData);
-
-    try {
-      const cleanRoomId =
-        updatedData.roomId && typeof updatedData.roomId === 'object'
-          ? updatedData.roomId._id || updatedData.roomId.id
-          : updatedData.roomId;
-
-      await updateTimetableEntry(entryId, { ...updatedData, roomId: cleanRoomId });
-      console.log(`✅ [TIMETABLE] Entry ${entryId} updated`);
-      setSuccess('Timetable entry updated successfully.');
-      setEditingEntry(null);
-      await fetchScheduleTable();
-    } catch (err) {
-      const errMsg = extractErrorMessage(err, 'Failed to update timetable entry.');
-      console.error('❌ [TIMETABLE] Update entry failed:', errMsg);
-      setError(errMsg);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteEntry = async (entryId) => {
-    if (actionLoadingId) return;
-    if (!window.confirm('Are you sure you want to delete this schedule slot?')) return;
-    setActionLoadingId(entryId);
-    setError('');
-    setSuccess('');
-    console.log(`🗑️  [TIMETABLE] Deleting entry: ${entryId}`);
-
-    try {
-      await deleteTimetableEntry(entryId);
-      console.log(`✅ [TIMETABLE] Entry ${entryId} deleted`);
-      setSuccess('Slot removed from timetable.');
-      await fetchScheduleTable();
-    } catch (err) {
-      const errMsg = extractErrorMessage(err, 'Failed to delete timetable entry.');
-      console.error('❌ [TIMETABLE] Delete entry failed:', errMsg);
-      setError(errMsg);
-    } finally {
-      setActionLoadingId(null);
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      {/* Alert Banners */}
-      {error && (
-        <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
-          <AlertCircle className="w-5 h-5 mr-2.5 text-rose-600 flex-shrink-0 mt-0.5" />
-          <div className="flex-1 whitespace-pre-line font-medium">{error}</div>
-          <button type="button" onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      {success && (
-        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-start text-emerald-800 text-sm font-medium animate-fadeIn">
-          <CheckCircle2 className="w-5 h-5 mr-2.5 text-emerald-600 flex-shrink-0 mt-0.5" />
-          <div className="flex-1">{success}</div>
-          <button type="button" onClick={() => setSuccess('')} className="text-emerald-500 hover:text-emerald-700">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Dedicated CSV / Excel Upload Card & Template Section */}
-        {!isAdmin && (
-          <div className="lg:col-span-5 space-y-6">
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm">
-            <div className="flex items-center gap-2.5 mb-5 pb-3 border-b border-slate-100">
-              <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                <FileSpreadsheet className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-slate-900">Upload Room Timetable</h3>
-                <p className="text-xs text-slate-400">Department of {user?.department}</p>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              {/* 1. Target Room */}
-              <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1.5">
-                  1. Select Classroom / Lab *
-                </label>
-                <select
-                  value={uploadRoomId}
-                  onChange={(e) => setUploadRoomId(e.target.value)}
-                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm bg-slate-50/50 font-bold text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all"
-                >
-                  {rooms.map((r) => (
-                    <option key={r.id || r._id} value={r.id || r._id}>
-                      {r.name} — {r.roomNumber} ({r.floor}, {r.building})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* 2. Target Semester & Section */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-800 mb-1.5">
-                    2. Semester *
-                  </label>
-                  <select
-                    value={uploadSemester}
-                    onChange={(e) => setUploadSemester(e.target.value)}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm bg-slate-50/50 font-semibold text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600"
-                  >
-                    {['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'].map((s) => (
-                      <option key={s} value={s}>{s} Semester</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-800 mb-1.5">
-                    3. Section *
-                  </label>
-                  <select
-                    value={uploadSection}
-                    onChange={(e) => setUploadSection(e.target.value)}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm bg-slate-50/50 font-semibold text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600"
-                  >
-                    {['A', 'B', 'C', 'D'].map((sec) => (
-                      <option key={sec} value={sec}>Section {sec}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* 3. Enhanced Download Template Banner */}
-              <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
-                    <FileText className="w-4 h-4 text-indigo-600" />
-                    <span>Download Pre-Formatted Template</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={downloadTemplate}
-                    className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1.5 shadow-sm transition-all"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>.CSV Template</span>
-                  </button>
-                </div>
-
-                <div className="text-[11px] text-slate-500 leading-relaxed">
-                  Generates an editable spreadsheet pre-filled for <strong className="text-slate-700">{uploadSemester} Sem Sec {uploadSection}</strong> (Monday–Saturday slots in 24h format).
-                </div>
-              </div>
-
-              {/* 4. File Input */}
-              <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1.5">
-                  4. Select Spreadsheet File (.csv, .xlsx, .xls) *
-                </label>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  onChange={handleFileSelect}
-                  className="block w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer border border-slate-200 rounded-xl p-1 bg-slate-50/50"
-                />
-              </div>
-
-              {/* Staged File Card with Submit Button */}
-              {selectedFile && (
-                <div className="bg-indigo-50/60 border border-indigo-200 rounded-2xl p-4 space-y-3 animate-fadeIn">
-                  <div className="flex items-center justify-between text-xs text-indigo-950 font-medium">
-                    <span className="truncate pr-2 font-semibold">
-                      📄 {selectedFile.name} ({(selectedFile.size / 1024).toFixed(1)} KB)
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedFile(null);
-                        if (fileInputRef.current) fileInputRef.current.value = '';
-                      }}
-                      className="text-rose-500 hover:text-rose-700 text-xs font-bold"
-                    >
-                      Remove
-                    </button>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleSubmitFile}
-                    disabled={uploading}
-                    className="w-full bg-indigo-600 text-white py-2.5 rounded-xl text-xs sm:text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2 shadow-sm"
-                  >
-                    {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                    <span>{uploading ? 'Validating & Publishing...' : 'Upload & Publish Timetable'}</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-          </div>
-        )}
-
-        {/* Right Column: Published Timetable Table with View Filters */}
-        <div className={isAdmin ? "lg:col-span-12 space-y-4" : "lg:col-span-7 space-y-4"}>
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
-            {/* Filter Bar Header */}
-            <div className="p-4 sm:p-5 border-b border-slate-100 bg-slate-50/50 space-y-3">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <BookOpen className="w-5 h-5 text-indigo-600" />
-                  <h3 className="text-base font-bold text-slate-900">
-                    Published Schedule ({displayedTimetable.length}{displayedTimetable.length !== timetable.length ? ` of ${timetable.length}` : ''} Slots)
-                  </h3>
-                </div>
-                <div className="flex items-center gap-2">
-                  {hasActiveFilters && (
-                    <button
-                      type="button"
-                      onClick={resetFilters}
-                      className="px-2.5 py-1 text-xs font-semibold text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-lg transition-colors inline-flex items-center gap-1"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      <span>Reset</span>
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={fetchScheduleTable}
-                    className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition-colors"
-                    title="Refresh Schedule"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Quick Search Bar */}
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="text"
-                  value={filterSearch}
-                  onChange={(e) => setFilterSearch(e.target.value)}
-                  placeholder="Search by subject, professor, or group..."
-                  className="w-full border border-slate-200 rounded-xl pl-8 pr-8 py-1.5 text-xs bg-white text-slate-800 placeholder-slate-400 outline-none focus:ring-2 focus:ring-indigo-600"
-                />
-                {filterSearch && (
-                  <button
-                    type="button"
-                    onClick={() => setFilterSearch('')}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-
-              {/* Multi-Criteria View Filters */}
-              <div className={`grid grid-cols-2 ${isAdmin ? 'sm:grid-cols-5' : 'sm:grid-cols-4'} gap-2 pt-1`}>
-                {isAdmin && (
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                      Department
-                    </label>
-                    <select
-                      value={filterDepartment}
-                      onChange={(e) => {
-                        setFilterDepartment(e.target.value);
-                        setFilterRoomId('ALL');
-                      }}
-                      className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white font-medium text-slate-800 outline-none"
-                    >
-                      <option value="ALL">All Branches</option>
-                      {departments.map((d) => (
-                        <option key={d} value={d}>{d}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                    Room
-                  </label>
-                  <select
-                    value={filterRoomId}
-                    onChange={(e) => setFilterRoomId(e.target.value)}
-                    className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white font-medium text-slate-800 outline-none"
-                  >
-                    <option value="ALL">All Rooms</option>
-                    {rooms.map((r) => (
-                      <option key={r.id || r._id} value={r.id || r._id}>
-                        {r.name} ({r.roomNumber})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                    Semester
-                  </label>
-                  <select
-                    value={filterSemester}
-                    onChange={(e) => setFilterSemester(e.target.value)}
-                    className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white font-medium text-slate-800 outline-none"
-                  >
-                    <option value="ALL">All Semesters</option>
-                    {['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'].map((s) => (
-                      <option key={s} value={s}>{s} Sem</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                    Section
-                  </label>
-                  <select
-                    value={filterSection}
-                    onChange={(e) => setFilterSection(e.target.value)}
-                    className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white font-medium text-slate-800 outline-none"
-                  >
-                    <option value="ALL">All Sections</option>
-                    {['A', 'B', 'C', 'D'].map((sec) => (
-                      <option key={sec} value={sec}>Section {sec}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                    Day
-                  </label>
-                  <select
-                    value={filterDay}
-                    onChange={(e) => setFilterDay(e.target.value)}
-                    className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white font-medium text-slate-800 outline-none"
-                  >
-                    <option value="ALL">All Days</option>
-                    {days.map((d) => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            {tableLoading ? (
-              <div className="p-12 text-center text-slate-400 text-sm">Loading timetable slots...</div>
-            ) : displayedTimetable.length === 0 ? (
-              <div className="p-12 text-center text-slate-500">
-                <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                <p className="text-sm font-medium">No published slots match your filter selection.</p>
-                <p className="text-xs text-slate-400 mt-1">
-                  {hasActiveFilters ? 'Try resetting your filters or adjusting your search keyword.' : 'Upload a timetable spreadsheet to get started.'}
-                </p>
-                {hasActiveFilters && (
-                  <button
-                    type="button"
-                    onClick={resetFilters}
-                    className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>Clear All Filters</span>
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
-                <table className="min-w-full divide-y divide-slate-200">
-                  <thead className="bg-slate-50 sticky top-0 z-10">
-                    <tr>
-                      <th className="text-left px-4 py-3 text-xs font-bold text-slate-600 uppercase tracking-wider">
-                        Day & Time
-                      </th>
-                      <th className="text-left px-4 py-3 text-xs font-bold text-slate-600 uppercase tracking-wider">
-                        Subject
-                      </th>
-                      <th className="text-left px-4 py-3 text-xs font-bold text-slate-600 uppercase tracking-wider">
-                        Room
-                      </th>
-                      <th className="text-left px-4 py-3 text-xs font-bold text-slate-600 uppercase tracking-wider">
-                        Faculty
-                      </th>
-                      <th className="text-right px-4 py-3 text-xs font-bold text-slate-600 uppercase tracking-wider">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 bg-white">
-                    {displayedTimetable.map((entry) => {
-                      const entryId = entry.id || entry._id;
-                      const isRowBusy = actionLoadingId === entryId;
-
-                      return (
-                        <tr key={entryId} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="px-4 py-3.5 text-sm">
-                            <div className="font-bold text-slate-900">{entry.day}</div>
-                            <div className="text-xs text-slate-500 flex items-center gap-1 font-mono mt-0.5">
-                              <Clock className="w-3 h-3" />
-                              <span>{entry.startTime} - {entry.endTime}</span>
-                            </div>
-                          </td>
-
-                          <td className="px-4 py-3.5 text-sm font-semibold text-slate-800">
-                            {entry.subject}
-                          </td>
-
-                          <td className="px-4 py-3.5 text-sm">
-                            <div className="font-medium text-indigo-900 flex items-center gap-1">
-                              <Building2 className="w-3.5 h-3.5 text-indigo-500" />
-                              <span>{entry.roomId?.name || 'Room'}</span>
-                            </div>
-                            <div className="text-[11px] text-slate-400 font-mono">
-                              {entry.roomId?.roomNumber || ''}
-                            </div>
-                          </td>
-
-                          <td className="px-4 py-3.5 text-sm">
-                            <div className="text-slate-800 font-medium">{entry.faculty}</div>
-                            <div className="text-[11px] text-slate-500 flex items-center flex-wrap gap-1 mt-1">
-                              {entry.semester && (
-                                <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
-                                  {String(entry.semester).toLowerCase().includes('sem') ? entry.semester : `${entry.semester} Sem`}
-                                </span>
-                              )}
-                              {entry.section && (
-                                <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100">
-                                  Sec {entry.section}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-
-                          <td className="px-4 py-3.5 text-sm text-right space-x-1.5 whitespace-nowrap">
-                            <button
-                              type="button"
-                              onClick={() => setEditingEntry({
-                                ...entry,
-                                id: entryId,
-                                roomId: entry.roomId?._id || entry.roomId?.id || entry.roomId,
-                              })}
-                              disabled={isRowBusy}
-                              className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-40"
-                              title="Edit Entry"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteEntry(entryId)}
-                              disabled={isRowBusy}
-                              className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-40"
-                              title="Delete Entry"
-                            >
-                              {isRowBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* Inline Edit Form */}
-          {editingEntry && (
-            <div className="bg-white border-2 border-indigo-200 rounded-2xl p-5 shadow-lg animate-fadeIn">
-              <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
-                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <Edit2 className="w-4 h-4 text-indigo-600" />
-                  Edit Schedule Slot ({editingEntry.day})
-                </h4>
-                <button
-                  type="button"
-                  onClick={() => setEditingEntry(null)}
-                  className="text-slate-400 hover:text-slate-600"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Start Time</label>
-                  <select
-                    value={editingEntry.startTime}
-                    onChange={(e) => setEditingEntry({ ...editingEntry, startTime: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-600"
-                  >
-                    {['08:10', '09:00', '09:50', '10:40', '11:30', '12:20', '13:10', '14:10', '15:00', '15:50', '16:40', '17:30', '18:20'].map(t => (
-                      <option key={'start-'+t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">End Time</label>
-                  <select
-                    value={editingEntry.endTime}
-                    onChange={(e) => setEditingEntry({ ...editingEntry, endTime: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-600"
-                  >
-                    {['08:10', '09:00', '09:50', '10:40', '11:30', '12:20', '13:10', '14:10', '15:00', '15:50', '16:40', '17:30', '18:20'].map(t => (
-                      <option key={'end-'+t} value={t} disabled={t <= editingEntry.startTime}>{t}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Room</label>
-                  <select
-                    value={
-                      editingEntry.roomId && typeof editingEntry.roomId === 'object'
-                        ? editingEntry.roomId._id || editingEntry.roomId.id
-                        : editingEntry.roomId
-                    }
-                    onChange={(e) => setEditingEntry({ ...editingEntry, roomId: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-600"
-                  >
-                    {rooms.map((r) => (
-                      <option key={r.id || r._id} value={r.id || r._id}>
-                        {r.name} ({r.roomNumber})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Subject</label>
-                  <input
-                    type="text"
-                    value={editingEntry.subject}
-                    onChange={(e) => setEditingEntry({ ...editingEntry, subject: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-600"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Faculty Name</label>
-                  <input
-                    type="text"
-                    value={editingEntry.faculty}
-                    onChange={(e) => setEditingEntry({ ...editingEntry, faculty: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-indigo-600"
-                  />
-                </div>
-              </div>
-
-              <div className="mt-4 flex gap-2 justify-end">
-                <button
-                  type="button"
-                  onClick={() => setEditingEntry(null)}
-                  className="bg-slate-100 text-slate-700 px-4 py-1.5 rounded-xl text-xs font-semibold hover:bg-slate-200 transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleUpdateEntry(editingEntry.id, editingEntry)}
-                  disabled={loading}
-                  className="bg-indigo-600 text-white px-5 py-1.5 rounded-xl text-xs font-bold hover:bg-indigo-700 shadow-sm disabled:opacity-50 flex items-center gap-1.5 transition-all"
-                >
-                  {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  <span>{loading ? 'Saving...' : 'Save Changes'}</span>
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+ const [rooms, setRooms] = useState([]);
+ const [timetable, setTimetable] = useState([]);
+ const [tableLoading, setTableLoading] = useState(true);
+ const [uploading, setUploading] = useState(false);
+ const [loading, setLoading] = useState(false);
+ const [actionLoadingId, setActionLoadingId] = useState(null);
+
+ const [departments, setDepartments] = useState([]); // for admin
+
+ // File Upload State
+ const [uploadSemester, setUploadSemester] = useState('5th');
+ const [uploadSection, setUploadSection] = useState('A');
+ const [uploadRoomId, setUploadRoomId] = useState('');
+ const [selectedFile, setSelectedFile] = useState(null);
+
+ // Schedule Multi-Criteria View Filters
+ const [filterDepartment, setFilterDepartment] = useState('ALL');
+ const [filterSemester, setFilterSemester] = useState('ALL');
+ const [filterSection, setFilterSection] = useState('ALL');
+ const [filterRoomId, setFilterRoomId] = useState('ALL');
+ const [filterDay, setFilterDay] = useState('ALL');
+ const [filterSearch, setFilterSearch] = useState('');
+
+ const [editingEntry, setEditingEntry] = useState(null);
+ const [error, setError] = useState('');
+ const [success, setSuccess] = useState('');
+
+ const fileInputRef = useRef(null);
+ const reqSeqRef = useRef(0);
+ const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+ const getEffectiveDepartment = useCallback(() => {
+ if (isAdmin) return filterDepartment;
+ return user?.department;
+ }, [isAdmin, filterDepartment, user?.department]);
+
+ useEffect(() => {
+ if (isAdmin) {
+ api.get('/api/auth/departments')
+ .then((res) => setDepartments((res?.data || []).map(d => typeof d === 'string' ? d : d.code || d.name)))
+ .catch(console.error);
+ }
+ }, [isAdmin]);
+
+ useEffect(() => {
+ fetchRooms();
+
+ const socket = getSocket();
+ if (!socket) return;
+
+ const handleTimetableLiveSync = () => {
+ fetchScheduleTable();
+ };
+ const handleRoomLiveSync = () => {
+ fetchRooms();
+ };
+
+ socket.on('timetable-updated', handleTimetableLiveSync);
+ socket.on('room-created', handleRoomLiveSync);
+ socket.on('room-updated', handleRoomLiveSync);
+ socket.on('room-deleted', handleRoomLiveSync);
+
+ return () => {
+ socket.off('timetable-updated', handleTimetableLiveSync);
+ socket.off('room-created', handleRoomLiveSync);
+ socket.off('room-updated', handleRoomLiveSync);
+ socket.off('room-deleted', handleRoomLiveSync);
+ };
+ }, [getEffectiveDepartment]);
+
+ useEffect(() => {
+ fetchScheduleTable();
+ }, [filterSemester, filterSection, filterRoomId, filterDay, filterDepartment, getEffectiveDepartment]);
+
+ const fetchRooms = async () => {
+ try {
+ const dep = getEffectiveDepartment();
+ const data = await getRooms(dep !== 'ALL' ? { department: dep } : {});
+ const roomList = data?.data || [];
+ setRooms(roomList);
+ if (roomList.length > 0 && !uploadRoomId) {
+ setUploadRoomId(roomList[0].id || roomList[0]._id);
+ }
+ } catch (err) {
+ const errMsg = extractErrorMessage(err, 'Failed to fetch rooms list.');
+ console.error('❌ [TIMETABLE] Failed to fetch rooms list:', errMsg);
+ setError(errMsg);
+ }
+ };
+
+ const fetchScheduleTable = async () => {
+ const seq = ++reqSeqRef.current;
+ setTableLoading(true);
+ try {
+ const dep = getEffectiveDepartment();
+ const params = {};
+ if (dep && dep !== 'ALL') params.department = dep;
+ 
+ if (filterSemester !== 'ALL') params.semester = filterSemester;
+ if (filterSection !== 'ALL') params.section = filterSection;
+ if (filterRoomId !== 'ALL') params.roomId = filterRoomId;
+ if (filterDay !== 'ALL') params.day = filterDay;
+ if (filterSearch.trim()) params.search = filterSearch.trim();
+
+ const data = await getTimetable(params);
+ if (seq === reqSeqRef.current) {
+ setTimetable(data?.data || []);
+ }
+ } catch (err) {
+ if (seq === reqSeqRef.current) {
+ const errMsg = extractErrorMessage(err, 'Failed to load timetable schedule.');
+ console.error('❌ [TIMETABLE] Failed to load timetable schedule:', errMsg);
+ setError(errMsg);
+ }
+ } finally {
+ if (seq === reqSeqRef.current) {
+ setTableLoading(false);
+ }
+ }
+ };
+
+ // Instant client-side multi-layer filter ensuring 100% responsiveness & accuracy
+ const displayedTimetable = useMemo(() => {
+ return (timetable || []).filter((entry) => {
+ // 1. Room filter (robust check across id and _id)
+ if (filterRoomId !== 'ALL') {
+ const entryRoomId = String(entry.roomId?._id || entry.roomId?.id || entry.roomId || '');
+ if (entryRoomId !== String(filterRoomId)) return false;
+ }
+
+ // 2. Semester filter (flexible digit check so "5th", "5th Sem", "5" all match correctly)
+ if (filterSemester !== 'ALL') {
+ const targetDigit = filterSemester.match(/\d+/)?.[0];
+ const entrySemStr = String(entry.semester || entry.classGroup || '');
+ const entryDigit = entrySemStr.match(/\d+/)?.[0];
+ if (targetDigit && entryDigit && targetDigit !== entryDigit) return false;
+ if (!targetDigit && !entrySemStr.toLowerCase().includes(filterSemester.toLowerCase())) return false;
+ }
+
+ // 3. Section filter
+ if (filterSection !== 'ALL') {
+ const sec = String(entry.section || '').trim().toUpperCase();
+ const classGroup = String(entry.classGroup || '').toUpperCase();
+ const targetSec = filterSection.toUpperCase();
+ const matchSec =
+ sec === targetSec ||
+ classGroup.includes(`SEC ${targetSec}`) ||
+ classGroup.includes(`SECTION ${targetSec}`) ||
+ classGroup.endsWith(` ${targetSec}`);
+ if (!matchSec) return false;
+ }
+
+ // 4. Day filter
+ if (filterDay !== 'ALL') {
+ if (String(entry.day || '').trim().toLowerCase() !== filterDay.trim().toLowerCase()) return false;
+ }
+
+ // 5. Search text (Subject, Faculty, Faculty Email, Class Group, Room Name/Number)
+ if (filterSearch.trim()) {
+ const q = filterSearch.trim().toLowerCase();
+ const corpus = [
+ entry.subject || '',
+ entry.faculty || '',
+ entry.facultyEmail || '',
+ entry.classGroup || '',
+ entry.roomId?.name || '',
+ entry.roomId?.roomNumber || '',
+ entry.roomId?.building || '',
+ ].join(' ').toLowerCase();
+ if (!corpus.includes(q)) return false;
+ }
+
+ return true;
+ });
+ }, [timetable, filterRoomId, filterSemester, filterSection, filterDay, filterSearch]);
+
+ const hasActiveFilters =
+ filterRoomId !== 'ALL' ||
+ filterSemester !== 'ALL' ||
+ filterSection !== 'ALL' ||
+ filterDay !== 'ALL' ||
+ Boolean(filterSearch.trim());
+
+ const resetFilters = () => {
+ setFilterRoomId('ALL');
+ setFilterSemester('ALL');
+ setFilterSection('ALL');
+ setFilterDay('ALL');
+ setFilterSearch('');
+ };
+
+ // ----- Client-Side CSV Pre-Verification -----
+ const verifyCSVContent = async (file) => {
+ return new Promise((resolve, reject) => {
+ const reader = new FileReader();
+ reader.onload = (e) => {
+ try {
+ const text = e.target.result;
+ const lines = text.split(/\r\n|\n/).filter((l) => l.trim() !== '');
+
+ if (lines.length <= 1) {
+ return reject(new Error('The spreadsheet file is empty or contains no data rows.'));
+ }
+
+ const headers = lines[0].split(',').map((h) => h.trim().toLowerCase().replace(/[\s_-]/g, ''));
+ const required = ['day', 'starttime', 'endtime', 'subject', 'faculty'];
+ const missing = required.filter((r) => !headers.includes(r));
+
+ if (missing.length > 0) {
+ return reject(
+ new Error(
+ `Wrong format: Missing required columns [${missing.join(', ')}].\nExpected Header: Day, Start Time, End Time, Subject, Faculty`
+ )
+ );
+ }
+
+ const dayIdx = headers.indexOf('day');
+ const startIdx = headers.indexOf('starttime');
+ const endIdx = headers.indexOf('endtime');
+ const subjIdx = headers.indexOf('subject');
+ const facultyIdx = headers.indexOf('faculty');
+ const emailIdx = headers.findIndex((h) => ['facultyemail', 'email', 'professoremail'].includes(h));
+
+ const parsedRows = [];
+ for (let i = 1; i < lines.length; i++) {
+ const cols = lines[i].split(',').map((c) => c.trim());
+ if (cols.length < 5) continue;
+
+ const day = cols[dayIdx];
+ const startTime = cols[startIdx];
+ const endTime = cols[endIdx];
+ const subject = cols[subjIdx] || '';
+ const faculty = cols[facultyIdx] || '';
+ const facultyEmail = emailIdx !== -1 ? (cols[emailIdx] || '') : '';
+
+ const isSubjectEmpty = subject === '';
+ const isFacultyEmpty = faculty === '';
+
+ if (isSubjectEmpty !== isFacultyEmpty) {
+ return reject(new Error(`Row #${i}: Both Subject and Faculty must be provided together, or both must be empty to indicate a free slot.`));
+ }
+
+ if (!days.includes(day)) {
+ return reject(new Error(`Row #${i}: Invalid Day "${day}". Must be one of ${days.join(', ')}.`));
+ }
+ if (!isValidTimeFormat(startTime) || !isValidTimeFormat(endTime)) {
+ return reject(new Error(`Row #${i}: Invalid time format (${startTime} - ${endTime}). Must be 24-hour HH:mm.`));
+ }
+
+ const slotKey = `${startTime}-${endTime}`;
+ 
+ if (!VALID_TIMETABLE_SLOTS.includes(slotKey)) {
+ return reject(new Error(`Row #${i}: Invalid time slot ${slotKey}. You must use the exact 50-minute institutional slots.`));
+ }
+
+ if (slotKey === '13:10-14:10' && (!isSubjectEmpty || !isFacultyEmpty)) {
+ return reject(new Error(`Row #${i}: The 13:10-14:10 slot is reserved for lunch break. You must leave Subject and Faculty blank.`));
+ }
+
+ if (isSubjectEmpty && isFacultyEmpty) {
+ continue;
+ }
+
+ parsedRows.push({ rowNumber: i, day, startTime, endTime, subject, faculty, facultyEmail });
+ }
+
+ for (let i = 0; i < parsedRows.length; i++) {
+ for (let j = i + 1; j < parsedRows.length; j++) {
+ const a = parsedRows[i];
+ const b = parsedRows[j];
+
+ if (a.day === b.day && isOverlapping(a.startTime, a.endTime, b.startTime, b.endTime)) {
+ if (a.faculty.toLowerCase() === b.faculty.toLowerCase()) {
+ if (a.facultyEmail && b.facultyEmail && a.facultyEmail.toLowerCase() !== b.facultyEmail.toLowerCase()) {
+ // Distinct professors with identical names
+ } else {
+ return reject(
+ new Error(
+ `🚫 Faculty Collision in File:\n• Row #${a.rowNumber}: "${a.faculty}" (${a.startTime} - ${a.endTime})\n• Row #${b.rowNumber}: "${b.faculty}" (${b.startTime} - ${b.endTime})\nBoth classes are assigned to the same faculty at overlapping times on ${a.day}.`
+ )
+ );
+ }
+ }
+ }
+ }
+ }
+
+ resolve(true);
+ } catch (err) {
+ reject(err);
+ }
+ };
+ reader.readAsText(file);
+ });
+ };
+
+ const handleFileSelect = async (e) => {
+ const file = e.target.files?.[0];
+ setError('');
+ setSuccess('');
+
+ if (!file) {
+ setSelectedFile(null);
+ return;
+ }
+
+ const validExtensions = ['.csv', '.xlsx', '.xls'];
+ const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+
+ if (!validExtensions.includes(ext)) {
+ setError(`Invalid format (${ext}). Only .csv, .xlsx, and .xls spreadsheets are permitted.`);
+ setSelectedFile(null);
+ if (fileInputRef.current) fileInputRef.current.value = '';
+ return;
+ }
+
+ if (ext === '.csv') {
+ try {
+ await verifyCSVContent(file);
+ } catch (validationErr) {
+ setError(extractErrorMessage(validationErr, 'Spreadsheet format verification failed.'));
+ setSelectedFile(null);
+ if (fileInputRef.current) fileInputRef.current.value = '';
+ return;
+ }
+ }
+
+ setSelectedFile(file);
+ };
+
+ const handleSubmitFile = async () => {
+ if (uploading) return;
+ if (!selectedFile) {
+ setError('Please choose a valid spreadsheet file first.');
+ return;
+ }
+ if (!uploadRoomId) {
+ setError('Please select a Target Room from the dropdown.');
+ return;
+ }
+
+ setError('');
+ setSuccess('');
+ setUploading(true);
+ console.log(`📊 [TIMETABLE] Uploading schedule: sem=${uploadSemester} sec=${uploadSection} room=${uploadRoomId}`);
+
+ const formData = new FormData();
+ formData.append('file', selectedFile);
+ formData.append('semester', uploadSemester);
+ formData.append('section', uploadSection);
+ formData.append('roomId', uploadRoomId);
+
+ try {
+ const data = await api.post('/api/timetable/upload', formData, {
+ headers: { 'Content-Type': 'multipart/form-data' },
+ });
+
+ console.log(`✅ [TIMETABLE] Upload succeeded`);
+ setSuccess(data.data?.message || 'Timetable published successfully!');
+ setSelectedFile(null);
+ if (fileInputRef.current) fileInputRef.current.value = '';
+
+ setFilterSemester('ALL');
+ setFilterRoomId(uploadRoomId);
+ await fetchScheduleTable();
+ } catch (err) {
+ const errMsg = extractErrorMessage(err, 'Failed to upload timetable file.');
+ console.error('❌ [TIMETABLE] Upload failed:', errMsg);
+ setError(errMsg);
+ } finally {
+ setUploading(false);
+ }
+ };
+
+ // ----- DYNAMIC FULL-WEEK DOWNLOAD TEMPLATE -----
+ const downloadTemplate = () => {
+ const group = `${uploadSemester} Sem Sec ${uploadSection}`;
+ const templateDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+ 
+ const timeSlots = [
+ { s: '08:10', e: '09:00' },
+ { s: '09:00', e: '09:50' },
+ { s: '09:50', e: '10:40' },
+ { s: '10:40', e: '11:30' },
+ { s: '11:30', e: '12:20' },
+ { s: '12:20', e: '13:10' },
+ { s: '13:10', e: '14:10', isBreak: true }, 
+ { s: '14:10', e: '15:00' },
+ { s: '15:00', e: '15:50' },
+ { s: '15:50', e: '16:40' },
+ { s: '16:40', e: '17:30' },
+ { s: '17:30', e: '18:20' } 
+ ];
+
+ let csvContent = 'Day,Start Time,End Time,Subject,Faculty\n';
+
+ templateDays.forEach((day) => {
+ timeSlots.forEach((slot) => {
+ if (slot.isBreak) {
+ // Break row
+ csvContent += `${day},${slot.s},${slot.e},,\n`;
+ } else if (day === 'Monday' && slot.s === '08:10') {
+ csvContent += `${day},${slot.s},${slot.e},Data Structures,Dr. Rajesh Kumar\n`;
+ } else {
+ csvContent += `${day},${slot.s},${slot.e},,\n`;
+ }
+ });
+ });
+
+ const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+ const url = URL.createObjectURL(blob);
+ const link = document.createElement('a');
+ link.href = url;
+ link.download = `NITRR_Timetable_Template_${uploadSemester}_Sec${uploadSection}.csv`;
+ document.body.appendChild(link);
+ link.click();
+ document.body.removeChild(link);
+ URL.revokeObjectURL(url);
+ };
+
+ const handleUpdateEntry = async (entryId, updatedData) => {
+ if (loading) return;
+ const trimmedSubject = (updatedData.subject || '').trim();
+ const trimmedFaculty = (updatedData.faculty || '').trim();
+ const trimmedClassGroup = (updatedData.classGroup || '').trim();
+ const trimmedEmail = (updatedData.facultyEmail || '').trim().toLowerCase();
+
+ if (!updatedData.startTime || !updatedData.endTime || !trimmedSubject || !trimmedFaculty) {
+ setError('Start Time, End Time, Subject, and Faculty are all required.');
+ return;
+ }
+
+ if (trimmedSubject.length < 2) {
+ setError('Subject must be at least 2 characters long.');
+ return;
+ }
+ if (trimmedSubject.length > 100) {
+ setError('Subject cannot exceed 100 characters.');
+ return;
+ }
+
+ if (trimmedFaculty.length < 2) {
+ setError('Faculty name must be at least 2 characters long.');
+ return;
+ }
+ if (trimmedFaculty.length > 100) {
+ setError('Faculty name cannot exceed 100 characters.');
+ return;
+ }
+
+ if (trimmedClassGroup.length > 50) {
+ setError('Class Group cannot exceed 50 characters.');
+ return;
+ }
+
+ if (trimmedEmail) {
+ if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+ setError('Faculty email format is invalid. Please enter a valid email address.');
+ return;
+ }
+ }
+
+ const slotKey = `${updatedData.startTime}-${updatedData.endTime}`;
+ 
+ if (!VALID_TIMETABLE_SLOTS.includes(slotKey)) {
+ setError(`Invalid time slot ${slotKey}. You must use the exact 50-minute institutional slots.`);
+ return;
+ }
+
+ if (slotKey === '13:10-14:10') {
+ setError('The 13:10-14:10 slot is reserved for the institutional break and cannot be assigned a class.');
+ return;
+ }
+
+ setLoading(true);
+ setError('');
+ console.log(`📝 [TIMETABLE] Updating entry: ${entryId}`, updatedData);
+
+ try {
+ const cleanRoomId =
+ updatedData.roomId && typeof updatedData.roomId === 'object'
+ ? updatedData.roomId._id || updatedData.roomId.id
+ : updatedData.roomId;
+
+ await updateTimetableEntry(entryId, { ...updatedData, roomId: cleanRoomId });
+ console.log(`✅ [TIMETABLE] Entry ${entryId} updated`);
+ setSuccess('Timetable entry updated successfully.');
+ setEditingEntry(null);
+ await fetchScheduleTable();
+ } catch (err) {
+ const errMsg = extractErrorMessage(err, 'Failed to update timetable entry.');
+ console.error('❌ [TIMETABLE] Update entry failed:', errMsg);
+ setError(errMsg);
+ } finally {
+ setLoading(false);
+ }
+ };
+
+ const handleDeleteEntry = async (entryId) => {
+ if (actionLoadingId) return;
+ if (!window.confirm('Are you sure you want to delete this schedule slot?')) return;
+ setActionLoadingId(entryId);
+ setError('');
+ setSuccess('');
+ console.log(`🗑️ [TIMETABLE] Deleting entry: ${entryId}`);
+
+ try {
+ await deleteTimetableEntry(entryId);
+ console.log(`✅ [TIMETABLE] Entry ${entryId} deleted`);
+ setSuccess('Slot removed from timetable.');
+ await fetchScheduleTable();
+ } catch (err) {
+ const errMsg = extractErrorMessage(err, 'Failed to delete timetable entry.');
+ console.error('❌ [TIMETABLE] Delete entry failed:', errMsg);
+ setError(errMsg);
+ } finally {
+ setActionLoadingId(null);
+ }
+ };
+
+ return (
+ <div className="space-y-6">
+ {/* Alert Banners */}
+ {error && (
+ <div className="px-5 py-3 bg-white border border-slate-200 flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
+ <AlertCircle className="w-5 h-5 mr-2.5 text-rose-600 flex-shrink-0 mt-0.5" />
+ <div className="flex-1 whitespace-pre-line font-medium">{error}</div>
+ <button type="button" onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
+ <X className="w-4 h-4" />
+ </button>
+ </div>
+ )}
+
+ {success && (
+ <div className="px-5 py-3 bg-white border border-slate-200 flex items-start text-emerald-800 text-sm font-medium animate-fadeIn">
+ <CheckCircle2 className="w-5 h-5 mr-2.5 text-emerald-600 flex-shrink-0 mt-0.5" />
+ <div className="flex-1">{success}</div>
+ <button type="button" onClick={() => setSuccess('')} className="text-emerald-500 hover:text-emerald-700">
+ <X className="w-4 h-4" />
+ </button>
+ </div>
+ )}
+
+ <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+ {/* Left Column: Dedicated CSV / Excel Upload Card & Template Section */}
+ {!isAdmin && (
+ <div className="lg:col-span-5 space-y-6">
+ <div className="bg-white border border-slate-200 px-8 py-5 sm:px-8 py-5 shadow-sm">
+ <div className="flex items-center gap-2.5 mb-5 pb-3 border-b border-slate-100">
+ <div className="w-9 h-9 bg-slate-50 text-slate-900 flex items-center justify-center">
+ <FileSpreadsheet className="w-5 h-5" />
+ </div>
+ <div>
+ <h3 className="text-base font-bold text-slate-900">Upload Room Timetable</h3>
+ <p className="text-xs text-slate-400">Department of {user?.department}</p>
+ </div>
+ </div>
+
+ <div className="space-y-4">
+ {/* 1. Target Room */}
+ <div>
+ <label className="block text-xs font-bold text-slate-800 mb-1.5">
+ 1. Select Classroom / Lab *
+ </label>
+ <select
+ value={uploadRoomId}
+ onChange={(e) => setUploadRoomId(e.target.value)}
+ className="w-full border border-slate-200 px-3.5 py-2.5 text-xs sm:text-sm bg-slate-50/50 font-bold text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-slate-900 transition-all"
+ >
+ {rooms.map((r) => (
+ <option key={r.id || r._id} value={r.id || r._id}>
+ {r.name} — {r.roomNumber} ({r.floor}, {r.building})
+ </option>
+ ))}
+ </select>
+ </div>
+
+ {/* 2. Target Semester & Section */}
+ <div className="grid grid-cols-2 gap-3">
+ <div>
+ <label className="block text-xs font-bold text-slate-800 mb-1.5">
+ 2. Semester *
+ </label>
+ <select
+ value={uploadSemester}
+ onChange={(e) => setUploadSemester(e.target.value)}
+ className="w-full border border-slate-200 px-3 py-2 text-xs sm:text-sm bg-slate-50/50 font-semibold text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-slate-900"
+ >
+ {['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'].map((s) => (
+ <option key={s} value={s}>{s} Semester</option>
+ ))}
+ </select>
+ </div>
+ <div>
+ <label className="block text-xs font-bold text-slate-800 mb-1.5">
+ 3. Section *
+ </label>
+ <select
+ value={uploadSection}
+ onChange={(e) => setUploadSection(e.target.value)}
+ className="w-full border border-slate-200 px-3 py-2 text-xs sm:text-sm bg-slate-50/50 font-semibold text-slate-900 outline-none focus:bg-white focus:ring-2 focus:ring-slate-900"
+ >
+ {['A', 'B', 'C', 'D'].map((sec) => (
+ <option key={sec} value={sec}>Section {sec}</option>
+ ))}
+ </select>
+ </div>
+ </div>
+
+ {/* 3. Enhanced Download Template Banner */}
+ <div className="p-3.5 bg-slate-50 border border-slate-200/80 space-y-2.5">
+ <div className="flex items-center justify-between">
+ <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+ <FileText className="w-4 h-4 text-slate-900" />
+ <span>Download Pre-Formatted Template</span>
+ </div>
+ <button
+ type="button"
+ onClick={downloadTemplate}
+ className="px-3 py-1 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-sm transition-all"
+ >
+ <Download className="w-3.5 h-3.5" />
+ <span>.CSV Template</span>
+ </button>
+ </div>
+
+ <div className="text-[11px] text-slate-500 leading-relaxed">
+ Generates an editable spreadsheet pre-filled for <strong className="text-slate-700">{uploadSemester} Sem Sec {uploadSection}</strong> (Monday–Saturday slots in 24h format).
+ </div>
+ </div>
+
+ {/* 4. File Input */}
+ <div>
+ <label className="block text-xs font-bold text-slate-800 mb-1.5">
+ 4. Select Spreadsheet File (.csv, .xlsx, .xls) *
+ </label>
+ <input
+ ref={fileInputRef}
+ type="file"
+ accept=".xlsx,.xls,.csv"
+ onChange={handleFileSelect}
+ className="block w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3.5 file: file:border-0 file:text-xs file:font-bold file:bg-slate-50 file:text-slate-800 hover:file:bg-indigo-100 cursor-pointer border border-slate-200 p-1 bg-slate-50/50"
+ />
+ </div>
+
+ {/* Staged File Card with Submit Button */}
+ {selectedFile && (
+ <div className="bg-slate-50/60 border border-slate-300 px-5 py-3 space-y-3 animate-fadeIn">
+ <div className="flex items-center justify-between text-xs text-indigo-950 font-medium">
+ <span className="truncate pr-2 font-semibold">
+ 📄 {selectedFile.name} ({(selectedFile.size / 1024).toFixed(1)} KB)
+ </span>
+ <button
+ type="button"
+ onClick={() => {
+ setSelectedFile(null);
+ if (fileInputRef.current) fileInputRef.current.value = '';
+ }}
+ className="text-rose-500 hover:text-rose-700 text-xs font-bold"
+ >
+ Remove
+ </button>
+ </div>
+
+ <button
+ type="button"
+ onClick={handleSubmitFile}
+ disabled={uploading}
+ className="w-full bg-slate-900 text-white py-2.5 text-xs sm:text-sm font-bold hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center justify-center gap-2 shadow-sm"
+ >
+ {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+ <span>{uploading ? 'Validating & Publishing...' : 'Upload & Publish Timetable'}</span>
+ </button>
+ </div>
+ )}
+ </div>
+ </div>
+ </div>
+ )}
+
+ {/* Right Column: Published Timetable Table with View Filters */}
+ <div className={isAdmin ? "lg:col-span-12 space-y-4" : "lg:col-span-7 space-y-4"}>
+ <div className="bg-white border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+ {/* Filter Bar Header */}
+ <div className="px-5 py-3 sm:px-8 py-5 border-b border-slate-100 bg-slate-50/50 space-y-3">
+ <div className="flex items-center justify-between gap-3 flex-wrap">
+ <div className="flex items-center gap-2">
+ <BookOpen className="w-5 h-5 text-slate-900" />
+ <h3 className="text-base font-bold text-slate-900">
+ Published Schedule ({displayedTimetable.length}{displayedTimetable.length !== timetable.length ? ` of ${timetable.length}` : ''} Slots)
+ </h3>
+ </div>
+ <div className="flex items-center gap-2">
+ {hasActiveFilters && (
+ <button
+ type="button"
+ onClick={resetFilters}
+ className="px-2.5 py-1 text-xs font-semibold text-rose-600 hover:text-rose-800 hover:bg-rose-50 transition-colors inline-flex items-center gap-1"
+ >
+ <RotateCcw className="w-3.5 h-3.5" />
+ <span>Reset</span>
+ </button>
+ )}
+ <button
+ type="button"
+ onClick={fetchScheduleTable}
+ className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-200/60 transition-colors"
+ title="Refresh Schedule"
+ >
+ <RefreshCw className="w-4 h-4" />
+ </button>
+ </div>
+ </div>
+
+ {/* Quick Search Bar */}
+ <div className="relative">
+ <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+ <input
+ type="text"
+ value={filterSearch}
+ onChange={(e) => setFilterSearch(e.target.value)}
+ placeholder="Search by subject, professor, or group..."
+ className="w-full border border-slate-200 pl-8 pr-8 py-1.5 text-xs bg-white text-slate-800 placeholder-slate-400 outline-none focus:ring-2 focus:ring-slate-900"
+ />
+ {filterSearch && (
+ <button
+ type="button"
+ onClick={() => setFilterSearch('')}
+ className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+ >
+ <X className="w-3.5 h-3.5" />
+ </button>
+ )}
+ </div>
+
+ {/* Multi-Criteria View Filters */}
+ <div className={`grid grid-cols-2 ${isAdmin ? 'sm:grid-cols-5' : 'sm:grid-cols-4'} gap-2 pt-1`}>
+ {isAdmin && (
+ <div>
+ <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+ Department
+ </label>
+ <select
+ value={filterDepartment}
+ onChange={(e) => {
+ setFilterDepartment(e.target.value);
+ setFilterRoomId('ALL');
+ }}
+ className="w-full border border-slate-200 px-2 py-1.5 text-xs bg-white font-medium text-slate-800 outline-none"
+ >
+ <option value="ALL">All Branches</option>
+ {departments.map((d) => (
+ <option key={d} value={d}>{d}</option>
+ ))}
+ </select>
+ </div>
+ )}
+ 
+ <div>
+ <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+ Room
+ </label>
+ <select
+ value={filterRoomId}
+ onChange={(e) => setFilterRoomId(e.target.value)}
+ className="w-full border border-slate-200 px-2 py-1.5 text-xs bg-white font-medium text-slate-800 outline-none"
+ >
+ <option value="ALL">All Rooms</option>
+ {rooms.map((r) => (
+ <option key={r.id || r._id} value={r.id || r._id}>
+ {r.name} ({r.roomNumber})
+ </option>
+ ))}
+ </select>
+ </div>
+
+ <div>
+ <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+ Semester
+ </label>
+ <select
+ value={filterSemester}
+ onChange={(e) => setFilterSemester(e.target.value)}
+ className="w-full border border-slate-200 px-2 py-1.5 text-xs bg-white font-medium text-slate-800 outline-none"
+ >
+ <option value="ALL">All Semesters</option>
+ {['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'].map((s) => (
+ <option key={s} value={s}>{s} Sem</option>
+ ))}
+ </select>
+ </div>
+
+ <div>
+ <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+ Section
+ </label>
+ <select
+ value={filterSection}
+ onChange={(e) => setFilterSection(e.target.value)}
+ className="w-full border border-slate-200 px-2 py-1.5 text-xs bg-white font-medium text-slate-800 outline-none"
+ >
+ <option value="ALL">All Sections</option>
+ {['A', 'B', 'C', 'D'].map((sec) => (
+ <option key={sec} value={sec}>Section {sec}</option>
+ ))}
+ </select>
+ </div>
+
+ <div>
+ <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+ Day
+ </label>
+ <select
+ value={filterDay}
+ onChange={(e) => setFilterDay(e.target.value)}
+ className="w-full border border-slate-200 px-2 py-1.5 text-xs bg-white font-medium text-slate-800 outline-none"
+ >
+ <option value="ALL">All Days</option>
+ {days.map((d) => (
+ <option key={d} value={d}>{d}</option>
+ ))}
+ </select>
+ </div>
+ </div>
+ </div>
+
+ {tableLoading ? (
+ <div className="p-12 text-center text-slate-400 text-sm">Loading timetable slots...</div>
+ ) : displayedTimetable.length === 0 ? (
+ <div className="p-12 text-center text-slate-500">
+ <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+ <p className="text-sm font-medium">No published slots match your filter selection.</p>
+ <p className="text-xs text-slate-400 mt-1">
+ {hasActiveFilters ? 'Try resetting your filters or adjusting your search keyword.' : 'Upload a timetable spreadsheet to get started.'}
+ </p>
+ {hasActiveFilters && (
+ <button
+ type="button"
+ onClick={resetFilters}
+ className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-900 bg-slate-50 hover:bg-indigo-100 transition-colors"
+ >
+ <RotateCcw className="w-3.5 h-3.5" />
+ <span>Clear All Filters</span>
+ </button>
+ )}
+ </div>
+ ) : (
+ <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+ <table className="min-w-full divide-y divide-slate-200">
+ <thead className="bg-slate-50 sticky top-0 z-10">
+ <tr>
+ <th className="text-left px-4 py-3 text-xs font-bold text-slate-600 uppercase tracking-wider">
+ Day & Time
+ </th>
+ <th className="text-left px-4 py-3 text-xs font-bold text-slate-600 uppercase tracking-wider">
+ Subject
+ </th>
+ <th className="text-left px-4 py-3 text-xs font-bold text-slate-600 uppercase tracking-wider">
+ Room
+ </th>
+ <th className="text-left px-4 py-3 text-xs font-bold text-slate-600 uppercase tracking-wider">
+ Faculty
+ </th>
+ <th className="text-right px-4 py-3 text-xs font-bold text-slate-600 uppercase tracking-wider">
+ Actions
+ </th>
+ </tr>
+ </thead>
+ <tbody className="divide-y divide-slate-100 bg-white">
+ {displayedTimetable.map((entry) => {
+ const entryId = entry.id || entry._id;
+ const isRowBusy = actionLoadingId === entryId;
+
+ return (
+ <tr key={entryId} className="hover:bg-slate-50/80 transition-colors">
+ <td className="px-4 py-3.5 text-sm">
+ <div className="font-bold text-slate-900">{entry.day}</div>
+ <div className="text-xs text-slate-500 flex items-center gap-1 font-mono mt-0.5">
+ <Clock className="w-3 h-3" />
+ <span>{entry.startTime} - {entry.endTime}</span>
+ </div>
+ </td>
+
+ <td className="px-4 py-3.5 text-sm font-semibold text-slate-800">
+ {entry.subject}
+ </td>
+
+ <td className="px-4 py-3.5 text-sm">
+ <div className="font-medium text-slate-900 flex items-center gap-1">
+ <Building2 className="w-3.5 h-3.5 text-slate-700" />
+ <span>{entry.roomId?.name || 'Room'}</span>
+ </div>
+ <div className="text-[11px] text-slate-400 font-mono">
+ {entry.roomId?.roomNumber || ''}
+ </div>
+ </td>
+
+ <td className="px-4 py-3.5 text-sm">
+ <div className="text-slate-800 font-medium">{entry.faculty}</div>
+ <div className="text-[11px] text-slate-500 flex items-center flex-wrap gap-1 mt-1">
+ {entry.semester && (
+ <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 border border-blue-100">
+ {String(entry.semester).toLowerCase().includes('sem') ? entry.semester : `${entry.semester} Sem`}
+ </span>
+ )}
+ {entry.section && (
+ <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 border border-purple-100">
+ Sec {entry.section}
+ </span>
+ )}
+ </div>
+ </td>
+
+ <td className="px-4 py-3.5 text-sm text-right space-x-1.5 whitespace-nowrap">
+ <button
+ type="button"
+ onClick={() => setEditingEntry({
+ ...entry,
+ id: entryId,
+ roomId: entry.roomId?._id || entry.roomId?.id || entry.roomId,
+ })}
+ disabled={isRowBusy}
+ className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors disabled:opacity-40"
+ title="Edit Entry"
+ >
+ <Edit2 className="w-4 h-4" />
+ </button>
+ <button
+ type="button"
+ onClick={() => handleDeleteEntry(entryId)}
+ disabled={isRowBusy}
+ className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 transition-colors disabled:opacity-40"
+ title="Delete Entry"
+ >
+ {isRowBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+ </button>
+ </td>
+ </tr>
+ );
+ })}
+ </tbody>
+ </table>
+ </div>
+ )}
+ </div>
+
+ {/* Inline Edit Form */}
+ {editingEntry && (
+ <div className="bg-white border-2 border-slate-300 px-8 py-5 shadow-lg animate-fadeIn">
+ <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
+ <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+ <Edit2 className="w-4 h-4 text-slate-900" />
+ Edit Schedule Slot ({editingEntry.day})
+ </h4>
+ <button
+ type="button"
+ onClick={() => setEditingEntry(null)}
+ className="text-slate-400 hover:text-slate-600"
+ >
+ <X className="w-4 h-4" />
+ </button>
+ </div>
+
+ <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+ <div>
+ <label className="block text-[11px] font-bold text-slate-600 mb-1">Start Time</label>
+ <select
+ value={editingEntry.startTime}
+ onChange={(e) => setEditingEntry({ ...editingEntry, startTime: e.target.value })}
+ className="w-full border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-slate-900"
+ >
+ {['08:10', '09:00', '09:50', '10:40', '11:30', '12:20', '13:10', '14:10', '15:00', '15:50', '16:40', '17:30', '18:20'].map(t => (
+ <option key={'start-'+t} value={t}>{t}</option>
+ ))}
+ </select>
+ </div>
+ <div>
+ <label className="block text-[11px] font-bold text-slate-600 mb-1">End Time</label>
+ <select
+ value={editingEntry.endTime}
+ onChange={(e) => setEditingEntry({ ...editingEntry, endTime: e.target.value })}
+ className="w-full border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-slate-900"
+ >
+ {['08:10', '09:00', '09:50', '10:40', '11:30', '12:20', '13:10', '14:10', '15:00', '15:50', '16:40', '17:30', '18:20'].map(t => (
+ <option key={'end-'+t} value={t} disabled={t <= editingEntry.startTime}>{t}</option>
+ ))}
+ </select>
+ </div>
+ <div>
+ <label className="block text-[11px] font-bold text-slate-600 mb-1">Room</label>
+ <select
+ value={
+ editingEntry.roomId && typeof editingEntry.roomId === 'object'
+ ? editingEntry.roomId._id || editingEntry.roomId.id
+ : editingEntry.roomId
+ }
+ onChange={(e) => setEditingEntry({ ...editingEntry, roomId: e.target.value })}
+ className="w-full border border-slate-200 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-slate-900"
+ >
+ {rooms.map((r) => (
+ <option key={r.id || r._id} value={r.id || r._id}>
+ {r.name} ({r.roomNumber})
+ </option>
+ ))}
+ </select>
+ </div>
+ <div>
+ <label className="block text-[11px] font-bold text-slate-600 mb-1">Subject</label>
+ <input
+ type="text"
+ value={editingEntry.subject}
+ onChange={(e) => setEditingEntry({ ...editingEntry, subject: e.target.value })}
+ className="w-full border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-slate-900"
+ />
+ </div>
+ <div>
+ <label className="block text-[11px] font-bold text-slate-600 mb-1">Faculty Name</label>
+ <input
+ type="text"
+ value={editingEntry.faculty}
+ onChange={(e) => setEditingEntry({ ...editingEntry, faculty: e.target.value })}
+ className="w-full border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-slate-900"
+ />
+ </div>
+ </div>
+
+ <div className="mt-4 flex gap-2 justify-end">
+ <button
+ type="button"
+ onClick={() => setEditingEntry(null)}
+ className="bg-slate-100 text-slate-700 px-4 py-1.5 text-xs font-semibold hover:bg-slate-200 transition-all"
+ >
+ Cancel
+ </button>
+ <button
+ type="button"
+ onClick={() => handleUpdateEntry(editingEntry.id, editingEntry)}
+ disabled={loading}
+ className="bg-slate-900 text-white px-5 py-1.5 text-xs font-bold hover:bg-slate-800 shadow-sm disabled:opacity-50 flex items-center gap-1.5 transition-all"
+ >
+ {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+ <span>{loading ? 'Saving...' : 'Save Changes'}</span>
+ </button>
+ </div>
+ </div>
+ )}
+ </div>
+ </div>
+ </div>
+ );
 }
