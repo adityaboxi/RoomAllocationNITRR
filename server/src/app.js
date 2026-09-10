@@ -14,7 +14,7 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const statsRoutes = require('./routes/statsRoutes');
 const holidayRoutes = require('./routes/holidayRoutes');
 
-// Middleware Imports
+// Middleware Imports.  
 const { errorHandler } = require('./middleware/errorHandler');
 const { authRateLimiter, globalApiLimiter } = require('./middleware/rateLimiter');
 
