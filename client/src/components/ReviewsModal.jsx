@@ -64,24 +64,24 @@ export default function ReviewModal({ room, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn font-sans"
+      className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-50 px-5 py-3 animate-fadeIn font-sans"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-3xl shadow-2xl max-w-lg w-full max-h-[85vh] flex flex-col border border-slate-200 overflow-hidden"
+        className="bg-white rounded-lg shadow-[0_20px_40px_rgba(0,0,0,0.08)] max-w-lg w-full max-h-[85vh] flex flex-col border border-slate-200 overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
-        <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+        <div className="px-8 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-500">
+            <div className="w-10 h-10 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-500">
               <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-slate-900 leading-tight">
+              <h2 className="text-lg font-bold text-[#1D1D1F] leading-tight">
                 {room.name || 'Room Reviews'}
               </h2>
-              <div className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
+              <div className="text-xs text-[#86868B] flex items-center gap-2 mt-0.5">
                 <span>{room.roomNumber || ''}</span>
                 <span>•</span>
                 <span>
@@ -107,9 +107,9 @@ export default function ReviewModal({ room, onClose }) {
         </div>
 
         {/* Reviews List */}
-        <div className="p-5 overflow-y-auto flex-1 space-y-3.5 divide-y divide-slate-100 relative">
+        <div className="px-8 py-5 overflow-y-auto flex-1 space-y-3.5 divide-y divide-slate-100 relative">
           {reviews.length === 0 && !loading ? (
-            <div className="p-8 text-center text-slate-400">
+            <div className="px-[3.25rem] py-8 text-center text-slate-400">
               <MessageSquare className="w-10 h-10 text-slate-300 mx-auto mb-2" />
               <p className="text-sm font-semibold text-slate-700">No reviews yet</p>
               <p className="text-xs text-slate-400 mt-0.5">
@@ -141,7 +141,7 @@ export default function ReviewModal({ room, onClose }) {
                     {r.comment || 'No comment provided'}
                   </p>
 
-                  <div className="text-[11px] font-semibold text-slate-500">
+                  <div className="text-[11px] font-semibold text-[#86868B]">
                     {r.facultyName || r.facultyId?.name || 'Faculty Member'}
                   </div>
                 </div>

@@ -173,9 +173,14 @@ const getAvailableEndSlots = (startStr, dateStr) => {
 const normalizeFloor = (floorVal) => {
   if (floorVal === undefined || floorVal === null) return '';
   const s = String(floorVal).trim().toLowerCase();
-  if (s === '0' || s.startsWith('ground')) return '0';
+  if (s === '0' || s.startsWith('ground')) return 'Ground Floor';
   const m = s.match(/^(\d+)/);
-  if (m) return m[1];
+  if (m) {
+    if (m[1] === '1') return '1st Floor';
+    if (m[1] === '2') return '2nd Floor';
+    if (m[1] === '3') return '3rd Floor';
+    return m[1] + 'th Floor';
+  }
   return s;
 };
 
@@ -256,7 +261,21 @@ export default function BookingView({ user }) {
     const standard = ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'];
     const fromRooms = (rooms || []).map((r) => r.floor).filter(Boolean);
     const set = new Set(standard);
-    fromRooms.forEach((f) => set.add(f));
+    fromRooms.forEach((f) => {
+      let norm = f;
+      const s = String(f).trim().toLowerCase();
+      if (s === '0' || s.startsWith('ground')) norm = 'Ground Floor';
+      else {
+        const m = s.match(/^(\d+)/);
+        if (m) {
+          if (m[1] === '1') norm = '1st Floor';
+          else if (m[1] === '2') norm = '2nd Floor';
+          else if (m[1] === '3') norm = '3rd Floor';
+          else norm = m[1] + 'th Floor';
+        }
+      }
+      set.add(norm);
+    });
     return Array.from(set).sort((a, b) => getFloorNumeric(a) - getFloorNumeric(b));
   }, [rooms]);
   const [myBookings, setMyBookings] = useState([]);
@@ -839,7 +858,7 @@ export default function BookingView({ user }) {
           room.name || '',
           room.roomNumber || '',
           room.building || '',
-          room.floor ? `floor ${room.floor}` : '',
+          room.floor ? `floor ${normalizeFloor(room.floor)}` : '',
           room.type || '',
           room.department || '',
           room.capacity ? `capacity ${room.capacity} seats ${room.capacity}` : '',
@@ -916,7 +935,7 @@ export default function BookingView({ user }) {
     <div className="space-y-6 font-sans">
       {/* Alert Notices */}
       {error && (
-        <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
+        <div className="px-5 py-3 bg-white border border-[#E5E5EA] rounded-lg flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
           <AlertCircle className="w-5 h-5 mr-2.5 text-rose-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1 whitespace-pre-line font-medium">{error}</div>
           <button type="button" onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
@@ -926,7 +945,7 @@ export default function BookingView({ user }) {
       )}
 
       {success && (
-        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-start text-emerald-800 text-sm font-medium animate-fadeIn">
+        <div className="px-5 py-3 bg-white border border-[#E5E5EA] rounded-lg flex items-start text-emerald-800 text-sm font-medium animate-fadeIn">
           <CheckCircle2 className="w-5 h-5 mr-2.5 text-emerald-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1 font-medium">{success}</div>
           <button type="button" onClick={() => setSuccess('')} className="text-emerald-500 hover:text-emerald-700">
@@ -936,9 +955,9 @@ export default function BookingView({ user }) {
       )}
 
       {/* 1. Date, Time & Branch Slot Selector */}
-      <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
+      <div className="bg-white border border-slate-200 rounded-lg px-8 py-5 shadow-sm">
         <div className="flex items-center gap-2 pb-3 mb-4 border-b border-slate-100">
-          <Clock className="w-4 h-4 text-indigo-600" />
+          <Clock className="w-4 h-4 text-[#007AFF]" />
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
             Reservation Slot
           </h3>
@@ -947,13 +966,13 @@ export default function BookingView({ user }) {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1">
-              <Filter className="w-3.5 h-3.5 text-indigo-600" />
+              <Filter className="w-3.5 h-3.5 text-[#007AFF]" />
               Department
             </label>
             <select
               value={selectedBranch}
               onChange={(e) => setSelectedBranch(e.target.value)}
-              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
+              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
             >
               <option value="ALL">All Departments</option>
               {departments.map((dept) => (
@@ -969,7 +988,7 @@ export default function BookingView({ user }) {
             <select
               value={selectedFloor}
               onChange={(e) => setSelectedFloor(e.target.value)}
-              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
+              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
             >
               <option value="ALL">All Floors</option>
               {floorOptions.map((fl) => (
@@ -989,7 +1008,7 @@ export default function BookingView({ user }) {
               max={maxDateStr}
               value={bookingData.date}
               onChange={handleBookingInput}
-              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
+              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
             />
           </div>
 
@@ -999,7 +1018,7 @@ export default function BookingView({ user }) {
               name="startTime"
               value={bookingData.startTime}
               onChange={handleBookingInput}
-              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
+              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
             >
               {getAvailableStartSlots(bookingData.date).map((t) => (
                 <option key={'start-' + t} value={t}>
@@ -1015,7 +1034,7 @@ export default function BookingView({ user }) {
               name="endTime"
               value={bookingData.endTime}
               onChange={handleBookingInput}
-              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
+              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
             >
               {getAvailableEndSlots(bookingData.startTime, bookingData.date).map((t) => (
                 <option key={'end-' + t} value={t}>
@@ -1030,7 +1049,7 @@ export default function BookingView({ user }) {
         <div className="mt-3 pt-3 border-t border-slate-100">
           <div className="flex items-center justify-between mb-2 flex-wrap gap-1.5">
             <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
-              <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
+              <BookOpen className="w-3.5 h-3.5 text-[#007AFF]" />
               NIT Raipur Timetable Slots (08:10 - 18:20)
             </span>
             <span className="text-[11px] text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
@@ -1061,7 +1080,7 @@ export default function BookingView({ user }) {
                     }}
                     className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex flex-col items-center flex-shrink-0 ${
                       isSelected
-                        ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-600/30'
+                        ? 'bg-[#007AFF] text-white shadow-sm ring-2 ring-[#007AFF]/30'
                         : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
                     }`}
                     title={`${p.label}`}
@@ -1078,7 +1097,7 @@ export default function BookingView({ user }) {
 
       {/* Holiday Alert */}
       {isHolidayDate && (
-        <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-3 text-amber-900">
+        <div className="p-3.5 bg-white border border-[#E5E5EA] rounded-lg flex items-center gap-3 text-amber-900">
           <Palmtree className="w-5 h-5 text-amber-600 flex-shrink-0" />
           <div className="text-xs">
             <span className="font-bold">{bookingData.date} is a Holiday:</span> {holidayDateTitle}. Booking unavailable.
@@ -1087,24 +1106,24 @@ export default function BookingView({ user }) {
       )}
 
       {/* 2. Unified Search & Filters */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-3.5">
+      <div className="bg-white border border-slate-200 rounded-lg px-8 py-5 shadow-sm space-y-3.5">
         <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 flex-wrap gap-2">
           <div className="flex items-center gap-2">
-            <Building2 className="w-4 h-4 text-indigo-600" />
+            <Building2 className="w-4 h-4 text-[#007AFF]" />
             <h2 className="text-xs font-bold uppercase tracking-wider text-slate-800">
               Filters & Room Search
             </h2>
           </div>
 
           {/* Status Switcher */}
-          <div className="flex items-center bg-slate-100 p-1 rounded-xl gap-1">
+          <div className="flex items-center bg-slate-100 p-1 rounded-lg gap-1">
             <button
               type="button"
               onClick={() => setStatusFilter('ALL')}
               className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
                 statusFilter === 'ALL'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-[#007AFF] text-white shadow-sm'
+                  : 'text-slate-600 hover:text-[#1D1D1F]'
               }`}
             >
               All ({baseFilteredRooms.length})
@@ -1145,7 +1164,7 @@ export default function BookingView({ user }) {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search room or building..."
-              className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-slate-900"
+              className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-[#1D1D1F]"
             />
           </div>
 
@@ -1153,7 +1172,7 @@ export default function BookingView({ user }) {
             <select
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
+              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
             >
               <option value="ALL">All Types</option>
               {STANDARD_ROOM_TYPES.filter((t) => t !== 'ALL').map((type) => (
@@ -1168,7 +1187,7 @@ export default function BookingView({ user }) {
             <select
               value={minCapacity}
               onChange={(e) => setMinCapacity(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
+              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
             >
               <option value="ALL">Any Capacity</option>
               <option value="30">30+ Seats</option>
@@ -1182,7 +1201,7 @@ export default function BookingView({ user }) {
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
+              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
             >
               <option value="DEFAULT">Sort: Default</option>
               <option value="NAME_ASC">Name (A-Z)</option>
@@ -1196,8 +1215,8 @@ export default function BookingView({ user }) {
               title="Reset all filters"
               className={`p-1.5 border rounded-lg transition-colors flex items-center justify-center ${
                 hasActiveFilters
-                  ? 'border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 shadow-sm'
-                  : 'border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+                  ? 'border-indigo-300 bg-[#F5F5F7] text-[#0055B3] hover:bg-indigo-100 shadow-sm'
+                  : 'border-slate-200 text-[#86868B] hover:text-slate-800 hover:bg-slate-100'
               }`}
             >
               <RotateCcw className="w-3.5 h-3.5" />
@@ -1207,7 +1226,7 @@ export default function BookingView({ user }) {
 
         {/* Amenity Badges */}
         <div className="flex items-center gap-1.5 flex-wrap pt-1">
-          <span className="text-[11px] font-semibold text-slate-500 mr-1">Amenities:</span>
+          <span className="text-[11px] font-semibold text-[#86868B] mr-1">Amenities:</span>
           {[
             { label: 'Projector', state: filterProjector, toggle: setFilterProjector },
             { label: 'AC', state: filterAC, toggle: setFilterAC },
@@ -1220,7 +1239,7 @@ export default function BookingView({ user }) {
               onClick={() => toggle((p) => !p)}
               className={`px-2.5 py-1 rounded-md text-xs font-semibold border transition-all ${
                 state
-                  ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                  ? 'bg-[#F5F5F7] text-[#0055B3] border-slate-200'
                   : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
               }`}
             >
@@ -1236,24 +1255,24 @@ export default function BookingView({ user }) {
           <h2 className="text-sm font-bold text-slate-800">
             Available Classrooms ({filteredRooms.length})
           </h2>
-          <span className="text-[11px] font-medium text-slate-500">
+          <span className="text-[11px] font-medium text-[#86868B]">
             {bookingData.date} • {bookingData.startTime} - {bookingData.endTime}
           </span>
         </div>
 
         {initialLoading ? (
-          <div className="p-12 text-center text-slate-500 text-xs flex items-center justify-center gap-2">
-            <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+          <div className="p-12 text-center text-[#86868B] text-xs flex items-center justify-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin text-[#007AFF]" />
             <span>Loading rooms...</span>
           </div>
         ) : filteredRooms.length === 0 ? (
-          <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center text-slate-500">
+          <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-[#86868B]">
             <Building2 className="w-10 h-10 text-slate-300 mx-auto mb-2.5" />
             <p className="text-xs font-semibold">No classrooms match criteria.</p>
             <button
               type="button"
               onClick={resetFilters}
-              className="mt-2 text-xs font-bold text-indigo-600 hover:underline"
+              className="mt-2 text-xs font-bold text-[#007AFF] hover:underline"
             >
               Reset Filters
             </button>
@@ -1277,7 +1296,7 @@ export default function BookingView({ user }) {
               return (
                 <div
                   key={roomId}
-                  className={`bg-white border rounded-2xl p-5 shadow-sm flex flex-col justify-between transition-all ${
+                  className={`bg-white border rounded-lg px-8 py-5 shadow-sm flex flex-col justify-between transition-all ${
                     available
                       ? 'border-slate-200 hover:border-indigo-300 hover:shadow-indigo-50/50'
                       : 'border-slate-200 bg-slate-50/60'
@@ -1286,10 +1305,10 @@ export default function BookingView({ user }) {
                   <div>
                     <div className="flex justify-between items-start mb-2">
                       <div>
-                        <h3 className="font-bold text-sm text-slate-900 leading-tight">
+                        <h3 className="font-bold text-sm text-[#1D1D1F] leading-tight">
                           {room.name}
                         </h3>
-                        <div className="text-[11px] font-mono text-slate-500 mt-0.5">
+                        <div className="text-[11px] font-mono text-[#86868B] mt-0.5">
                           #{room.roomNumber} {room.department ? `• ${room.department}` : ''}
                         </div>
                       </div>
@@ -1324,7 +1343,7 @@ export default function BookingView({ user }) {
                       <span>•</span>
                       <span className="flex items-center gap-1">
                         <Layers className="w-3.5 h-3.5 text-slate-400" />
-                        Floor {room.floor}, {room.building}
+                        Floor {normalizeFloor(room.floor)}, {room.building}
                       </span>
                       {room.type && (
                         <>
@@ -1360,7 +1379,7 @@ export default function BookingView({ user }) {
                     </div>
 
                     {!available && (
-                      <div className="mt-3 p-2.5 rounded-xl bg-rose-50/80 border border-rose-200/90 text-xs text-slate-800 space-y-1">
+                      <div className="mt-3 p-2.5 rounded-lg bg-rose-50/80 border border-rose-200/90 text-xs text-slate-800 space-y-1">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-1.5 font-bold text-rose-900 text-[11px]">
                             {occupancyInfo?.type === 'TIMETABLE' ? (
@@ -1386,7 +1405,7 @@ export default function BookingView({ user }) {
                           </div>
                         )}
 
-                        <div className="text-[10px] text-slate-500 flex items-center justify-between pt-0.5">
+                        <div className="text-[10px] text-[#86868B] flex items-center justify-between pt-0.5">
                           <span>
                             {occupancyInfo?.facultyName
                               ? `Prof. ${occupancyInfo.facultyName}`
@@ -1413,7 +1432,7 @@ export default function BookingView({ user }) {
                       <button
                         type="button"
                         onClick={() => handleViewReviews(room)}
-                        className="text-xs font-medium text-indigo-600 hover:text-indigo-800"
+                        className="text-xs font-medium text-[#007AFF] hover:text-indigo-800"
                       >
                         {roomReviews.length > 0 ? `${roomReviews.length} reviews` : 'Reviews'}
                       </button>
@@ -1425,7 +1444,7 @@ export default function BookingView({ user }) {
                       <button
                         type="button"
                         onClick={() => handleSelectRoom(room)}
-                        className="w-full bg-indigo-600 text-white px-3 py-2 rounded-xl text-xs font-bold hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-100 flex items-center justify-center gap-1.5"
+                        className="w-full bg-[#007AFF] text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-[#0066CC] transition-colors shadow-sm shadow-indigo-100 flex items-center justify-center gap-1.5"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" />
                         <span>Reserve Slot</span>
@@ -1434,7 +1453,7 @@ export default function BookingView({ user }) {
                       <button
                         type="button"
                         disabled
-                        className="w-full bg-rose-50 text-rose-700 px-3 py-2 rounded-xl text-xs font-bold cursor-not-allowed border border-rose-200 flex items-center justify-center gap-1.5"
+                        className="w-full bg-rose-50 text-rose-700 px-3 py-2 rounded-lg text-xs font-bold cursor-not-allowed border border-rose-200 flex items-center justify-center gap-1.5"
                       >
                         <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
                         <span>{isHolidayDate ? 'Holiday' : 'Occupied'}</span>
@@ -1450,15 +1469,15 @@ export default function BookingView({ user }) {
 
       {/* 4. Booking Confirmation Drawer */}
       {selectedRoom && (
-        <div className="bg-white border-2 border-indigo-600 rounded-2xl p-5 shadow-md">
+        <div className="bg-white border-2 border-indigo-600 rounded-lg px-8 py-5 shadow-md">
           <div className="flex items-center justify-between pb-2.5 mb-3.5 border-b border-slate-100">
             <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-indigo-600" />
+              <Sparkles className="w-4 h-4 text-[#007AFF]" />
               <div>
-                <h3 className="text-sm font-bold text-slate-900">
+                <h3 className="text-sm font-bold text-[#1D1D1F]">
                   Confirm Reservation: {selectedRoom.name}
                 </h3>
-                <p className="text-[11px] text-slate-500">
+                <p className="text-[11px] text-[#86868B]">
                   {selectedRoom.department} • {bookingData.date} • {bookingData.startTime} - {bookingData.endTime}
                 </p>
               </div>
@@ -1483,7 +1502,7 @@ export default function BookingView({ user }) {
                 value={bookingData.purpose}
                 onChange={handleBookingInput}
                 placeholder="Lecture, Seminar, Project..."
-                className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-slate-900"
+                className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-[#1D1D1F]"
                 required
               />
             </div>
@@ -1498,7 +1517,7 @@ export default function BookingView({ user }) {
                 value={bookingData.comment}
                 onChange={handleBookingInput}
                 placeholder="Optional notes or requirements"
-                className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-slate-900"
+                className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-[#1D1D1F]"
               />
             </div>
           </div>
@@ -1515,7 +1534,7 @@ export default function BookingView({ user }) {
               type="button"
               onClick={handleConfirmBooking}
               disabled={loading}
-              className="bg-indigo-600 text-white px-5 py-1.5 rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-sm transition-all disabled:opacity-50 flex items-center gap-1.5"
+              className="bg-[#007AFF] text-white px-5 py-1.5 rounded-lg text-xs font-bold hover:bg-[#0066CC] shadow-sm transition-all disabled:opacity-50 flex items-center gap-1.5"
             >
               {loading ? (
                 <>
@@ -1534,10 +1553,10 @@ export default function BookingView({ user }) {
       )}
 
       {/* 5. User Scheduled Bookings Table */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+      <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
+        <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-indigo-600" />
+            <Calendar className="w-4 h-4 text-[#007AFF]" />
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
               My Bookings ({myBookings.length})
             </h3>
@@ -1545,7 +1564,7 @@ export default function BookingView({ user }) {
         </div>
 
         {myBookings.length === 0 ? (
-          <div className="p-8 text-center text-slate-400 text-xs">
+          <div className="px-[3.25rem] py-8 text-center text-slate-400 text-xs">
             No scheduled reservations.
           </div>
         ) : (
@@ -1553,19 +1572,19 @@ export default function BookingView({ user }) {
             <table className="min-w-full divide-y divide-slate-100 text-left text-xs">
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="px-4 py-2.5 font-bold text-slate-700 uppercase tracking-wider">
+                  <th className="px-5 py-3.5 font-bold text-slate-700 uppercase tracking-wider">
                     Room
                   </th>
-                  <th className="px-4 py-2.5 font-bold text-slate-700 uppercase tracking-wider">
+                  <th className="px-5 py-3.5 font-bold text-slate-700 uppercase tracking-wider">
                     Slot
                   </th>
-                  <th className="px-4 py-2.5 font-bold text-slate-700 uppercase tracking-wider">
+                  <th className="px-5 py-3.5 font-bold text-slate-700 uppercase tracking-wider">
                     Purpose
                   </th>
-                  <th className="px-4 py-2.5 font-bold text-slate-700 uppercase tracking-wider">
+                  <th className="px-5 py-3.5 font-bold text-slate-700 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="text-right px-4 py-2.5 font-bold text-slate-700 uppercase tracking-wider">
+                  <th className="text-right px-5 py-3.5 font-bold text-slate-700 uppercase tracking-wider">
                     Action
                   </th>
                 </tr>
@@ -1580,15 +1599,15 @@ export default function BookingView({ user }) {
                   return (
                     <tr key={bookingId} className="hover:bg-slate-50/70 transition-colors">
                       <td className="px-4 py-3">
-                        <div className="font-bold text-slate-900">{b.roomId?.name || 'Room'}</div>
-                        <div className="text-[11px] text-slate-500 font-mono">
+                        <div className="font-bold text-[#1D1D1F]">{b.roomId?.name || 'Room'}</div>
+                        <div className="text-[11px] text-[#86868B] font-mono">
                           {b.roomId?.roomNumber || ''}
                         </div>
                       </td>
 
                       <td className="px-4 py-3 text-slate-700">
                         <div className="font-medium">{b.date}</div>
-                        <div className="text-[11px] text-slate-500 font-mono">
+                        <div className="text-[11px] text-[#86868B] font-mono">
                           {b.startTime} - {b.endTime}
                         </div>
                       </td>
@@ -1596,7 +1615,7 @@ export default function BookingView({ user }) {
                       <td className="px-4 py-3 text-slate-700">
                         <div className="font-medium">{b.purpose}</div>
                         {b.comment && b.comment !== 'No comment provided' && (
-                          <div className="text-[11px] text-slate-500 italic mt-0.5">{b.comment}</div>
+                          <div className="text-[11px] text-[#86868B] italic mt-0.5">{b.comment}</div>
                         )}
                       </td>
 

@@ -59,11 +59,11 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
 
   return (
     <div
-      className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn font-sans"
+      className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-50 px-5 py-3 animate-fadeIn font-sans"
       onClick={onSkip}
     >
       <div
-        className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 sm:p-7 relative border border-slate-200"
+        className="bg-white rounded-lg shadow-[0_20px_40px_rgba(0,0,0,0.08)] max-w-md w-full px-8 py-5 sm:p-7 relative border border-slate-200"
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -76,21 +76,21 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
         </button>
 
         <div className="flex items-center gap-3 mb-3">
-          <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-500">
+          <div className="w-10 h-10 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-500">
             <Sparkles className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-slate-900 leading-tight">Rate Your Class Session</h2>
+            <h2 className="text-lg font-bold text-[#1D1D1F] leading-tight">Rate Your Class Session</h2>
             <p className="text-xs text-slate-400">Feedback helps maintain room infrastructure</p>
           </div>
         </div>
 
-        <p className="text-xs sm:text-sm text-slate-600 mb-4 bg-slate-50 p-3 rounded-xl border border-slate-100 leading-relaxed">
+        <p className="text-xs sm:text-sm text-slate-600 mb-4 bg-slate-50 p-3 rounded-lg border border-slate-100 leading-relaxed">
           How was your experience in <strong>{roomName}</strong> on <strong>{booking.date}</strong> ({booking.startTime} - {booking.endTime})?
         </p>
 
         {error && (
-          <div className="bg-rose-50 border border-rose-200 text-rose-800 p-3 rounded-xl mb-4 text-xs font-medium whitespace-pre-line">
+          <div className="bg-white border border-[#E5E5EA] text-rose-800 p-3 rounded-lg mb-4 text-xs font-medium whitespace-pre-line">
             {error}
           </div>
         )}
@@ -120,7 +120,7 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
                   />
                 </button>
               ))}
-              <span className="text-xs font-bold text-slate-500 ml-2">
+              <span className="text-xs font-bold text-[#86868B] ml-2">
                 {rating > 0 ? `${rating} of 5` : ''}
               </span>
             </div>
@@ -133,7 +133,7 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
             <textarea
               value={comment}
               onChange={(e) => setComment(e.target.value)}
-              className="w-full border border-slate-200 rounded-xl p-3 text-xs sm:text-sm focus:ring-2 focus:ring-indigo-600 focus:bg-white bg-slate-50/50 outline-none transition-all"
+              className="w-full border border-slate-200 rounded-lg p-3 text-xs sm:text-sm focus:ring-2 focus:ring-[#007AFF] focus:bg-white bg-slate-50/50 outline-none transition-all"
               rows="3"
               placeholder="e.g. Projector worked well, AC temperature was comfortable..."
               disabled={loading}
@@ -144,7 +144,7 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
             <button
               type="submit"
               disabled={loading || rating === 0}
-              className="flex-1 bg-slate-900 text-white py-2.5 rounded-xl text-xs font-bold hover:bg-slate-800 transition-all shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5"
+              className="flex-1 bg-slate-900 text-white py-2.5 rounded-lg text-xs font-bold hover:bg-slate-800 transition-all shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5"
             >
               {loading ? (
                 <>
@@ -163,7 +163,7 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
               type="button"
               onClick={onSkip}
               disabled={loading}
-              className="px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-200 transition-colors disabled:opacity-50"
+              className="px-5 py-3.5 bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-200 transition-colors disabled:opacity-50"
             >
               Skip
             </button>

@@ -1,4 +1,19 @@
 import React, { useState, useEffect } from 'react';
+
+const normalizeFloor = (floorVal) => {
+  if (!floorVal) return '';
+  const s = String(floorVal).trim().toLowerCase();
+  if (s === '0' || s.startsWith('ground')) return 'Ground Floor';
+  const m = s.match(/^(\d+)/);
+  if (m) {
+    if (m[1] === '1') return '1st Floor';
+    if (m[1] === '2') return '2nd Floor';
+    if (m[1] === '3') return '3rd Floor';
+    return m[1] + 'th Floor';
+  }
+  return String(floorVal).trim();
+};
+
 import {
   getRooms,
   getAvailableRooms,
@@ -352,7 +367,7 @@ export default function RoomManager({ user }) {
   return (
     <div className="space-y-6">
       {error && (
-        <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
+        <div className="px-5 py-3 bg-white border border-[#E5E5EA] rounded-lg flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
           <AlertCircle className="w-5 h-5 mr-2.5 text-rose-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1 whitespace-pre-line">{error}</div>
           <button type="button" onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
@@ -362,7 +377,7 @@ export default function RoomManager({ user }) {
       )}
 
       {success && (
-        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-start text-emerald-800 text-sm font-medium animate-fadeIn">
+        <div className="px-5 py-3 bg-white border border-[#E5E5EA] rounded-lg flex items-start text-emerald-800 text-sm font-medium animate-fadeIn">
           <CheckCircle2 className="w-5 h-5 mr-2.5 text-emerald-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1">{success}</div>
           <button type="button" onClick={() => setSuccess('')} className="text-emerald-500 hover:text-emerald-700">
@@ -373,13 +388,13 @@ export default function RoomManager({ user }) {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Form */}
-        <div className="lg:col-span-4 bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm">
+        <div className="lg:col-span-4 bg-white border border-slate-200 rounded-lg px-8 py-5 sm:px-8 py-5 shadow-sm">
           <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-[#F5F5F7] text-[#007AFF] flex items-center justify-center">
                 {editingRoom ? <Edit2 className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
               </div>
-              <h3 className="text-base font-bold text-slate-900">
+              <h3 className="text-base font-bold text-[#1D1D1F]">
                 {editingRoom ? 'Edit Room' : 'Add Department Room'}
               </h3>
             </div>
@@ -387,7 +402,7 @@ export default function RoomManager({ user }) {
               <button
                 type="button"
                 onClick={resetForm}
-                className="text-xs text-slate-500 hover:text-slate-700 font-semibold"
+                className="text-xs text-[#86868B] hover:text-slate-700 font-semibold"
               >
                 Cancel
               </button>
@@ -404,7 +419,7 @@ export default function RoomManager({ user }) {
                 value={formData.name}
                 onChange={handleChange}
                 placeholder="e.g. Alan Turing Lab"
-                className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
                 required
               />
             </div>
@@ -419,7 +434,7 @@ export default function RoomManager({ user }) {
                   value={formData.roomNumber}
                   onChange={handleChange}
                   placeholder="CS-101"
-                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm uppercase bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm uppercase bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
                   required
                 />
               </div>
@@ -434,7 +449,7 @@ export default function RoomManager({ user }) {
                   value={formData.capacity}
                   onChange={handleChange}
                   placeholder="60"
-                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
                   required
                 />
               </div>
@@ -447,7 +462,7 @@ export default function RoomManager({ user }) {
                   name="type"
                   value={formData.type}
                   onChange={handleChange}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
                 >
                   <option value="Classroom">Classroom</option>
                   <option value="Lab">Lab</option>
@@ -464,7 +479,7 @@ export default function RoomManager({ user }) {
                   value={formData.floor}
                   onChange={handleChange}
                   placeholder="Ground Floor"
-                  className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
                   required
                 />
               </div>
@@ -477,21 +492,21 @@ export default function RoomManager({ user }) {
                 value={formData.building}
                 onChange={handleChange}
                 placeholder="Main Campus / CSE Block"
-                className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
                 required
               />
             </div>
 
             <div className="pt-2">
               <label className="block text-xs font-semibold text-slate-700 mb-2">Amenities</label>
-              <div className="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+              <div className="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-lg border border-slate-200/80">
                 <label className="flex items-center text-xs font-medium text-slate-700 cursor-pointer">
                   <input
                     type="checkbox"
                     name="hasProjector"
                     checked={formData.hasProjector}
                     onChange={handleChange}
-                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 mr-2"
+                    className="rounded border-slate-300 text-[#007AFF] focus:ring-[#007AFF]/50 mr-2"
                   />
                   Projector
                 </label>
@@ -501,7 +516,7 @@ export default function RoomManager({ user }) {
                     name="hasAC"
                     checked={formData.hasAC}
                     onChange={handleChange}
-                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 mr-2"
+                    className="rounded border-slate-300 text-[#007AFF] focus:ring-[#007AFF]/50 mr-2"
                   />
                   Air Conditioning
                 </label>
@@ -511,7 +526,7 @@ export default function RoomManager({ user }) {
                     name="hasSmartBoard"
                     checked={formData.hasSmartBoard}
                     onChange={handleChange}
-                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 mr-2"
+                    className="rounded border-slate-300 text-[#007AFF] focus:ring-[#007AFF]/50 mr-2"
                   />
                   SmartBoard
                 </label>
@@ -521,7 +536,7 @@ export default function RoomManager({ user }) {
                     name="hasWiFi"
                     checked={formData.hasWiFi}
                     onChange={handleChange}
-                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 mr-2"
+                    className="rounded border-slate-300 text-[#007AFF] focus:ring-[#007AFF]/50 mr-2"
                   />
                   WiFi
                 </label>
@@ -532,7 +547,7 @@ export default function RoomManager({ user }) {
               <button
                 type="submit"
                 disabled={loading}
-                className="flex-1 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-slate-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm"
+                className="flex-1 bg-slate-900 text-white px-5 py-3.5 rounded-lg text-sm font-bold hover:bg-slate-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm"
               >
                 {loading && <Loader2 className="w-4 h-4 animate-spin" />}
                 <span>{loading ? 'Saving...' : editingRoom ? 'Update Room' : 'Add Room'}</span>
@@ -541,7 +556,7 @@ export default function RoomManager({ user }) {
                 <button
                   type="button"
                   onClick={resetForm}
-                  className="bg-slate-100 text-slate-700 px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-slate-200 transition-all"
+                  className="bg-slate-100 text-slate-700 px-5 py-3.5 rounded-lg text-sm font-semibold hover:bg-slate-200 transition-all"
                 >
                   Cancel
                 </button>
@@ -552,11 +567,11 @@ export default function RoomManager({ user }) {
 
         {/* Right Column: Rooms List Table with Live Occupancy */}
         <div className="lg:col-span-8">
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
-            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+          <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden flex flex-col">
+            <div className="px-5 py-3 sm:px-8 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <div className="flex items-center gap-2">
                 <Building2 className="w-5 h-5 text-slate-600" />
-                <h3 className="text-base font-bold text-slate-900">
+                <h3 className="text-base font-bold text-[#1D1D1F]">
                   {user?.department} Room Catalog ({rooms.length})
                 </h3>
               </div>
@@ -565,7 +580,7 @@ export default function RoomManager({ user }) {
             {fetchLoading ? (
               <div className="p-12 text-center text-slate-400 text-sm">Loading rooms...</div>
             ) : rooms.length === 0 ? (
-              <div className="p-12 text-center text-slate-500">
+              <div className="p-12 text-center text-[#86868B]">
                 <Building2 className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                 <p className="text-sm font-medium">No rooms added to this department yet.</p>
               </div>
@@ -602,15 +617,15 @@ export default function RoomManager({ user }) {
                       return (
                         <tr key={roomId} className="hover:bg-slate-50/80 transition-colors">
                           <td className="px-4 py-3.5 text-sm">
-                            <div className="font-bold text-slate-900">{room.name}</div>
-                            <div className="text-xs text-slate-500 font-mono mt-0.5">
+                            <div className="font-bold text-[#1D1D1F]">{room.name}</div>
+                            <div className="text-xs text-[#86868B] font-mono mt-0.5">
                               {room.roomNumber}
                             </div>
                             <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
-                              <UserCheck className="w-3 h-3 text-indigo-500" />
+                              <UserCheck className="w-3 h-3 text-[#007AFF]" />
                               <span>Added by: <strong className="text-slate-600">{room.createdByName || 'Faculty'}</strong></span>
                               {isOwner && (
-                                <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-bold ml-1">
+                                <span className="text-[10px] bg-[#F5F5F7] text-[#0055B3] px-1.5 py-0.5 rounded font-bold ml-1">
                                   You
                                 </span>
                               )}
@@ -621,7 +636,7 @@ export default function RoomManager({ user }) {
                             <div className="text-slate-800 font-medium">{room.type}</div>
                             <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
                               <Layers className="w-3 h-3" />
-                              <span>{room.floor}, {room.building}</span>
+                              <span>{normalizeFloor(room.floor)}, {room.building}</span>
                             </div>
                           </td>
 
@@ -655,7 +670,7 @@ export default function RoomManager({ user }) {
                                   type="button"
                                   onClick={() => handleEdit(room)}
                                   disabled={isActionBusy}
-                                  className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-40"
+                                  className="p-1.5 text-slate-600 hover:text-[#007AFF] hover:bg-[#F5F5F7] rounded-lg transition-colors disabled:opacity-40"
                                   title="Edit Room"
                                 >
                                   <Edit2 className="w-4 h-4" />

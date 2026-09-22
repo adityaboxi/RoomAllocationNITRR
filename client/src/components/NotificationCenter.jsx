@@ -128,7 +128,7 @@ export default function NotificationCenter({
       case 'booking-confirmed':
         return <CheckCircle2 className="w-4 h-4 text-emerald-600" />;
       case 'timetable-updated':
-        return <Calendar className="w-4 h-4 text-indigo-600" />;
+        return <Calendar className="w-4 h-4 text-[#007AFF]" />;
       default:
         return <Bell className="w-4 h-4 text-slate-600" />;
     }
@@ -137,17 +137,17 @@ export default function NotificationCenter({
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 font-sans">
       {/* Header Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white border border-slate-200 p-5 rounded-3xl shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white border border-slate-200 px-8 py-5 rounded-lg shadow-sm">
         <div className="flex items-center gap-3.5">
           <Link
             to="/"
-            className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600 hover:text-slate-900 hover:bg-slate-200 transition-colors"
+            className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 hover:text-[#1D1D1F] hover:bg-slate-200 transition-colors"
             title="Back to Dashboard"
           >
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div>
-            <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+            <h1 className="text-xl font-bold text-[#1D1D1F] flex items-center gap-2">
               <span>Notifications Inbox</span>
               {unreadCount > 0 && (
                 <span className="text-xs font-bold bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full">
@@ -164,7 +164,7 @@ export default function NotificationCenter({
             <button
               type="button"
               onClick={handleMarkAllRead}
-              className="inline-flex items-center gap-1.5 text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-3.5 py-2 rounded-xl hover:bg-indigo-100 transition-colors"
+              className="inline-flex items-center gap-1.5 text-xs font-bold bg-[#F5F5F7] text-[#0055B3] border border-slate-200 px-3.5 py-2 rounded-lg hover:bg-indigo-100 transition-colors"
             >
               <CheckCheck className="w-3.5 h-3.5" />
               <span>Mark All Read</span>
@@ -175,7 +175,7 @@ export default function NotificationCenter({
             <button
               type="button"
               onClick={handleDeleteAll}
-              className="inline-flex items-center gap-1.5 text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 px-3.5 py-2 rounded-xl hover:bg-rose-100 transition-colors"
+              className="inline-flex items-center gap-1.5 text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 px-3.5 py-2 rounded-lg hover:bg-rose-100 transition-colors"
             >
               <Trash2 className="w-3.5 h-3.5" />
               <span>Clear All</span>
@@ -185,7 +185,7 @@ export default function NotificationCenter({
       </div>
 
       {error && (
-        <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
+        <div className="px-5 py-3 bg-white border border-[#E5E5EA] rounded-lg flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
           <AlertCircle className="w-5 h-5 mr-2.5 text-rose-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1 whitespace-pre-line">{error}</div>
           <button type="button" onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
@@ -200,7 +200,7 @@ export default function NotificationCenter({
           <span>Loading your inbox...</span>
         </div>
       ) : notifications.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-3xl p-16 text-center text-slate-400">
+        <div className="bg-white border border-slate-200 rounded-lg p-16 text-center text-slate-400">
           <Inbox className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <p className="font-semibold text-slate-700 text-sm">Your inbox is completely clear.</p>
           <p className="text-xs text-slate-400 mt-1">
@@ -214,19 +214,19 @@ export default function NotificationCenter({
             return (
               <div
                 key={notifId}
-                className={`bg-white border rounded-2xl p-4 sm:p-5 shadow-sm flex items-start justify-between gap-4 transition-all ${
+                className={`bg-white border rounded-lg px-5 py-3 sm:px-8 py-5 shadow-sm flex items-start justify-between gap-4 transition-all ${
                   !n.read
-                    ? 'border-l-4 border-l-indigo-600 border-slate-200 bg-indigo-50/20 shadow-md'
+                    ? 'border-l-4 border-l-indigo-600 border-slate-200 bg-[#F5F5F7]/20 shadow-md'
                     : 'border-slate-200 opacity-90'
                 }`}
               >
                 <div className="flex items-start gap-3 flex-1">
-                  <div className="p-2 rounded-xl bg-slate-100 flex-shrink-0 mt-0.5">
+                  <div className="p-2 rounded-lg bg-slate-100 flex-shrink-0 mt-0.5">
                     {renderTypeIcon(n.type)}
                   </div>
 
                   <div className="flex-1">
-                    <p className="text-sm font-semibold text-slate-900 leading-snug">{n.message}</p>
+                    <p className="text-sm font-semibold text-[#1D1D1F] leading-snug">{n.message}</p>
                     <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 mt-1.5">
                       <span>{formatDate(n.createdAt)}</span>
                       {n.metadata?.roomName && (
@@ -247,7 +247,7 @@ export default function NotificationCenter({
                     <button
                       type="button"
                       onClick={() => handleMarkRead(notifId)}
-                      className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors"
+                      className="p-2 text-[#86868B] hover:text-[#007AFF] hover:bg-[#F5F5F7] rounded-lg transition-colors"
                       title="Mark as Read"
                     >
                       <Check className="w-4 h-4" />
@@ -257,7 +257,7 @@ export default function NotificationCenter({
                   <button
                     type="button"
                     onClick={() => handleDelete(notifId)}
-                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
+                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
                     title="Delete Notification"
                   >
                     <Trash2 className="w-4 h-4" />

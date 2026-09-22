@@ -27,7 +27,7 @@ export default function Navbar({
           to="/"
           className="flex items-center space-x-3 group transition-transform active:scale-95"
         >
-          <div className="w-11 h-11 rounded-xl bg-white/10 border border-slate-700/80 p-1 flex items-center justify-center group-hover:border-indigo-400 group-hover:bg-white/20 transition-all flex-shrink-0 shadow-sm">
+          <div className="w-11 h-11 rounded-lg bg-white/10 border border-slate-700/80 p-1 flex items-center justify-center group-hover:border-indigo-400 group-hover:bg-white/20 transition-all flex-shrink-0 shadow-sm">
             <img
               src={nitrrLogo}
               alt="NIT Raipur Logo"
@@ -49,7 +49,7 @@ export default function Navbar({
             {/* Notification Bell Link */}
             <Link
               to="/notifications"
-              className="relative p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition-all"
+              className="relative p-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-all"
               title="Notifications"
             >
               <Bell className="w-5 h-5" />
@@ -61,7 +61,7 @@ export default function Navbar({
             </Link>
 
             {/* Profile / Role Badge */}
-            <div className="hidden sm:flex items-center gap-2.5 bg-slate-800/80 border border-slate-700/80 px-3.5 py-1.5 rounded-xl">
+            <div className="hidden sm:flex items-center gap-2.5 bg-slate-800/80 border border-slate-700/80 px-3.5 py-1.5 rounded-lg">
               {currentUser.role === 'HOD' ? (
                 <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
               ) : currentUser.role === 'ADMIN' ? (
@@ -83,7 +83,7 @@ export default function Navbar({
             <button
               type="button"
               onClick={onLogout}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-300 hover:text-white bg-slate-800 hover:bg-rose-950/60 hover:border-rose-800/60 border border-slate-700 rounded-xl transition-all active:scale-95"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-300 hover:text-white bg-slate-800 hover:bg-rose-950/60 hover:border-rose-800/60 border border-slate-700 rounded-lg transition-all active:scale-95"
               title="Sign Out"
             >
               <LogOut className="w-4 h-4" />

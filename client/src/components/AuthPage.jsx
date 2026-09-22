@@ -428,18 +428,18 @@ export default function AuthPage({ onLoginSuccess }) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 sm:p-6 lg:p-8 font-sans">
-      <div className="w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden grid grid-cols-1 lg:grid-cols-12 min-h-[580px]">
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center px-5 py-3 sm:px-8 py-5 lg:px-[3.25rem] py-8 font-sans">
+      <div className="w-full max-w-5xl bg-slate-900 border border-slate-800 rounded-lg shadow-[0_20px_40px_rgba(0,0,0,0.08)] overflow-hidden grid grid-cols-1 lg:grid-cols-12 min-h-[580px]">
         {/* ---- LEFT BRANDING PANEL WITH OFFICIAL LOGO ---- */}
-        <div className="lg:col-span-5 bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 p-8 sm:p-10 flex flex-col justify-between border-b lg:border-b-0 lg:border-r border-slate-800 relative overflow-hidden">
-          <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="lg:col-span-5 bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 px-[3.25rem] py-8 sm:p-10 flex flex-col justify-between border-b lg:border-b-0 lg:border-r border-slate-800 relative overflow-hidden">
+          <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-[#F5F5F7]0/10 rounded-full blur-3xl pointer-events-none" />
           <div className="relative z-10">
-            <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-semibold tracking-wide mb-6">
+            <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-[#F5F5F7]0/10 border border-indigo-500/20 text-indigo-300 text-xs font-semibold tracking-wide mb-6">
               <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
               <span>National Institute of Technology Raipur</span>
             </div>
             <div className="flex items-center gap-3.5 mb-4">
-              <div className="w-14 h-14 rounded-2xl bg-white/10 p-1.5 border border-indigo-400/30 flex items-center justify-center shadow-lg shadow-indigo-600/30 flex-shrink-0">
+              <div className="w-14 h-14 rounded-lg bg-white/10 p-1.5 border border-indigo-400/30 flex items-center justify-center shadow-lg shadow-indigo-600/30 flex-shrink-0">
                 <img
                   src={nitrrLogo}
                   alt="NIT Raipur Logo"
@@ -476,16 +476,16 @@ export default function AuthPage({ onLoginSuccess }) {
         </div>
 
         {/* ---- RIGHT AUTH FORMS PANEL ---- */}
-        <div className="lg:col-span-7 bg-white p-6 sm:p-10 flex flex-col justify-center">
+        <div className="lg:col-span-7 bg-white px-8 py-5 sm:p-10 flex flex-col justify-center">
           {error && (
-            <div className="mb-4 p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start text-rose-800 text-xs sm:text-sm font-medium animate-fadeIn">
+            <div className="mb-4 p-3.5 bg-white border border-[#E5E5EA] rounded-lg flex items-start text-rose-800 text-xs sm:text-sm font-medium animate-fadeIn">
               <ShieldAlert className="w-5 h-5 mr-2 text-rose-600 flex-shrink-0 mt-0.5" />
               <div className="flex-1 whitespace-pre-line">{error}</div>
             </div>
           )}
 
           {successMsg && (
-            <div className="mb-4 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start text-emerald-800 text-xs sm:text-sm font-medium animate-fadeIn">
+            <div className="mb-4 p-3.5 bg-white border border-[#E5E5EA] rounded-lg flex items-start text-emerald-800 text-xs sm:text-sm font-medium animate-fadeIn">
               <CheckCircle2 className="w-5 h-5 mr-2 text-emerald-600 flex-shrink-0 mt-0.5" />
               <div className="flex-1 whitespace-pre-line">{successMsg}</div>
             </div>
@@ -497,15 +497,15 @@ export default function AuthPage({ onLoginSuccess }) {
               {/* Role Selector */}
               <div className="mb-5">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  <span className="text-xs font-bold uppercase tracking-wider text-[#86868B]">
                     1. Authorization Role
                   </span>
-                  <span className="text-[11px] font-semibold text-slate-500">
+                  <span className="text-[11px] font-semibold text-[#86868B]">
                     Selected:{' '}
                     <strong className={
                       role === 'HOD' ? 'text-emerald-700' : 
                       role === 'ADMIN' ? 'text-purple-700' : 
-                      'text-indigo-700'
+                      'text-[#0055B3]'
                     }>
                       {role}
                     </strong>
@@ -519,17 +519,17 @@ export default function AuthPage({ onLoginSuccess }) {
                       setRole('FACULTY');
                       setError('');
                     }}
-                    className={`relative flex items-center p-2.5 sm:p-3 rounded-xl border-2 text-left transition-all duration-200 ${
+                    className={`relative flex items-center p-2.5 sm:p-3 rounded-lg border-2 text-left transition-all duration-200 ${
                       role === 'FACULTY'
-                        ? 'border-indigo-600 bg-indigo-50/80 shadow-sm ring-2 ring-indigo-600/20'
+                        ? 'border-indigo-600 bg-[#F5F5F7]/80 shadow-sm ring-2 ring-[#007AFF]/20'
                         : 'border-slate-200 hover:border-slate-300 bg-white opacity-60 hover:opacity-100'
                     }`}
                   >
                     <div
                       className={`w-8 h-8 rounded-lg flex items-center justify-center mr-2 flex-shrink-0 ${
                         role === 'FACULTY'
-                          ? 'bg-indigo-600 text-white shadow-md'
-                          : 'bg-slate-100 text-slate-500'
+                          ? 'bg-[#007AFF] text-white shadow-md'
+                          : 'bg-slate-100 text-[#86868B]'
                       }`}
                     >
                       <GraduationCap className="w-4 h-4" />
@@ -542,7 +542,7 @@ export default function AuthPage({ onLoginSuccess }) {
                       >
                         Faculty
                       </div>
-                      <div className="text-[10px] text-slate-500 mt-0.5 hidden sm:block">Book slots</div>
+                      <div className="text-[10px] text-[#86868B] mt-0.5 hidden sm:block">Book slots</div>
                     </div>
                   </button>
 
@@ -552,7 +552,7 @@ export default function AuthPage({ onLoginSuccess }) {
                       setRole('HOD');
                       setError('');
                     }}
-                    className={`relative flex items-center p-2.5 sm:p-3 rounded-xl border-2 text-left transition-all duration-200 ${
+                    className={`relative flex items-center p-2.5 sm:p-3 rounded-lg border-2 text-left transition-all duration-200 ${
                       role === 'HOD'
                         ? 'border-emerald-600 bg-emerald-50/80 shadow-sm ring-2 ring-emerald-600/20'
                         : 'border-slate-200 hover:border-slate-300 bg-white opacity-60 hover:opacity-100'
@@ -562,7 +562,7 @@ export default function AuthPage({ onLoginSuccess }) {
                       className={`w-8 h-8 rounded-lg flex items-center justify-center mr-2 flex-shrink-0 ${
                         role === 'HOD'
                           ? 'bg-emerald-600 text-white shadow-md'
-                          : 'bg-slate-100 text-slate-500'
+                          : 'bg-slate-100 text-[#86868B]'
                       }`}
                     >
                       <ShieldCheck className="w-4 h-4" />
@@ -575,7 +575,7 @@ export default function AuthPage({ onLoginSuccess }) {
                       >
                         HOD
                       </div>
-                      <div className="text-[10px] text-slate-500 mt-0.5 hidden sm:block">Schedule</div>
+                      <div className="text-[10px] text-[#86868B] mt-0.5 hidden sm:block">Schedule</div>
                     </div>
                   </button>
 
@@ -585,7 +585,7 @@ export default function AuthPage({ onLoginSuccess }) {
                       setRole('ADMIN');
                       setError('');
                     }}
-                    className={`relative flex items-center p-2.5 sm:p-3 rounded-xl border-2 text-left transition-all duration-200 ${
+                    className={`relative flex items-center p-2.5 sm:p-3 rounded-lg border-2 text-left transition-all duration-200 ${
                       role === 'ADMIN'
                         ? 'border-purple-600 bg-purple-50/80 shadow-sm ring-2 ring-purple-600/20'
                         : 'border-slate-200 hover:border-slate-300 bg-white opacity-60 hover:opacity-100'
@@ -595,7 +595,7 @@ export default function AuthPage({ onLoginSuccess }) {
                       className={`w-8 h-8 rounded-lg flex items-center justify-center mr-2 flex-shrink-0 ${
                         role === 'ADMIN'
                           ? 'bg-purple-600 text-white shadow-md'
-                          : 'bg-slate-100 text-slate-500'
+                          : 'bg-slate-100 text-[#86868B]'
                       }`}
                     >
                       <KeyRound className="w-4 h-4" />
@@ -608,14 +608,14 @@ export default function AuthPage({ onLoginSuccess }) {
                       >
                         Admin
                       </div>
-                      <div className="text-[10px] text-slate-500 mt-0.5 hidden sm:block">Inventory</div>
+                      <div className="text-[10px] text-[#86868B] mt-0.5 hidden sm:block">Inventory</div>
                     </div>
                   </button>
                 </div>
               </div>
 
               {/* Form Mode Switcher */}
-              <div className="flex bg-slate-100 p-1 rounded-xl mb-5">
+              <div className="flex bg-slate-100 p-1 rounded-lg mb-5">
                 <button
                   type="button"
                   onClick={() => {
@@ -626,8 +626,8 @@ export default function AuthPage({ onLoginSuccess }) {
                   }}
                   className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-lg transition-all ${
                     view === 'login'
-                      ? 'bg-white text-slate-900 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-800'
+                      ? 'bg-white text-[#1D1D1F] shadow-sm'
+                      : 'text-[#86868B] hover:text-slate-800'
                   }`}
                 >
                   Sign In
@@ -642,8 +642,8 @@ export default function AuthPage({ onLoginSuccess }) {
                   }}
                   className={`flex-1 py-2 text-xs sm:text-sm font-bold rounded-lg transition-all ${
                     view === 'signup'
-                      ? 'bg-white text-slate-900 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-800'
+                      ? 'bg-white text-[#1D1D1F] shadow-sm'
+                      : 'text-[#86868B] hover:text-slate-800'
                   }`}
                 >
                   Register Account
@@ -651,16 +651,16 @@ export default function AuthPage({ onLoginSuccess }) {
               </div>
 
               {view === 'signup' && role === 'ADMIN' ? (
-                <div className="text-center p-6 bg-slate-50 border border-slate-200 rounded-2xl">
+                <div className="text-center px-8 py-5 bg-slate-50 border border-slate-200 rounded-lg">
                   <ShieldAlert className="w-10 h-10 text-slate-400 mx-auto mb-3" />
-                  <h3 className="font-bold text-slate-900 mb-1">System Admin Account</h3>
-                  <p className="text-xs text-slate-500">
+                  <h3 className="font-bold text-[#1D1D1F] mb-1">System Admin Account</h3>
+                  <p className="text-xs text-[#86868B]">
                     Administrator accounts are provisioned via system variables. Please use the Sign In tab.
                   </p>
                   <button
                     type="button"
                     onClick={() => setView('login')}
-                    className="mt-4 px-4 py-2 bg-slate-950 text-white rounded-xl text-sm font-bold hover:bg-slate-800 shadow-md transition-all"
+                    className="mt-4 px-5 py-3 bg-slate-950 text-white rounded-lg text-sm font-bold hover:bg-slate-800 shadow-md transition-all"
                   >
                     Go to Sign In
                   </button>
@@ -680,7 +680,7 @@ export default function AuthPage({ onLoginSuccess }) {
                           value={formData.name}
                           onChange={handleInputChange}
                           placeholder="Dr. Rajesh Kumar"
-                          className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                          className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-lg text-[#1D1D1F] text-sm focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
                           required
                         />
                       </div>
@@ -716,7 +716,7 @@ export default function AuthPage({ onLoginSuccess }) {
                           role === 'HOD' ? 'hod@nitrr.ac.in' : 
                           'faculty@nitrr.ac.in'
                         }
-                        className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                        className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-lg text-[#1D1D1F] text-sm focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
                         required
                       />
                     </div>
@@ -735,7 +735,7 @@ export default function AuthPage({ onLoginSuccess }) {
                         value={formData.department}
                         onChange={handleInputChange}
                         disabled={loadingDepts}
-                        className="w-full px-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all disabled:opacity-50"
+                        className="w-full px-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-lg text-[#1D1D1F] text-sm focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all disabled:opacity-50"
                       >
                         {loadingDepts ? (
                           <option value="">Loading branches...</option>
@@ -762,7 +762,7 @@ export default function AuthPage({ onLoginSuccess }) {
                             setSuccessMsg('');
                             setOtpPurpose('forgot');
                           }}
-                          className="text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
+                          className="text-xs font-medium text-[#007AFF] hover:text-indigo-800 transition-colors"
                         >
                           Forgot Password?
                         </button>
@@ -776,7 +776,7 @@ export default function AuthPage({ onLoginSuccess }) {
                         value={formData.password}
                         onChange={handleInputChange}
                         placeholder="••••••••"
-                        className="w-full pl-10 pr-10 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                        className="w-full pl-10 pr-10 py-2.5 bg-slate-50/50 border border-slate-200 rounded-lg text-[#1D1D1F] text-sm focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
                         required
                       />
                       <button
@@ -830,7 +830,7 @@ export default function AuthPage({ onLoginSuccess }) {
                           value={formData.confirmPassword}
                           onChange={handleInputChange}
                           placeholder="••••••••"
-                          className="w-full pl-10 pr-10 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                          className="w-full pl-10 pr-10 py-2.5 bg-slate-50/50 border border-slate-200 rounded-lg text-[#1D1D1F] text-sm focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
                           required
                         />
                         <button
@@ -851,7 +851,7 @@ export default function AuthPage({ onLoginSuccess }) {
                   <button
                     type="submit"
                     disabled={loading}
-                    className="w-full mt-3 flex items-center justify-center py-3 px-4 rounded-xl text-white bg-slate-950 hover:bg-slate-800 font-bold text-sm shadow-md transition-all active:scale-[0.99] disabled:opacity-50 gap-2"
+                    className="w-full mt-3 flex items-center justify-center py-3 px-4 rounded-lg text-white bg-slate-950 hover:bg-slate-800 font-bold text-sm shadow-md transition-all active:scale-[0.99] disabled:opacity-50 gap-2"
                   >
                     {loading ? (
                       <>
@@ -878,16 +878,16 @@ export default function AuthPage({ onLoginSuccess }) {
               <button
                 type="button"
                 onClick={() => goBack('login')}
-                className="inline-flex items-center text-xs font-semibold text-slate-600 hover:text-slate-900 mb-6 transition-colors"
+                className="inline-flex items-center text-xs font-semibold text-slate-600 hover:text-[#1D1D1F] mb-6 transition-colors"
               >
                 <ArrowLeft className="w-3.5 h-3.5 mr-1" /> Back to Sign In
               </button>
               <div className="text-center mb-6">
-                <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 mb-3">
+                <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-amber-50 text-amber-600 mb-3">
                   <KeyRound className="w-6 h-6" />
                 </div>
-                <h2 className="text-xl font-bold text-slate-900">Reset Account Password</h2>
-                <p className="mt-1 text-xs text-slate-500">
+                <h2 className="text-xl font-bold text-[#1D1D1F]">Reset Account Password</h2>
+                <p className="mt-1 text-xs text-[#86868B]">
                   Enter your registered institutional email to receive a 6-digit verification code.
                 </p>
               </div>
@@ -904,7 +904,7 @@ export default function AuthPage({ onLoginSuccess }) {
                       value={formData.email}
                       onChange={handleInputChange}
                       placeholder="faculty@nitrr.ac.in"
-                      className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                      className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-lg text-[#1D1D1F] text-sm focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
                       required
                     />
                   </div>
@@ -912,7 +912,7 @@ export default function AuthPage({ onLoginSuccess }) {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full py-3 px-4 rounded-xl text-white bg-slate-950 hover:bg-slate-800 font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  className="w-full py-3 px-4 rounded-lg text-white bg-slate-950 hover:bg-slate-800 font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {loading ? (
                     <>
@@ -942,16 +942,16 @@ export default function AuthPage({ onLoginSuccess }) {
                     goBack('forgot');
                   }
                 }}
-                className="inline-flex items-center text-xs font-semibold text-slate-600 hover:text-slate-900 mb-6 transition-colors"
+                className="inline-flex items-center text-xs font-semibold text-slate-600 hover:text-[#1D1D1F] mb-6 transition-colors"
               >
                 <ArrowLeft className="w-3.5 h-3.5 mr-1" /> Back
               </button>
               <div className="text-center mb-6">
-                <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 mb-3">
+                <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-[#F5F5F7] text-[#007AFF] mb-3">
                   <KeyRound className="w-6 h-6" />
                 </div>
-                <h2 className="text-xl font-bold text-slate-900">Enter Verification Code</h2>
-                <p className="mt-1 text-xs text-slate-500">
+                <h2 className="text-xl font-bold text-[#1D1D1F]">Enter Verification Code</h2>
+                <p className="mt-1 text-xs text-[#86868B]">
                   Enter the 6‑digit OTP code sent to{' '}
                   <span className="font-semibold text-slate-800">{emailForReset}</span>
                 </p>
@@ -961,7 +961,7 @@ export default function AuthPage({ onLoginSuccess }) {
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block text-xs font-semibold text-slate-700">6-Digit OTP</label>
-                    <span className="text-xs font-mono font-bold text-indigo-600 flex items-center gap-1">
+                    <span className="text-xs font-mono font-bold text-[#007AFF] flex items-center gap-1">
                       <Clock className="w-3.5 h-3.5" />
                       {formatTimer(otpTimer)}
                     </span>
@@ -975,19 +975,19 @@ export default function AuthPage({ onLoginSuccess }) {
                       onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                       placeholder="123456"
                       maxLength="6"
-                      className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 font-mono text-center tracking-widest text-lg font-bold focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                      className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/50 border border-slate-200 rounded-lg text-[#1D1D1F] font-mono text-center tracking-widest text-lg font-bold focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
                       required
                     />
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-xs text-slate-500">
+                <div className="flex items-center justify-between text-xs text-[#86868B]">
                   <span>Didn't receive the OTP?</span>
                   <button
                     type="button"
                     onClick={handleResendOtp}
                     disabled={resending || otpTimer > 240}
-                    className="font-semibold text-indigo-600 hover:text-indigo-800 disabled:opacity-40 transition-all"
+                    className="font-semibold text-[#007AFF] hover:text-indigo-800 disabled:opacity-40 transition-all"
                   >
                     {resending ? 'Resending...' : 'Resend Code'}
                   </button>
@@ -996,7 +996,7 @@ export default function AuthPage({ onLoginSuccess }) {
                 <button
                   type="submit"
                   disabled={loading || otp.length !== 6}
-                  className="w-full py-3 px-4 rounded-xl text-white bg-slate-950 hover:bg-slate-800 font-bold text-sm shadow-md transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="w-full py-3 px-4 rounded-lg text-white bg-slate-950 hover:bg-slate-800 font-bold text-sm shadow-md transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {loading ? (
                     <>
@@ -1017,16 +1017,16 @@ export default function AuthPage({ onLoginSuccess }) {
               <button
                 type="button"
                 onClick={() => goBack('verify-otp')}
-                className="inline-flex items-center text-xs font-semibold text-slate-600 hover:text-slate-900 mb-6 transition-colors"
+                className="inline-flex items-center text-xs font-semibold text-slate-600 hover:text-[#1D1D1F] mb-6 transition-colors"
               >
                 <ArrowLeft className="w-3.5 h-3.5 mr-1" /> Back
               </button>
               <div className="text-center mb-6">
-                <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 mb-3">
+                <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-emerald-50 text-emerald-600 mb-3">
                   <Lock className="w-6 h-6" />
                 </div>
-                <h2 className="text-xl font-bold text-slate-900">Create New Password</h2>
-                <p className="mt-1 text-xs text-slate-500">
+                <h2 className="text-xl font-bold text-[#1D1D1F]">Create New Password</h2>
+                <p className="mt-1 text-xs text-[#86868B]">
                   Please choose a strong password with at least 8 characters.
                 </p>
               </div>
@@ -1044,7 +1044,7 @@ export default function AuthPage({ onLoginSuccess }) {
                       value={formData.newPassword}
                       onChange={handleInputChange}
                       placeholder="••••••••"
-                      className="w-full pl-10 pr-10 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                      className="w-full pl-10 pr-10 py-2.5 bg-slate-50/50 border border-slate-200 rounded-lg text-[#1D1D1F] text-sm focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
                       required
                     />
                     <button
@@ -1069,7 +1069,7 @@ export default function AuthPage({ onLoginSuccess }) {
                       value={formData.confirmNewPassword}
                       onChange={handleInputChange}
                       placeholder="••••••••"
-                      className="w-full pl-10 pr-10 py-2.5 bg-slate-50/50 border border-slate-200 rounded-xl text-slate-900 text-sm focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-none transition-all"
+                      className="w-full pl-10 pr-10 py-2.5 bg-slate-50/50 border border-slate-200 rounded-lg text-[#1D1D1F] text-sm focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
                       required
                     />
                     <button
@@ -1089,7 +1089,7 @@ export default function AuthPage({ onLoginSuccess }) {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full py-3 px-4 rounded-xl text-white bg-slate-950 hover:bg-slate-800 font-bold text-sm shadow-md transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="w-full py-3 px-4 rounded-lg text-white bg-slate-950 hover:bg-slate-800 font-bold text-sm shadow-md transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {loading ? (
                     <>

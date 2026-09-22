@@ -1,4 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
+
+const normalizeFloor = (floorVal) => {
+  if (!floorVal) return '';
+  const s = String(floorVal).trim().toLowerCase();
+  if (s === '0' || s.startsWith('ground')) return 'Ground Floor';
+  const m = s.match(/^(\d+)/);
+  if (m) {
+    if (m[1] === '1') return '1st Floor';
+    if (m[1] === '2') return '2nd Floor';
+    if (m[1] === '3') return '3rd Floor';
+    return m[1] + 'th Floor';
+  }
+  return String(floorVal).trim();
+};
+
 import { getRooms, getAvailableRooms, getRoomReviews } from '../services/api';
 import { getSocket } from '../services/socket';
 import ReviewsModal from './ReviewsModal';
@@ -310,7 +325,7 @@ export default function RoomDashboard({ user }) {
     return Number((list.reduce((acc, r) => acc + (r.rating || 0), 0) / list.length).toFixed(1));
   };
 
-  const floors = ['ALL', ...new Set(rooms.map((r) => r.floor).filter(Boolean))];
+  const floors = ['ALL', ...new Set(rooms.map((r) => normalizeFloor(r.floor)).filter(Boolean))];
 
   const roomTypes = [
     'ALL',
@@ -354,7 +369,7 @@ export default function RoomDashboard({ user }) {
 
       if (!roomMatchesSearchQuery(room, searchTerm)) return false;
 
-      if (selectedFloor !== 'ALL' && room.floor !== selectedFloor) return false;
+      if (selectedFloor !== 'ALL' && normalizeFloor(room.floor) !== selectedFloor) return false;
       if (selectedType !== 'ALL' && room.type !== selectedType) return false;
 
       if (minCapacity !== 'ALL') {
@@ -393,8 +408,8 @@ export default function RoomDashboard({ user }) {
     <div className="space-y-6 font-sans">
       {/* Live Holiday Notice Banner */}
       {isHoliday && (
-        <div className="p-4 bg-amber-50 border border-amber-200 rounded-3xl flex items-center gap-3 text-amber-900 shadow-sm animate-fadeIn">
-          <div className="w-10 h-10 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-700 flex-shrink-0">
+        <div className="px-5 py-3 bg-white border border-[#E5E5EA] rounded-lg flex items-center gap-3 text-amber-900 shadow-sm animate-fadeIn">
+          <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center text-amber-700 flex-shrink-0">
             <Palmtree className="w-5 h-5" />
           </div>
           <div>
@@ -407,33 +422,31 @@ export default function RoomDashboard({ user }) {
       )}
 
       {/* Search & Filter Header Container */}
-      <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-5">
+      <div className="bg-white border border-slate-200 rounded-lg px-8 py-5 shadow-sm space-y-5">
         {/* Top Title & Status Filter Tabs */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-lg bg-[#F5F5F7] text-[#007AFF] flex items-center justify-center">
               <Building2 className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900 leading-tight">
+              <h2 className="text-base font-bold text-[#1D1D1F] leading-tight">
                 Live Room Status & Search
               </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Real-time occupancy for {user?.department || 'Department'}
-              </p>
+              
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             {/* Status Pills */}
-            <div className="flex items-center bg-slate-100 p-1 rounded-xl">
+            <div className="flex items-center bg-slate-100 p-1 rounded-lg">
               <button
                 type="button"
                 onClick={() => setStatusFilter('ALL')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                   statusFilter === 'ALL'
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-white text-[#1D1D1F] shadow-sm'
+                    : 'text-slate-600 hover:text-[#1D1D1F]'
                 }`}
               >
                 All ({totalRoomsCount})
@@ -468,14 +481,12 @@ export default function RoomDashboard({ user }) {
 
             {/* Time & Refresh Button */}
             <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
-              <span className="text-xs text-slate-400 font-mono hidden sm:inline">
-                {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-              </span>
+              
               <button
                 type="button"
                 onClick={() => fetchData(true)}
                 disabled={refreshing}
-                className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all disabled:opacity-50"
+                className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-all disabled:opacity-50"
                 title="Refresh Status"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
@@ -493,7 +504,7 @@ export default function RoomDashboard({ user }) {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search by room name, #, building, floor, or amenity..."
-              className="w-full pl-10 pr-8 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs sm:text-sm outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all placeholder:text-slate-400"
+              className="w-full pl-10 pr-8 py-2 bg-slate-50/50 border border-slate-200 rounded-lg text-xs sm:text-sm outline-none focus:bg-white focus:ring-2 focus:ring-[#007AFF] transition-all placeholder:text-slate-400"
             />
             {searchTerm && (
               <button
@@ -510,7 +521,7 @@ export default function RoomDashboard({ user }) {
             <select
               value={selectedFloor}
               onChange={(e) => setSelectedFloor(e.target.value)}
-              className="w-full border border-slate-200 bg-slate-50/50 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all"
+              className="w-full border border-slate-200 bg-slate-50/50 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-[#007AFF] transition-all"
             >
               {floors.map((fl) => (
                 <option key={fl} value={fl}>
@@ -524,7 +535,7 @@ export default function RoomDashboard({ user }) {
             <select
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
-              className="w-full border border-slate-200 bg-slate-50/50 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all"
+              className="w-full border border-slate-200 bg-slate-50/50 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-[#007AFF] transition-all"
             >
               {roomTypes.map((t) => (
                 <option key={t} value={t}>
@@ -538,7 +549,7 @@ export default function RoomDashboard({ user }) {
             <select
               value={minCapacity}
               onChange={(e) => setMinCapacity(e.target.value)}
-              className="w-full border border-slate-200 bg-slate-50/50 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all"
+              className="w-full border border-slate-200 bg-slate-50/50 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-[#007AFF] transition-all"
             >
               <option value="ALL">Any Capacity</option>
               <option value="30">30+ Seats</option>
@@ -552,7 +563,7 @@ export default function RoomDashboard({ user }) {
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
-                className="w-full border border-slate-200 bg-slate-50/50 rounded-xl pl-3 pr-7 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-indigo-600 transition-all appearance-none"
+                className="w-full border border-slate-200 bg-slate-50/50 rounded-lg pl-3 pr-7 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-[#007AFF] transition-all appearance-none"
               >
                 <option value="DEFAULT">Sort: Default</option>
                 <option value="CAPACITY_DESC">Capacity (High to Low)</option>
@@ -573,9 +584,9 @@ export default function RoomDashboard({ user }) {
           <button
             type="button"
             onClick={() => setFilterProjector(!filterProjector)}
-            className={`px-3 py-1 text-xs font-bold rounded-xl border transition-all ${
+            className={`px-3 py-1 text-xs font-bold rounded-lg border transition-all ${
               filterProjector
-                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                ? 'bg-[#007AFF] text-white border-indigo-600 shadow-sm'
                 : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
             }`}
           >
@@ -585,9 +596,9 @@ export default function RoomDashboard({ user }) {
           <button
             type="button"
             onClick={() => setFilterAC(!filterAC)}
-            className={`px-3 py-1 text-xs font-bold rounded-xl border transition-all ${
+            className={`px-3 py-1 text-xs font-bold rounded-lg border transition-all ${
               filterAC
-                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                ? 'bg-[#007AFF] text-white border-indigo-600 shadow-sm'
                 : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
             }`}
           >
@@ -597,9 +608,9 @@ export default function RoomDashboard({ user }) {
           <button
             type="button"
             onClick={() => setFilterSmartBoard(!filterSmartBoard)}
-            className={`px-3 py-1 text-xs font-bold rounded-xl border transition-all ${
+            className={`px-3 py-1 text-xs font-bold rounded-lg border transition-all ${
               filterSmartBoard
-                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                ? 'bg-[#007AFF] text-white border-indigo-600 shadow-sm'
                 : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
             }`}
           >
@@ -609,9 +620,9 @@ export default function RoomDashboard({ user }) {
           <button
             type="button"
             onClick={() => setFilterWiFi(!filterWiFi)}
-            className={`px-3 py-1 text-xs font-bold rounded-xl border transition-all ${
+            className={`px-3 py-1 text-xs font-bold rounded-lg border transition-all ${
               filterWiFi
-                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                ? 'bg-[#007AFF] text-white border-indigo-600 shadow-sm'
                 : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
             }`}
           >
@@ -629,14 +640,14 @@ export default function RoomDashboard({ user }) {
             </button>
           )}
 
-          <div className="ml-auto text-xs text-slate-500 font-medium">
+          <div className="ml-auto text-xs text-[#86868B] font-medium">
             Showing <strong className="text-slate-800">{filteredRooms.length}</strong> of {totalRoomsCount} rooms
           </div>
         </div>
       </div>
 
       {error && (
-        <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
+        <div className="px-5 py-3 bg-white border border-[#E5E5EA] rounded-lg flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
           <AlertCircle className="w-5 h-5 mr-2.5 text-rose-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1 whitespace-pre-line">{error}</div>
           <button type="button" onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
@@ -648,11 +659,11 @@ export default function RoomDashboard({ user }) {
       {/* Room Status Cards Grid */}
       {loading && rooms.length === 0 ? (
         <div className="p-16 text-center text-slate-400 text-sm flex items-center justify-center gap-2">
-          <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+          <Loader2 className="w-5 h-5 animate-spin text-[#007AFF]" />
           <span>Loading live room availability...</span>
         </div>
       ) : filteredRooms.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-3xl p-12 text-center text-slate-400">
+        <div className="bg-white border border-slate-200 rounded-lg p-12 text-center text-slate-400">
           <Building2 className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <p className="font-semibold text-slate-700 text-sm">No classrooms match your search criteria.</p>
           <p className="text-xs text-slate-400 mt-1">Try adjusting your filters or clearing search text.</p>
@@ -660,7 +671,7 @@ export default function RoomDashboard({ user }) {
             <button
               type="button"
               onClick={handleResetFilters}
-              className="mt-4 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors inline-block"
+              className="mt-4 px-5 py-3 bg-[#F5F5F7] text-[#007AFF] rounded-lg text-xs font-bold hover:bg-indigo-100 transition-colors inline-block"
             >
               Reset All Filters
             </button>
@@ -691,9 +702,9 @@ export default function RoomDashboard({ user }) {
             return (
               <div
                 key={roomId}
-                className={`bg-white border rounded-3xl p-5 shadow-sm flex flex-col justify-between transition-all duration-200 ${
+                className={`bg-white border rounded-lg px-8 py-5 shadow-sm flex flex-col justify-between transition-all duration-200 ${
                   isMyOngoingClass
-                    ? 'border-indigo-500 ring-2 ring-indigo-200 shadow-md bg-indigo-50/20'
+                    ? 'border-indigo-500 ring-2 ring-indigo-200 shadow-md bg-[#F5F5F7]/20'
                     : available
                     ? 'border-slate-200 hover:border-indigo-300 hover:shadow-md'
                     : 'border-slate-200/70 bg-slate-50/50'
@@ -702,10 +713,10 @@ export default function RoomDashboard({ user }) {
                 <div>
                   <div className="flex justify-between items-start mb-2">
                     <div>
-                      <h3 className="font-bold text-base text-slate-900 leading-tight">
+                      <h3 className="font-bold text-base text-[#1D1D1F] leading-tight">
                         {room.name}
                       </h3>
-                      <div className="text-xs font-mono text-slate-500 mt-0.5">
+                      <div className="text-xs font-mono text-[#86868B] mt-0.5">
                         {room.roomNumber} {room.type ? `• ${room.type}` : ''}
                       </div>
                     </div>
@@ -721,7 +732,7 @@ export default function RoomDashboard({ user }) {
                         <span>Free Now</span>
                       </span>
                     ) : isMyOngoingClass ? (
-                      <span className="px-3 py-1 text-xs font-extrabold rounded-full bg-indigo-600 text-white shadow-sm flex items-center gap-1.5 animate-pulse">
+                      <span className="px-3 py-1 text-xs font-extrabold rounded-full bg-[#007AFF] text-white shadow-sm flex items-center gap-1.5 animate-pulse">
                         <GraduationCap className="w-3.5 h-3.5" />
                         <span>In Class</span>
                       </span>
@@ -736,9 +747,9 @@ export default function RoomDashboard({ user }) {
                   {/* Occupancy Detail Subtext */}
                   {!available && occupancy && (
                     <div
-                      className={`mt-2 p-2.5 rounded-xl text-xs font-medium border ${
+                      className={`mt-2 p-2.5 rounded-lg text-xs font-medium border ${
                         isMyOngoingClass
-                          ? 'bg-indigo-50 border-indigo-100 text-indigo-900'
+                          ? 'bg-[#F5F5F7] border-indigo-100 text-indigo-900'
                           : 'bg-rose-50 border-rose-100 text-rose-900'
                       }`}
                     >
@@ -763,7 +774,7 @@ export default function RoomDashboard({ user }) {
                     <span>•</span>
                     <span className="flex items-center gap-1">
                       <Layers className="w-3.5 h-3.5 text-slate-400" />
-                      {room.floor}, {room.building}
+                      {normalizeFloor(room.floor)}, {room.building}
                     </span>
                   </div>
 
@@ -802,7 +813,7 @@ export default function RoomDashboard({ user }) {
                   <button
                     type="button"
                     onClick={() => handleViewReviews(room)}
-                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+                    className="text-xs font-semibold text-[#007AFF] hover:text-indigo-800"
                   >
                     {reviewCount > 0 ? `(${reviewCount} reviews)` : 'Reviews'}
                   </button>

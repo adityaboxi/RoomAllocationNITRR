@@ -91,35 +91,16 @@ export default function HODDashboard({ user }) {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 font-sans">
       {/* Top Header Card */}
-      <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shadow-sm">
-            <ShieldCheck className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-slate-900 leading-none">
-                HOD Portal — {user?.name}
-              </h1>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 uppercase tracking-wide">
-                HOD
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 mt-1">
-              Department of {user?.department} — NIT Raipur
-            </p>
-          </div>
-        </div>
-
+      <div className="bg-white border border-slate-200 rounded-lg px-8 py-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         {/* Tab Navigation Controls */}
-        <div className="flex items-center bg-slate-100 p-1 rounded-xl flex-wrap self-start sm:self-auto gap-1">
+        <div className="flex items-center bg-slate-100 p-1 rounded-lg flex-wrap self-start sm:self-auto gap-1">
           <button
             type="button"
             onClick={() => setActiveTab('book')}
             className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-all ${
               activeTab === 'book'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-900'
+                ? 'bg-white text-[#1D1D1F] shadow-sm'
+                : 'text-[#86868B] hover:text-[#1D1D1F]'
             }`}
           >
             <CalendarPlus className="w-3.5 h-3.5 text-amber-600" />
@@ -131,11 +112,11 @@ export default function HODDashboard({ user }) {
             onClick={() => setActiveTab('timetable')}
             className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-all ${
               activeTab === 'timetable'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-900'
+                ? 'bg-white text-[#1D1D1F] shadow-sm'
+                : 'text-[#86868B] hover:text-[#1D1D1F]'
             }`}
           >
-            <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+            <Calendar className="w-3.5 h-3.5 text-[#007AFF]" />
             <span>Timetable</span>
           </button>
 
@@ -144,8 +125,8 @@ export default function HODDashboard({ user }) {
             onClick={() => setActiveTab('holidays')}
             className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-all ${
               activeTab === 'holidays'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-900'
+                ? 'bg-white text-[#1D1D1F] shadow-sm'
+                : 'text-[#86868B] hover:text-[#1D1D1F]'
             }`}
           >
             <Palmtree className="w-3.5 h-3.5 text-teal-600" />
@@ -158,36 +139,36 @@ export default function HODDashboard({ user }) {
       {stats && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 animate-fadeIn">
           {/* Card 1: Total Rooms & Live Availability */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+          <div className="bg-white border border-slate-200 rounded-lg px-5 py-3 shadow-sm">
             <div className="flex items-center justify-between text-slate-400 mb-1">
               <span className="text-xs font-semibold uppercase tracking-wider">Total Rooms</span>
-              <Building2 className="w-4 h-4 text-indigo-500" />
+              <Building2 className="w-4 h-4 text-[#007AFF]" />
             </div>
-            <div className="text-2xl font-black text-slate-900 font-mono">{stats.totalRooms || 0}</div>
-            <div className="text-[11px] text-slate-500 mt-0.5 font-medium">
+            <div className="text-2xl font-black text-[#1D1D1F] font-mono">{stats.totalRooms || 0}</div>
+            <div className="text-[11px] text-[#86868B] mt-0.5 font-medium">
               <span className="text-emerald-600 font-semibold">{stats.availableRooms || 0} free</span> • <span className="text-rose-600 font-semibold">{stats.occupiedRooms || 0} occupied</span>
             </div>
           </div>
 
           {/* Card 2: Upcoming Bookings */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+          <div className="bg-white border border-slate-200 rounded-lg px-5 py-3 shadow-sm">
             <div className="flex items-center justify-between text-slate-400 mb-1">
               <span className="text-xs font-semibold uppercase tracking-wider">Upcoming Bookings</span>
               <Clock className="w-4 h-4 text-emerald-500" />
             </div>
-            <div className="text-2xl font-black text-slate-900 font-mono">{stats.activeBookings || 0}</div>
+            <div className="text-2xl font-black text-[#1D1D1F] font-mono">{stats.activeBookings || 0}</div>
             <div className="text-[11px] text-emerald-600 font-medium mt-0.5">
               {stats.todayBookings || 0} remaining today
             </div>
           </div>
 
           {/* Card 3: Semester Timetable Classes */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+          <div className="bg-white border border-slate-200 rounded-lg px-5 py-3 shadow-sm">
             <div className="flex items-center justify-between text-slate-400 mb-1">
               <span className="text-xs font-semibold uppercase tracking-wider">Timetable Slots</span>
               <Calendar className="w-4 h-4 text-amber-500" />
             </div>
-            <div className="text-2xl font-black text-slate-900 font-mono">{stats.totalTimetable || 0}</div>
+            <div className="text-2xl font-black text-[#1D1D1F] font-mono">{stats.totalTimetable || 0}</div>
             <div className="text-[11px] text-slate-400 mt-0.5">Weekly semester classes</div>
           </div>
         </div>

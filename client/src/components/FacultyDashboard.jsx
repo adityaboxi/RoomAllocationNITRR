@@ -86,36 +86,10 @@ export default function FacultyDashboard({ user }) {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 font-sans">
-      {/* Top Header Card */}
-      <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 shadow-sm">
-            <GraduationCap className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-slate-900 leading-none">
-                Welcome, {user?.name}
-              </h1>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 uppercase tracking-wide">
-                Faculty
-              </span>
-            </div>
-            <div className="flex items-center gap-2 mt-1">
-              <p className="text-xs text-slate-500">
-                Department of {user?.department} — NIT Raipur
-              </p>
-              <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" /> Live Updates Active
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
 
       {/* Pending Reviews Banner */}
       {pendingReviews.length > 0 && !activeReviewBooking && (
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center justify-between shadow-sm animate-fadeIn">
+        <div className="bg-white border border-[#E5E5EA] rounded-lg px-5 py-3 flex items-center justify-between shadow-sm animate-fadeIn">
           <div className="flex items-center gap-2.5">
             <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
             <span className="text-xs font-bold text-amber-900">

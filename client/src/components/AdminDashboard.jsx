@@ -1,4 +1,19 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+
+const normalizeFloor = (floorVal) => {
+  if (!floorVal) return '';
+  const s = String(floorVal).trim().toLowerCase();
+  if (s === '0' || s.startsWith('ground')) return 'Ground Floor';
+  const m = s.match(/^(\d+)/);
+  if (m) {
+    if (m[1] === '1') return '1st Floor';
+    if (m[1] === '2') return '2nd Floor';
+    if (m[1] === '3') return '3rd Floor';
+    return m[1] + 'th Floor';
+  }
+  return String(floorVal).trim();
+};
+
 import { getRooms, createRoom, updateRoom, deleteRoom, getDepartments, getAllRoomsStatus } from '../services/api';
 import { Building2, Plus, Edit2, Trash2, Eye, EyeOff, AlertTriangle, Loader2, X, CheckSquare, Square, Activity, Clock, Users, Search, Filter, RotateCcw, RefreshCw, Calendar } from 'lucide-react';
 import { getSocket } from '../services/socket';
@@ -40,10 +55,10 @@ function DeleteConfirmModal({ room, onConfirm, onCancel }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-5 py-3"
       onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
     >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-lg shadow-[0_20px_40px_rgba(0,0,0,0.08)] w-full max-w-md border border-slate-200 overflow-hidden">
         {/* Header */}
         <div className="bg-rose-50/80 border-b border-rose-100 px-5 py-3.5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
@@ -66,13 +81,13 @@ function DeleteConfirmModal({ room, onConfirm, onCancel }) {
         </div>
 
         {/* Body */}
-        <div className="p-5 space-y-3.5">
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs">
-            <p className="font-bold text-slate-900">{room.name} <span className="text-slate-400 font-mono">({room.roomNumber})</span></p>
-            <p className="text-slate-500 mt-0.5">{room.building} • Floor {room.floor} • {room.department}</p>
+        <div className="px-8 py-5 space-y-3.5">
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs">
+            <p className="font-bold text-[#1D1D1F]">{room.name} <span className="text-slate-400 font-mono">({room.roomNumber})</span></p>
+            <p className="text-[#86868B] mt-0.5">{room.building} • Floor {normalizeFloor(room.floor)} • {room.department}</p>
           </div>
 
-          <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl p-3 text-xs text-amber-900">
+          <div className="bg-amber-50/80 border border-amber-200/80 rounded-lg p-3 text-xs text-amber-900">
             <p className="font-semibold text-amber-800 mb-1">Impact Warning</p>
             <p className="text-[11px] text-amber-700 leading-relaxed">
               Timetable allocations and active bookings will be cleared immediately. Affected faculty and department heads will receive automated notifications.
@@ -92,10 +107,10 @@ function DeleteConfirmModal({ room, onConfirm, onCancel }) {
                   onChange={(e) => { setPassword(e.target.value); setError(''); }}
                   placeholder="Enter administrator password"
                   disabled={loading}
-                  className={`w-full border rounded-xl px-3 py-2 pr-9 text-xs outline-none transition-all ${
+                  className={`w-full border rounded-lg px-3 py-2 pr-9 text-xs outline-none transition-all ${
                     error
                       ? 'border-rose-300 bg-rose-50/50 focus:ring-2 focus:ring-rose-200'
-                      : 'border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500'
+                      : 'border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500'
                   }`}
                 />
                 <button
@@ -119,14 +134,14 @@ function DeleteConfirmModal({ room, onConfirm, onCancel }) {
                 type="button"
                 onClick={onCancel}
                 disabled={loading}
-                className="flex-1 px-4 py-2 bg-slate-100 text-slate-600 font-semibold rounded-xl text-xs hover:bg-slate-200 transition-colors disabled:opacity-50"
+                className="flex-1 px-5 py-3 bg-slate-100 text-slate-600 font-semibold rounded-lg text-xs hover:bg-slate-200 transition-colors disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={loading || !password.trim()}
-                className="flex-1 px-4 py-2 bg-rose-600 text-white font-bold rounded-xl text-xs hover:bg-rose-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5 shadow-sm"
+                className="flex-1 px-5 py-3 bg-rose-600 text-white font-bold rounded-lg text-xs hover:bg-rose-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5 shadow-sm"
               >
                 {loading ? (
                   <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Deleting...</>
@@ -448,33 +463,33 @@ export default function AdminDashboard({ user, onLogout }) {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 font-sans">
 
         {/* ── Tab Navigation ────────────────────────────────────── */}
-        <div className="flex gap-1 bg-slate-100 rounded-2xl p-1 w-fit">
+        <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit">
           <button
             onClick={() => setActiveTab('rooms')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+            className={`px-5 py-3 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
               activeTab === 'rooms'
-                ? 'bg-white text-indigo-700 shadow-sm border border-slate-200'
-                : 'text-slate-500 hover:text-slate-700'
+                ? 'bg-white text-[#0055B3] shadow-sm border border-slate-200'
+                : 'text-[#86868B] hover:text-slate-700'
             }`}
           >
             <Building2 className="w-3.5 h-3.5" /> Room Manager
           </button>
           <button
             onClick={() => setActiveTab('status')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+            className={`px-5 py-3 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
               activeTab === 'status'
                 ? 'bg-white text-emerald-700 shadow-sm border border-slate-200'
-                : 'text-slate-500 hover:text-slate-700'
+                : 'text-[#86868B] hover:text-slate-700'
             }`}
           >
             <Activity className="w-3.5 h-3.5" /> Live Room Status
           </button>
           <button
             onClick={() => setActiveTab('timetable')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+            className={`px-5 py-3 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
               activeTab === 'timetable'
-                ? 'bg-white text-indigo-700 shadow-sm border border-slate-200'
-                : 'text-slate-500 hover:text-slate-700'
+                ? 'bg-white text-[#0055B3] shadow-sm border border-slate-200'
+                : 'text-[#86868B] hover:text-slate-700'
             }`}
           >
             <Calendar className="w-3.5 h-3.5" /> Master Timetables
@@ -487,30 +502,30 @@ export default function AdminDashboard({ user, onLogout }) {
             {/* Summary Cards */}
             {statusSummary && (
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="bg-white border border-slate-200 rounded-2xl p-4 text-center shadow-sm">
+                <div className="bg-white border border-slate-200 rounded-lg px-5 py-3 text-center shadow-sm">
                   <p className="text-2xl font-black text-slate-800">{statusSummary.total}</p>
-                  <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mt-0.5">Total Rooms</p>
+                  <p className="text-[11px] font-semibold text-[#86868B] uppercase tracking-wide mt-0.5">Total Rooms</p>
                 </div>
-                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-center shadow-sm">
+                <div className="bg-white border border-[#E5E5EA] rounded-lg px-5 py-3 text-center shadow-sm">
                   <p className="text-2xl font-black text-emerald-700">{statusSummary.free}</p>
                   <p className="text-[11px] font-semibold text-emerald-600 uppercase tracking-wide mt-0.5">Free Now</p>
                 </div>
-                <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-center shadow-sm">
+                <div className="bg-white border border-[#E5E5EA] rounded-lg px-5 py-3 text-center shadow-sm">
                   <p className="text-2xl font-black text-rose-700">{statusSummary.occupied}</p>
                   <p className="text-[11px] font-semibold text-rose-600 uppercase tracking-wide mt-0.5">Occupied</p>
                 </div>
-                <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 text-center shadow-sm">
-                  <p className="text-lg font-bold text-indigo-700">{statusSummary.asOf}</p>
-                  <p className="text-[11px] font-semibold text-indigo-500 uppercase tracking-wide mt-0.5">{statusSummary.day}, {statusSummary.date}</p>
+                <div className="bg-[#F5F5F7] border border-slate-200 rounded-lg px-5 py-3 text-center shadow-sm">
+                  <p className="text-lg font-bold text-[#0055B3]">{statusSummary.asOf}</p>
+                  
                 </div>
               </div>
             )}
 
             {/* Filters */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+            <div className="bg-white border border-slate-200 rounded-lg px-5 py-3 shadow-sm">
               <div className="flex flex-wrap items-center gap-3">
                 {/* Status Filter */}
-                <div className="flex gap-1 bg-slate-100 rounded-xl p-0.5">
+                <div className="flex gap-1 bg-slate-100 rounded-lg p-0.5">
                   {[
                     { val: 'ALL', label: 'All', count: statusRooms.length },
                     { val: 'free', label: '🟢 Free', count: statusRooms.filter(r => r.currentStatus === 'free').length },
@@ -522,7 +537,7 @@ export default function AdminDashboard({ user, onLogout }) {
                       className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
                         statusFilter === val
                           ? 'bg-white text-slate-800 shadow-sm border border-slate-200'
-                          : 'text-slate-500 hover:text-slate-700'
+                          : 'text-[#86868B] hover:text-slate-700'
                       }`}
                     >
                       {label} ({count})
@@ -534,7 +549,7 @@ export default function AdminDashboard({ user, onLogout }) {
                 <select
                   value={statusDeptFilter}
                   onChange={(e) => setStatusDeptFilter(e.target.value)}
-                  className="px-2.5 py-1.5 border border-slate-200 rounded-xl text-xs font-medium bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  className="px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-medium bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500"
                 >
                   <option value="ALL">All Departments</option>
                   {departments.map((d) => (
@@ -550,7 +565,7 @@ export default function AdminDashboard({ user, onLogout }) {
                     value={statusSearch}
                     onChange={(e) => setStatusSearch(e.target.value)}
                     placeholder="Search room, faculty, purpose..."
-                    className="w-full pl-8 pr-3 py-1.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                    className="w-full pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500"
                   />
                 </div>
 
@@ -558,7 +573,7 @@ export default function AdminDashboard({ user, onLogout }) {
                 <button
                   onClick={fetchRoomStatus}
                   disabled={statusLoading}
-                  className="p-1.5 text-slate-500 hover:text-indigo-600 bg-slate-50 hover:bg-indigo-50 rounded-lg transition-colors border border-slate-200 disabled:opacity-50"
+                  className="p-1.5 text-[#86868B] hover:text-[#007AFF] bg-slate-50 hover:bg-[#F5F5F7] rounded-lg transition-colors border border-slate-200 disabled:opacity-50"
                   title="Refresh status"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${statusLoading ? 'animate-spin' : ''}`} />
@@ -568,12 +583,12 @@ export default function AdminDashboard({ user, onLogout }) {
 
             {/* Room Status List */}
             {statusLoading && statusRooms.length === 0 ? (
-              <div className="p-10 text-center text-slate-400 bg-white border border-slate-200 rounded-2xl">
+              <div className="p-10 text-center text-slate-400 bg-white border border-slate-200 rounded-lg">
                 <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2 text-slate-300" />
                 <p className="text-xs font-medium">Loading live room status...</p>
               </div>
             ) : filteredStatusRooms.length === 0 ? (
-              <div className="p-10 text-center text-slate-400 bg-white border border-slate-200 rounded-2xl">
+              <div className="p-10 text-center text-slate-400 bg-white border border-slate-200 rounded-lg">
                 <Building2 className="w-10 h-10 text-slate-300 mx-auto mb-2" />
                 <p className="text-xs font-medium">No rooms match your filters.</p>
               </div>
@@ -582,7 +597,7 @@ export default function AdminDashboard({ user, onLogout }) {
                 {filteredStatusRooms.map((room) => (
                   <div
                     key={room.id}
-                    className={`bg-white border rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all ${
+                    className={`bg-white border rounded-lg px-5 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all ${
                       room.currentStatus === 'occupied'
                         ? 'border-rose-200 hover:border-rose-300'
                         : 'border-emerald-200 hover:border-emerald-300'
@@ -597,16 +612,16 @@ export default function AdminDashboard({ user, onLogout }) {
                             room.currentStatus === 'occupied' ? 'bg-rose-500 animate-pulse' : 'bg-emerald-500'
                           }`}
                         />
-                        <h3 className="font-bold text-sm text-slate-900 truncate">{room.name}</h3>
-                        <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[10px] font-mono flex-shrink-0">
+                        <h3 className="font-bold text-sm text-[#1D1D1F] truncate">{room.name}</h3>
+                        <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-[#86868B] text-[10px] font-mono flex-shrink-0">
                           #{room.roomNumber}
                         </span>
-                        <span className="px-2 py-0.5 rounded-md bg-indigo-50 border border-indigo-100 text-indigo-700 text-[10px] font-semibold flex-shrink-0">
+                        <span className="px-2 py-0.5 rounded-md bg-[#F5F5F7] border border-indigo-100 text-[#0055B3] text-[10px] font-semibold flex-shrink-0">
                           {room.department}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-500 mt-1">
-                        {room.building} • Floor {room.floor} • {room.type} • {room.capacity} seats
+                      <p className="text-[11px] text-[#86868B] mt-1">
+                        {room.building} • Floor {normalizeFloor(room.floor)} • {room.type} • {room.capacity} seats
                       </p>
                     </div>
 
@@ -624,7 +639,7 @@ export default function AdminDashboard({ user, onLogout }) {
                           <p className="text-xs font-semibold text-slate-800 mt-1 truncate">
                             {room.occupancy.facultyName}
                           </p>
-                          <p className="text-[11px] text-slate-500 truncate">{room.occupancy.purpose}</p>
+                          <p className="text-[11px] text-[#86868B] truncate">{room.occupancy.purpose}</p>
                           <p className="text-[10px] text-slate-400 mt-0.5 flex items-center justify-end gap-1">
                             <Clock className="w-3 h-3" />
                             {room.occupancy.startTime} – {room.occupancy.endTime}
@@ -661,7 +676,7 @@ export default function AdminDashboard({ user, onLogout }) {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
           {/* Add / Edit Form */}
           <div className="lg:col-span-5">
-            <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-3.5 sticky top-6">
+            <div className="bg-white border border-slate-200 rounded-lg px-8 py-5 shadow-sm space-y-3.5 sticky top-6">
               <div className="border-b border-slate-100 pb-2.5">
                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-800">
                   {editingId ? 'Update Room Configuration' : 'Allocate Room'}
@@ -676,7 +691,7 @@ export default function AdminDashboard({ user, onLogout }) {
                     type="text"
                     value={formData.name}
                     onChange={(e) => setFormData({...formData, name: e.target.value})}
-                    className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
+                    className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
                     placeholder="e.g. F-14"
                   />
                 </div>
@@ -689,7 +704,7 @@ export default function AdminDashboard({ user, onLogout }) {
                       type="text"
                       value={formData.roomNumber}
                       onChange={(e) => setFormData({...formData, roomNumber: e.target.value})}
-                      className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-slate-800 font-medium uppercase"
+                      className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium uppercase"
                       placeholder="e.g. 101"
                     />
                   </div>
@@ -701,7 +716,7 @@ export default function AdminDashboard({ user, onLogout }) {
                       min="1"
                       value={formData.capacity}
                       onChange={(e) => setFormData({...formData, capacity: e.target.value})}
-                      className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
+                      className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
                       placeholder="e.g. 60"
                     />
                   </div>
@@ -712,7 +727,7 @@ export default function AdminDashboard({ user, onLogout }) {
                   <select
                     value={formData.department}
                     onChange={(e) => setFormData({...formData, department: e.target.value})}
-                    className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-semibold bg-indigo-50/70 text-indigo-800 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                    className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-semibold bg-[#F5F5F7]/70 text-indigo-800 outline-none focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500"
                   >
                     {departments.map(d => <option key={d} value={d}>{d}</option>)}
                   </select>
@@ -777,9 +792,9 @@ export default function AdminDashboard({ user, onLogout }) {
                       return (
                         <label
                           key={key}
-                          className={`flex items-center gap-2 p-2 rounded-xl border cursor-pointer transition-all ${
+                          className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all ${
                             checked
-                              ? 'bg-indigo-50 border-indigo-200 text-indigo-800 font-semibold'
+                              ? 'bg-[#F5F5F7] border-slate-200 text-indigo-800 font-semibold'
                               : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-white'
                           }`}
                         >
@@ -790,7 +805,7 @@ export default function AdminDashboard({ user, onLogout }) {
                             className="hidden"
                           />
                           {checked ? (
-                            <CheckSquare className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                            <CheckSquare className="w-3.5 h-3.5 text-[#007AFF] flex-shrink-0" />
                           ) : (
                             <Square className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
                           )}
@@ -802,7 +817,7 @@ export default function AdminDashboard({ user, onLogout }) {
                 </div>
 
                 {formError && (
-                  <p className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
+                  <p className="text-xs text-rose-600 bg-white border border-[#E5E5EA] rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" /> {formError}
                   </p>
                 )}
@@ -811,7 +826,7 @@ export default function AdminDashboard({ user, onLogout }) {
                   <button
                     type="submit"
                     disabled={formLoading}
-                    className="flex-1 bg-indigo-600 text-white font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 hover:bg-indigo-700 disabled:opacity-60 transition-colors shadow-sm shadow-indigo-100"
+                    className="flex-1 bg-[#007AFF] text-white font-bold py-2 rounded-lg text-xs flex items-center justify-center gap-1.5 hover:bg-[#0066CC] disabled:opacity-60 transition-colors shadow-sm shadow-indigo-100"
                   >
                     {formLoading ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -825,7 +840,7 @@ export default function AdminDashboard({ user, onLogout }) {
                     <button
                       type="button"
                       onClick={handleCancelEdit}
-                      className="px-3.5 bg-slate-100 text-slate-600 font-semibold rounded-xl text-xs hover:bg-slate-200 transition-colors"
+                      className="px-3.5 bg-slate-100 text-slate-600 font-semibold rounded-lg text-xs hover:bg-slate-200 transition-colors"
                     >
                       Cancel
                     </button>
@@ -844,7 +859,7 @@ export default function AdminDashboard({ user, onLogout }) {
             </div>
 
             {rooms.length === 0 ? (
-              <div className="p-10 text-center text-slate-400 bg-white border border-slate-200 rounded-2xl">
+              <div className="p-10 text-center text-slate-400 bg-white border border-slate-200 rounded-lg">
                 <Building2 className="w-10 h-10 text-slate-300 mx-auto mb-2" />
                 <p className="text-xs font-medium">No rooms allocated yet.</p>
               </div>
@@ -852,12 +867,12 @@ export default function AdminDashboard({ user, onLogout }) {
               rooms.map(room => (
                 <div
                   key={room.id || room._id}
-                  className="bg-white border border-slate-200 rounded-2xl p-4 flex items-center justify-between gap-3 hover:border-indigo-200 hover:shadow-sm transition-all"
+                  className="bg-white border border-slate-200 rounded-lg px-5 py-3 flex items-center justify-between gap-3 hover:border-slate-200 hover:shadow-sm transition-all"
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-bold text-sm text-slate-900 truncate">{room.name}</h3>
-                      <span className="px-2 py-0.5 rounded-md bg-indigo-50 border border-indigo-100 text-indigo-700 text-[10px] font-semibold flex-shrink-0">
+                      <h3 className="font-bold text-sm text-[#1D1D1F] truncate">{room.name}</h3>
+                      <span className="px-2 py-0.5 rounded-md bg-[#F5F5F7] border border-indigo-100 text-[#0055B3] text-[10px] font-semibold flex-shrink-0">
                         {room.department}
                       </span>
                       <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-medium flex-shrink-0">
@@ -865,8 +880,8 @@ export default function AdminDashboard({ user, onLogout }) {
                       </span>
                     </div>
 
-                    <p className="text-[11px] text-slate-500 mt-1">
-                      {room.building} • Floor {room.floor} • #{room.roomNumber} • {room.capacity} seats
+                    <p className="text-[11px] text-[#86868B] mt-1">
+                      {room.building} • Floor {normalizeFloor(room.floor)} • #{room.roomNumber} • {room.capacity} seats
                     </p>
 
                     {/* Compact Amenities Indicators */}
@@ -882,7 +897,7 @@ export default function AdminDashboard({ user, onLogout }) {
                     <button
                       onClick={() => handleEdit(room)}
                       title="Edit room"
-                      className="p-1.5 text-slate-400 hover:text-indigo-600 bg-slate-50 hover:bg-indigo-50 rounded-lg transition-colors border border-slate-200"
+                      className="p-1.5 text-slate-400 hover:text-[#007AFF] bg-slate-50 hover:bg-[#F5F5F7] rounded-lg transition-colors border border-slate-200"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
