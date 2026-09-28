@@ -216,6 +216,7 @@ exports.getBookingsByFaculty = async (req, res) => {
 
 // ---------- CREATE BOOKING (WITH HOLIDAY GUARD) ----------
 exports.createBooking = async (req, res) => {
+  let lockKey = null;
   try {
     let { roomId, date, startTime, endTime, purpose, comment, lockId } = req.body;
 
@@ -262,6 +263,11 @@ exports.createBooking = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Cannot book past hours or dates' });
     }
 
+        lockKey = String(roomId) + "-" + String(date) + "-" + String(startTime) + "-" + String(endTime);
+    if (activeProcessingLocks.has(lockKey)) {
+      return res.status(409).json({ success: false, message: 'Room is currently being processed by another user. Please wait a moment and try again.' });
+    }
+    activeProcessingLocks.add(lockKey);
     const maxDaysAdvance = parseInt(process.env.MAX_BOOKING_DAYS_ADVANCE, 10);
     const todayDate = new Date(todayStr);
     const maxBookingDate = new Date(todayDate);
@@ -484,6 +490,8 @@ exports.createBooking = async (req, res) => {
       });
     }
     res.status(400).json({ success: false, message: error.message });
+  } finally {
+    if (lockKey) activeProcessingLocks.delete(lockKey);
   }
 };
 
