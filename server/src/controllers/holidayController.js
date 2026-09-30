@@ -63,17 +63,21 @@ exports.createHoliday = async (req, res) => {
 
     title = title.trim();
     date = date.trim();
-    type = type === 'EMERGENCY' ? 'EMERGENCY' : 'NATIONAL';
-    const isRecurring = type === 'NATIONAL'; // Emergency holidays NEVER recur in future years
-    const monthDay = date.slice(5); // 'MM-DD'
+    let dept = req.user.department;
+    if (req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN') {
+      type = 'NATIONAL';
+      dept = 'ALL';
+    } else {
+      type = 'EMERGENCY';
+    }
+    const isRecurring = type === 'NATIONAL';
+    const monthDay = date.slice(5);
     description = (description || '').trim() || (isRecurring ? 'National / Annual Holiday' : 'Emergency / Local Holiday');
 
     const todayStr = getTodayDateString();
     if (date < todayStr) {
       return res.status(400).json({ success: false, message: 'Cannot declare a holiday for a past date' });
     }
-
-    const dept = isInstituteWide && req.user.role === 'SUPER_ADMIN' ? 'ALL' : req.user.department;
 
     // Check duplicate
     const existing = await Holiday.findOne({ department: dept, date });
@@ -98,12 +102,9 @@ exports.createHoliday = async (req, res) => {
     });
 
     // Auto-Cancel Conflicting Bookings
-    const existingBookings = await Booking.find({
-      department: dept,
-      date,
-      status: 'active',
-      purpose: { $ne: 'TEMPORARY_LOCK' },
-    }).populate('roomId', 'name roomNumber');
+    const bookingQuery = { date, status: 'active', purpose: { $ne: 'TEMPORARY_LOCK' } };
+    if (dept !== 'ALL') bookingQuery.department = dept;
+    const existingBookings = await Booking.find(bookingQuery).populate('roomId', 'name');
 
     if (existingBookings.length > 0) {
       const cancelReason = `Cancelled: Declared ${type === 'NATIONAL' ? 'National' : 'Emergency'} Holiday (${title})`;
@@ -194,7 +195,7 @@ exports.updateHoliday = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Holiday not found' });
     }
 
-    if (holiday.department !== req.user.department && req.user.role !== 'SUPER_ADMIN') {
+    if (holiday.department !== req.user.department && req.user.role !== 'SUPER_ADMIN' && req.user.role !== 'ADMIN') {
       return res.status(403).json({ success: false, message: 'Not authorized to update holidays for another department' });
     }
 
@@ -232,12 +233,9 @@ exports.updateHoliday = async (req, res) => {
       holiday.monthDay = date.slice(5);
 
       // 1. Restore bookings on oldDate (since holiday was moved away)
-      const oldCancelledBookings = await Booking.find({
-        department: holiday.department,
-        date: oldDate,
-        status: 'cancelled',
-        purpose: { $ne: 'TEMPORARY_LOCK' },
-      }).populate('roomId', 'name roomNumber building floor');
+      const oldBookingQuery = { date: oldDate, status: 'cancelled', purpose: { $ne: 'TEMPORARY_LOCK' } };
+      if (holiday.department !== 'ALL') oldBookingQuery.department = holiday.department;
+      const oldCancelledBookings = await Booking.find(oldBookingQuery).populate('roomId', 'name building floor');
 
       for (const booking of oldCancelledBookings) {
         booking.status = 'active';
@@ -279,12 +277,9 @@ exports.updateHoliday = async (req, res) => {
       }
 
       // 2. Auto-cancel bookings on new date
-      const newExistingBookings = await Booking.find({
-        department: holiday.department,
-        date,
-        status: 'active',
-        purpose: { $ne: 'TEMPORARY_LOCK' },
-      }).populate('roomId', 'name roomNumber');
+      const newBookingQuery = { date, status: 'active', purpose: { $ne: 'TEMPORARY_LOCK' } };
+      if (holiday.department !== 'ALL') newBookingQuery.department = holiday.department;
+      const newExistingBookings = await Booking.find(newBookingQuery).populate('roomId', 'name');
 
       if (newExistingBookings.length > 0) {
         const cancelReason = `Cancelled: Holiday rescheduled to ${date} (${holiday.title})`;
@@ -340,17 +335,14 @@ exports.deleteHoliday = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Holiday not found' });
     }
 
-    if (holiday.department !== req.user.department && req.user.role !== 'SUPER_ADMIN') {
+    if (holiday.department !== req.user.department && req.user.role !== 'SUPER_ADMIN' && req.user.role !== 'ADMIN') {
       return res.status(403).json({ success: false, message: 'Not authorized to delete holidays for another department' });
     }
 
     // 🔒 1. Find all bookings cancelled due to this holiday mistake
-    const cancelledBookings = await Booking.find({
-      department: holiday.department,
-      date: holiday.date,
-      status: 'cancelled',
-      purpose: { $ne: 'TEMPORARY_LOCK' },
-    }).populate('roomId', 'name roomNumber building floor');
+    const delBookingQuery = { date: holiday.date, status: 'cancelled', purpose: { $ne: 'TEMPORARY_LOCK' } };
+    if (holiday.department !== 'ALL') delBookingQuery.department = holiday.department;
+    const cancelledBookings = await Booking.find(delBookingQuery).populate('roomId', 'name building floor');
 
     let restoredCount = 0;
 

@@ -3,6 +3,10 @@ const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 const mongoose = require('mongoose');
+const mongoSanitize = require('express-mongo-sanitize');
+const xss = require('xss-clean');
+const hpp = require('hpp');
+
 
 // Route Imports
 const authRoutes = require('./routes/authRoutes');
@@ -81,6 +85,21 @@ app.options('*', cors(corsOptions)); // Explicitly handle preflight OPTIONS for 
 const bodyLimit = process.env.BODY_LIMIT || '10mb';
 app.use(express.json({ limit: bodyLimit }));
 app.use(express.urlencoded({ extended: true, limit: bodyLimit }));
+
+// ---------- ADVANCED SECURITY MIDDLEWARE ----------
+// 1. Data Sanitization against NoSQL Query Injection (removes $ and .)
+app.use(mongoSanitize());
+
+// 2. Data Sanitization against Cross-Site Scripting (XSS)
+app.use(xss());
+
+// 3. Prevent HTTP Parameter Pollution
+app.use(hpp({
+  whitelist: [
+    'date', 'department', 'semester', 'section', 'roomId', 'day', 'status'
+  ] // Allow duplicate params for specific filtering fields if ever needed
+}));
+
 
 // ---------- SYSTEM HEALTH & PROBE MONITORING ----------
 app.get(['/health', '/api/health'], (req, res) => {

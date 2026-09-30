@@ -8,13 +8,6 @@ const RoomSchema = new mongoose.Schema(
       trim: true,
       index: true,
     },
-    roomNumber: {
-      type: String,
-      required: true,
-      uppercase: true,
-      trim: true,
-      index: true,
-    },
     capacity: {
       type: Number,
       required: true,
@@ -94,15 +87,13 @@ const RoomSchema = new mongoose.Schema(
 
 // High-Performance Query Indexes
 RoomSchema.index({ department: 1, name: 1 });
-RoomSchema.index({ department: 1, roomNumber: 1 });
 RoomSchema.index({ department: 1, isActive: 1, isAvailable: 1 });
-RoomSchema.index({ floor: 1, roomNumber: 1 });
 RoomSchema.index({ building: 1, floor: 1 });
 RoomSchema.index({ createdBy: 1 });
 
-// 🔒 ATOMIC INSTITUTE-WIDE UNIQUE ROOM NUMBER: Guarantees no two departments can register the same room number
+// 🔒 ATOMIC INSTITUTE-WIDE UNIQUE ROOM NAME: Guarantees no two departments can register the same room name
 RoomSchema.index(
-  { roomNumber: 1 },
+  { name: 1 },
   {
     unique: true,
     partialFilterExpression: { isActive: true },
@@ -120,7 +111,6 @@ RoomSchema.set('toJSON', {
   },
 });
 
-// Transform _id to id for Object output
 RoomSchema.set('toObject', {
   virtuals: true,
   transform: (doc, ret) => {

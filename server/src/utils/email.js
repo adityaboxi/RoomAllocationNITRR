@@ -57,6 +57,8 @@ exports.sendOTPEmail = async (email, otp, purpose = 'forgot') => {
     return;
   }
 
+  console.log(`🔑 [DEV-OTP-LOG] Generated OTP for ${email}: [36m${otp}[0m`);
+
   try {
     await transporter.sendMail({
       from: getSenderAddress(),
@@ -75,8 +77,7 @@ exports.sendBookingConfirmationEmail = async (booking) => {
   if (!booking?.facultyEmail) return;
 
   const roomName = booking.roomId?.name || 'Classroom';
-  const roomNumber = booking.roomId?.roomNumber || '';
-  const building = booking.roomId?.building || 'Main Campus';
+    const building = booking.roomId?.building || 'Main Campus';
   const floor = booking.roomId?.floor || 'Ground Floor';
 
   const html = `
@@ -88,7 +89,7 @@ exports.sendBookingConfirmationEmail = async (booking) => {
     <p style="color:#1e293b;font-size:14px;line-height:1.5;">Dear <strong>${booking.facultyName}</strong>,</p>
     <p style="color:#475569;font-size:13px;margin-top:0;">Your classroom reservation request has been registered successfully:</p>
     <div style="background:#f0fdf4;border:1px solid #bbf7d0;padding:18px;border-radius:12px;margin:18px 0;font-size:13px;color:#166534;line-height:1.7;">
-      <div><strong>Room:</strong> ${roomName} (${roomNumber})</div>
+      <div><strong>Room:</strong> ${roomName}</div>
       <div><strong>Location:</strong> ${building}, ${floor}</div>
       <div><strong>Date:</strong> ${booking.date} (${booking.day})</div>
       <div><strong>Time Slot:</strong> ${booking.startTime} - ${booking.endTime}</div>
@@ -121,8 +122,7 @@ exports.sendBookingCancellationEmail = async (booking, reason) => {
   if (!booking?.facultyEmail) return;
 
   const roomName = booking.roomId?.name || 'Classroom';
-  const roomNumber = booking.roomId?.roomNumber || '';
-
+  
   const html = `
   <div style="font-family:Arial, sans-serif;max-width:540px;margin:30px auto;background:#ffffff;padding:30px;border-radius:16px;border:1px solid #e2e8f0;box-shadow:0 4px 12px rgba(0,0,0,0.05)">
     <div style="text-align:center;margin-bottom:20px;">
@@ -132,7 +132,7 @@ exports.sendBookingCancellationEmail = async (booking, reason) => {
     <p style="color:#1e293b;font-size:14px;line-height:1.5;">Dear <strong>${booking.facultyName}</strong>,</p>
     <p style="color:#475569;font-size:13px;margin-top:0;">Your scheduled reservation has been cancelled:</p>
     <div style="background:#fef2f2;border:1px solid #fecaca;padding:18px;border-radius:12px;margin:18px 0;font-size:13px;color:#991b1b;line-height:1.7;">
-      <div><strong>Room:</strong> ${roomName} (${roomNumber})</div>
+      <div><strong>Room:</strong> ${roomName}</div>
       <div><strong>Date:</strong> ${booking.date} (${booking.day})</div>
       <div><strong>Time Slot:</strong> ${booking.startTime} - ${booking.endTime}</div>
       <div><strong>Reason:</strong> ${reason || 'Schedule adjustment'}</div>
@@ -163,8 +163,7 @@ exports.sendBookingRestorationEmail = async (booking, holidayTitle) => {
   if (!booking?.facultyEmail) return;
 
   const roomName = booking.roomId?.name || 'Classroom';
-  const roomNumber = booking.roomId?.roomNumber || '';
-  const building = booking.roomId?.building || 'Main Campus';
+    const building = booking.roomId?.building || 'Main Campus';
   const floor = booking.roomId?.floor || 'Ground Floor';
 
   const html = `
@@ -181,7 +180,7 @@ exports.sendBookingRestorationEmail = async (booking, holidayTitle) => {
       Your previously cancelled classroom reservation has been <strong>automatically restored and is now active</strong>.
     </p>
     <div style="background:#f0fdf4;border:1px solid #bbf7d0;padding:18px;border-radius:12px;margin:18px 0;font-size:13px;color:#166534;line-height:1.7;">
-      <div><strong>Room:</strong> ${roomName} (${roomNumber})</div>
+      <div><strong>Room:</strong> ${roomName}</div>
       <div><strong>Location:</strong> ${building}, ${floor}</div>
       <div><strong>Date:</strong> ${booking.date} (${booking.day})</div>
       <div><strong>Time Slot:</strong> ${booking.startTime} - ${booking.endTime}</div>
@@ -210,7 +209,7 @@ exports.sendBookingRestorationEmail = async (booking, holidayTitle) => {
 };
 
 // ---------- SEND ROOM DELETED EMAIL (to HOD of that department) ----------
-exports.sendRoomDeletedNotificationEmail = async ({ hodEmail, hodName, roomName, roomNumber, building, floor, department, bookingsCancelled, timetableSlotsRemoved }) => {
+exports.sendRoomDeletedNotificationEmail = async ({ hodEmail, hodName, roomName, building, floor, department, bookingsCancelled, timetableSlotsRemoved }) => {
   if (!hodEmail) return;
 
   const html = `
@@ -225,8 +224,7 @@ exports.sendRoomDeletedNotificationEmail = async ({ hodEmail, hodName, roomName,
     </p>
     <div style="background:#fef2f2;border:1px solid #fecaca;padding:18px;border-radius:12px;margin:18px 0;font-size:13px;color:#991b1b;line-height:1.7;">
       <div><strong>Room Name:</strong> ${roomName}</div>
-      <div><strong>Room Number:</strong> ${roomNumber || '—'}</div>
-      <div><strong>Building:</strong> ${building || '—'}</div>
+            <div><strong>Building:</strong> ${building || '—'}</div>
       <div><strong>Floor:</strong> ${floor !== undefined ? 'Floor ' + floor : '—'}</div>
     </div>
     <div style="background:#fff7ed;border:1px solid #fed7aa;padding:14px 18px;border-radius:12px;margin:14px 0;font-size:13px;color:#9a3412;line-height:1.7;">
@@ -255,4 +253,88 @@ exports.sendRoomDeletedNotificationEmail = async ({ hodEmail, hodName, roomName,
   } catch (error) {
     console.error(`❌ [EMAIL ERROR] Failed sending room deleted notice to ${hodEmail}:`, error.message);
   }
+};
+// ---------- SEND NOTIFICATION TO HOD ABOUT A BOOKING ----------
+exports.sendHODBookingNotificationEmail = async (booking, hodEmail, hodName) => {
+  if (!hodEmail) return;
+
+  const roomName = booking.roomId?.name || 'Classroom';
+    const building = booking.roomId?.building || 'Main Campus';
+
+  const html = `
+  <div style="font-family:Arial, sans-serif;max-width:540px;margin:30px auto;background:#ffffff;padding:30px;border-radius:16px;border:1px solid #e2e8f0;box-shadow:0 4px 12px rgba(0,0,0,0.05)">
+    <div style="text-align:center;margin-bottom:20px;">
+      <h2 style="color:#0284c7;margin:0;font-size:22px;font-weight:800;">ℹ️ Faculty Booking Alert</h2>
+      <p style="color:#64748b;font-size:13px;margin-top:4px;">NIT Raipur Room Allocation</p>
+    </div>
+    <p style="color:#1e293b;font-size:14px;line-height:1.5;">Dear <strong>${hodName}</strong>,</p>
+    <p style="color:#475569;font-size:13px;margin-top:0;">This is to notify you that <strong>${booking.facultyName}</strong> has just booked a room:</p>
+    <div style="background:#f0f9ff;border:1px solid #bae6fd;padding:18px;border-radius:12px;margin:18px 0;font-size:13px;color:#075985;line-height:1.7;">
+      <div><strong>Room:</strong> ${roomName}</div>
+      <div><strong>Date:</strong> ${booking.date} (${booking.day})</div>
+      <div><strong>Time Slot:</strong> ${booking.startTime} - ${booking.endTime}</div>
+      <div><strong>Purpose:</strong> ${booking.purpose}</div>
+    </div>
+    <hr style="border:none;border-top:1px solid #f1f5f9;margin:24px 0 16px 0;" />
+    <p style="text-align:center;color:#94a3b8;font-size:11px;margin:0;">National Institute of Technology Raipur — Academic Scheduling</p>
+  </div>`;
+
+  if (!transporter || isLoggingOnly) {
+    return;
+  }
+
+  try {
+    await transporter.sendMail({
+      from: getSenderAddress(),
+      to: hodEmail,
+      subject: `ℹ️ Room Booked: ${booking.facultyName} (${booking.date})`,
+      html,
+    });
+    console.log(`📧 [EMAIL] Dispatched HOD Notification email to: ${hodEmail}`);
+  } catch (error) {
+    console.error(`❌ [EMAIL ERROR] Failed sending HOD Notification to ${hodEmail}:`, error.message);
+  }
+};
+
+exports.sendNewRoomAddedEmail = async ({ hodEmail, hodName, roomName, department, building, floor, capacity, type }) => {
+  const subject = `NIT Raipur: New Room Added to ${department} Department`;
+
+  const html = `
+  <div style="font-family:Arial, sans-serif;max-width:550px;margin:20px auto;background:#ffffff;padding:30px;border-radius:12px;border:1px solid #e2e8f0;">
+    <div style="text-align:center;margin-bottom:24px;">
+      <h2 style="color:#0f172a;margin:0;font-size:22px;">🏫 NIT Raipur Room Allocation</h2>
+      <p style="color:#64748b;font-size:14px;margin-top:4px;">New Room Assigned to Your Department</p>
+    </div>
+    
+    <p style="color:#334155;font-size:15px;line-height:1.5;">Dear <strong>${hodName}</strong>,</p>
+    <p style="color:#334155;font-size:15px;line-height:1.5;">
+      The System Administrator has successfully allocated a new room to the <strong>${department}</strong> department. 
+      It is now available in your department's inventory.
+    </p>
+
+    <div style="background:#f8fafc;padding:20px;border-radius:8px;border:1px solid #e2e8f0;margin:24px 0;">
+      <h3 style="margin:0 0 16px 0;font-size:15px;color:#0f172a;border-bottom:1px solid #e2e8f0;padding-bottom:8px;">New Room Details:</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:14px;color:#475569;">
+        <div><strong>Name:</strong> ${roomName}</div>
+        <div><strong>Type:</strong> ${type}</div>
+        <div><strong>Capacity:</strong> ${capacity} Seats</div>
+        <div><strong>Location:</strong> ${building} (${floor})</div>
+      </div>
+    </div>
+
+    <div style="background:#fff7ed;padding:16px;border-radius:8px;border:1px solid #ffedd5;margin-bottom:24px;text-align:center;">
+      <strong style="color:#c2410c;font-size:15px;">Action Required</strong>
+      <p style="color:#9a3412;margin:8px 0 0 0;font-size:14px;">
+        Please log into the HOD Dashboard to configure this room and upload its official semester timetable. 
+        Until a timetable is uploaded, this room cannot be safely booked without potential conflicts!
+      </p>
+    </div>
+
+    <p style="color:#64748b;font-size:13px;text-align:center;">
+      This is an automated notification from the NIT Raipur Room Allocation System.
+    </p>
+  </div>
+  `;
+
+  await sendMail(hodEmail, subject, html);
 };

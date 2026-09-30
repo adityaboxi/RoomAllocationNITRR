@@ -12,6 +12,8 @@ const {
   resetPassword,
   getMe,
   getDepartments,
+  getUsersForAdmin,
+  deleteUserByAdmin
 } = require('../controllers/authController');
 
 // Public Authentication & Metadata Routes
@@ -29,3 +31,6 @@ router.get('/me', protect, getMe);
 router.post('/change-password', protect, changePassword);
 
 module.exports = router;
+// Admin User Management
+router.get('/users', protect, getUsersForAdmin);
+router.delete('/users/:id', protect, deleteUserByAdmin);

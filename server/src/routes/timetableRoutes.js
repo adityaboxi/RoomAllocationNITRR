@@ -12,12 +12,14 @@ const {
   uploadTimetableFile,
   updateTimetableEntry,
   deleteTimetableEntry,
+  generateTimetableReport,
 } = require('../controllers/timetableController');
 
 // All timetable routes require authentication
 router.use(protect);
 
 // Query Endpoints
+router.get('/report/csv', generateTimetableReport);
 router.get('/', getTimetable);
 router.get('/department/:department', getTimetableByDepartment);
 router.get('/faculty/:facultyName', getTimetableByFaculty);

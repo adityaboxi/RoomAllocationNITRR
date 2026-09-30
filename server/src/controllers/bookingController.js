@@ -1,10 +1,12 @@
 const mongoose = require('mongoose');
 const Booking = require('../models/Booking');
+const User = require('../models/User');
+const Notification = require('../models/Notification');
 const Room = require('../models/Room');
 const Timetable = require('../models/Timetable');
 const Holiday = require('../models/Holiday');
 const { getDayOfWeek, generateLockId, getTodayDateString, getCurrentTimeHHMM } = require('../utils/helpers');
-const { sendBookingConfirmationEmail, sendBookingCancellationEmail } = require('../utils/email');
+const { sendBookingConfirmationEmail, sendBookingCancellationEmail, sendHODBookingNotificationEmail } = require('../utils/email');
 const { getIO } = require('../utils/socket');
 
 // Helper to validate HH:mm format
@@ -90,7 +92,7 @@ exports.getBookings = async (req, res) => {
     if (date) query.date = date.trim();
 
     const bookings = await Booking.find(query)
-      .populate('roomId', 'name roomNumber floor building department capacity type')
+      .populate('roomId', 'name floor building department capacity type')
       .sort({ date: -1, startTime: -1 })
       .limit(300) // Safety limit: Prevent crashing the client if cron is deleted
       .lean();
@@ -113,7 +115,7 @@ exports.getMyBookings = async (req, res) => {
       facultyEmail: req.user.email,
       purpose: { $ne: 'TEMPORARY_LOCK' },
     })
-      .populate('roomId', 'name roomNumber floor building department capacity type')
+      .populate('roomId', 'name floor building department capacity type')
       .sort({ date: -1, startTime: -1 })
       .limit(300) // Safety limit: only load recent 300
       .lean();
@@ -140,7 +142,7 @@ exports.getBooking = async (req, res) => {
 
     const booking = await Booking.findById(id).populate(
       'roomId',
-      'name roomNumber floor building department capacity type'
+      'name floor building department capacity type'
     );
 
     if (!booking) {
@@ -176,7 +178,7 @@ exports.getBookingsByRoom = async (req, res) => {
     if (date) query.date = date.trim();
 
     const bookings = await Booking.find(query)
-      .populate('roomId', 'name roomNumber floor building department')
+      .populate('roomId', 'name floor building department')
       .sort({ date: 1, startTime: 1 })
       .lean();
 
@@ -202,7 +204,7 @@ exports.getBookingsByFaculty = async (req, res) => {
     await autoCompletePastBookings({ facultyEmail });
 
     const bookings = await Booking.find({ facultyEmail })
-      .populate('roomId', 'name roomNumber floor building department')
+      .populate('roomId', 'name floor building department')
       .sort({ date: -1, startTime: -1 })
       .lean();
 
@@ -456,7 +458,7 @@ exports.createBooking = async (req, res) => {
 
     const populated = await Booking.findById(booking._id).populate(
       'roomId',
-      'name roomNumber floor building department'
+      'name floor building department'
     );
 
     sendBookingConfirmationEmail(populated)
@@ -464,6 +466,49 @@ exports.createBooking = async (req, res) => {
       .catch((err) => {
         console.error('📧 [BOOKING] Confirmation email failed:', err.message);
       });
+
+    // 🚀 NEW: Notify the respective HOD and ALL Admins
+    (async () => {
+      try {
+        // 1. Find the HOD and all Admins
+        const usersToNotify = await User.find({
+          $or: [
+            { role: 'HOD', department: req.user.department },
+            { role: 'ADMIN' },
+            { role: 'SUPER_ADMIN' }
+          ]
+        });
+
+        const io = getIO();
+
+        for (const targetUser of usersToNotify) {
+          // Send Email
+          await sendHODBookingNotificationEmail(populated, targetUser.email, targetUser.name);
+          
+          // Create DB Notification
+          await Notification.create({
+            userId: targetUser._id,
+            message: `Room Booked Alert: ${req.user.name} (${req.user.department}) has booked room ${room.name} on ${populated.date} (${populated.startTime} - ${populated.endTime}).`,
+            type: 'booking-created',
+            metadata: {
+              roomId: room._id,
+              roomName: room.name,
+              date: populated.date,
+              startTime: populated.startTime,
+              endTime: populated.endTime,
+              bookingId: populated.id || populated._id,
+            }
+          });
+          
+          // Emit socket ping
+          if (io) {
+             io.emit('new-notification', { userId: targetUser._id.toString() });
+          }
+        }
+      } catch (err) {
+        console.error('❌ [BOOKING] Failed to notify HOD/Admins:', err.message);
+      }
+    })();
 
     const io = getIO();
     if (io) {
@@ -504,7 +549,7 @@ exports.cancelBooking = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid booking ID format' });
     }
 
-    const booking = await Booking.findById(id).populate('roomId', 'name roomNumber building floor');
+    const booking = await Booking.findById(id).populate('roomId', 'name building floor');
 
     if (!booking) {
       console.warn(`⚠️  [BOOKING] cancelBooking: Booking not found: ${id}`);
@@ -761,5 +806,69 @@ exports.unlockRoom = async (req, res) => {
   } catch (error) {
     console.error('❌ [BOOKING] unlockRoom error:', error.message);
     res.status(500).json({ success: false, message: 'Failed to unlock room', error: error.message });
+  }
+};
+// ---------- GENERATE BOOKING USAGE REPORT (CSV) ----------
+exports.generateBookingReport = async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN' && req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ success: false, message: 'Only Admins can generate this report' });
+    }
+
+    const { startDate, endDate, department, roomId } = req.query;
+
+    const query = {
+      status: { $in: ['active', 'completed'] }, // Exclude cancelled/conflicted
+      purpose: { $ne: 'TEMPORARY_LOCK' } // Exclude system locks
+    };
+
+    if (startDate || endDate) {
+      query.date = {};
+      if (startDate) query.date.$gte = startDate.trim();
+      if (endDate) query.date.$lte = endDate.trim();
+    }
+
+    if (department && department !== 'ALL') query.department = department.trim();
+    if (roomId && roomId !== 'ALL') query.roomId = roomId;
+
+    const bookingsData = await Booking.find(query)
+      .populate('roomId', 'name building floor')
+      .sort({ date: 1, startTime: 1 })
+      .lean();
+
+    // Format as CSV
+    const headers = ['Date', 'Day', 'Start Time', 'End Time', 'Room', 'Department', 'Faculty Name', 'Faculty Email', 'Purpose', 'Status'];
+    
+    const csvRows = [headers.join(',')];
+    
+    bookingsData.forEach(entry => {
+      const roomName = entry.roomId?.name || 'Unknown Room';
+            // Escape commas in text fields
+      const purpose = (entry.purpose || '').replace(/,/g, ' ');
+      
+      const row = [
+        entry.date,
+        entry.day,
+        entry.startTime,
+        entry.endTime,
+        `"${roomName}"`,
+        roomNum,
+        `"${entry.department}"`,
+        `"${entry.facultyName}"`,
+        entry.facultyEmail,
+        `"${purpose}"`,
+        entry.status
+      ];
+      csvRows.push(row.join(','));
+    });
+
+    const csvString = csvRows.join('\n');
+    
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="room_usage_report.csv"`);
+    res.status(200).send(csvString);
+  } catch (error) {
+    console.error('❌ [BOOKING] generateBookingReport error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };

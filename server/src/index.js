@@ -93,10 +93,7 @@ async function startServer() {
       console.log(`🔌 Socket.IO  : Initialized`);
       console.log(`🔐 JWT Expiry : ${process.env.JWT_EXPIRES_IN}`);
       console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
-      const cleanupText = process.env.CLEANUP_CRON_INTERVAL_HOURS
-        ? `${Math.round(parseInt(process.env.CLEANUP_CRON_INTERVAL_HOURS, 10) / 24)} days (${process.env.CLEANUP_CRON_INTERVAL_HOURS}h)`
-        : '20 days';
-      console.log(`🧹 Cleanup    : Every ${cleanupText}`);
+      console.log(`🧹 Cleanup    : Disabled (Historical Data Retained)`);
       console.log(`🛡️  Security   : Helmet Headers & Rate Limit Active`);
       console.log(`======================================================\n`);
     });

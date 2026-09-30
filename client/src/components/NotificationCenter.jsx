@@ -128,7 +128,7 @@ export default function NotificationCenter({
       case 'booking-confirmed':
         return <CheckCircle2 className="w-4 h-4 text-emerald-600" />;
       case 'timetable-updated':
-        return <Calendar className="w-4 h-4 text-[#007AFF]" />;
+        return <Calendar className="w-4 h-4 text-mac-blue" />;
       default:
         return <Bell className="w-4 h-4 text-slate-600" />;
     }
@@ -141,13 +141,13 @@ export default function NotificationCenter({
         <div className="flex items-center gap-3.5">
           <Link
             to="/"
-            className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 hover:text-[#1D1D1F] hover:bg-slate-200 transition-colors"
+            className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 hover:text-mac-text hover:bg-slate-200 transition-colors"
             title="Back to Dashboard"
           >
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div>
-            <h1 className="text-xl font-bold text-[#1D1D1F] flex items-center gap-2">
+            <h1 className="text-xl font-bold text-mac-text flex items-center gap-2">
               <span>Notifications Inbox</span>
               {unreadCount > 0 && (
                 <span className="text-xs font-bold bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full">
@@ -164,7 +164,7 @@ export default function NotificationCenter({
             <button
               type="button"
               onClick={handleMarkAllRead}
-              className="inline-flex items-center gap-1.5 text-xs font-bold bg-[#F5F5F7] text-[#0055B3] border border-slate-200 px-3.5 py-2 rounded-lg hover:bg-indigo-100 transition-colors"
+              className="inline-flex items-center gap-1.5 text-xs font-bold bg-mac-bg text-mac-blue-dark border border-slate-200 px-3.5 py-2 rounded-lg hover:bg-indigo-100 transition-colors"
             >
               <CheckCheck className="w-3.5 h-3.5" />
               <span>Mark All Read</span>
@@ -185,7 +185,7 @@ export default function NotificationCenter({
       </div>
 
       {error && (
-        <div className="px-5 py-3 bg-white border border-[#E5E5EA] rounded-lg flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
+        <div className="px-5 py-3 bg-white border border-mac-border rounded-lg flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
           <AlertCircle className="w-5 h-5 mr-2.5 text-rose-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1 whitespace-pre-line">{error}</div>
           <button type="button" onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
@@ -216,7 +216,7 @@ export default function NotificationCenter({
                 key={notifId}
                 className={`bg-white border rounded-lg px-5 py-3 sm:px-8 py-5 shadow-sm flex items-start justify-between gap-4 transition-all ${
                   !n.read
-                    ? 'border-l-4 border-l-indigo-600 border-slate-200 bg-[#F5F5F7]/20 shadow-md'
+                    ? 'border-l-4 border-l-indigo-600 border-slate-200 bg-mac-bg/20 shadow-md'
                     : 'border-slate-200 opacity-90'
                 }`}
               >
@@ -226,7 +226,7 @@ export default function NotificationCenter({
                   </div>
 
                   <div className="flex-1">
-                    <p className="text-sm font-semibold text-[#1D1D1F] leading-snug">{n.message}</p>
+                    <p className="text-sm font-semibold text-mac-text leading-snug">{n.message}</p>
                     <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 mt-1.5">
                       <span>{formatDate(n.createdAt)}</span>
                       {n.metadata?.roomName && (
@@ -247,7 +247,7 @@ export default function NotificationCenter({
                     <button
                       type="button"
                       onClick={() => handleMarkRead(notifId)}
-                      className="p-2 text-[#86868B] hover:text-[#007AFF] hover:bg-[#F5F5F7] rounded-lg transition-colors"
+                      className="p-2 text-mac-subtext hover:text-mac-blue hover:bg-mac-bg rounded-lg transition-colors"
                       title="Mark as Read"
                     >
                       <Check className="w-4 h-4" />

@@ -1,9 +1,21 @@
 @import "tailwindcss";
 
+@theme {
+  --color-mac-bg: #F5F5F7;
+  --color-mac-card: #ffffff;
+  --color-mac-text: #1D1D1F;
+  --color-mac-subtext: #86868B;
+  --color-mac-blue: #007AFF;
+  --color-mac-blue-hover: #0066CC;
+  --color-mac-blue-dark: #0055B3;
+  --color-mac-border: #E5E5EA;
+}
+
+
 @layer base {
   body {
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    background-color: #F5F5F7;
-    color: #1D1D1F;
+    background-color: var(--color-mac-bg);
+    color: var(--color-mac-text);
   }
 }

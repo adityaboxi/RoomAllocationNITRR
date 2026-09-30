@@ -15,9 +15,10 @@ const normalizeFloor = (floorVal) => {
 };
 
 import { getRooms, createRoom, updateRoom, deleteRoom, getDepartments, getAllRoomsStatus } from '../services/api';
-import { Building2, Plus, Edit2, Trash2, Eye, EyeOff, AlertTriangle, Loader2, X, CheckSquare, Square, Activity, Clock, Users, Search, Filter, RotateCcw, RefreshCw, Calendar } from 'lucide-react';
+import { Building2, Plus, Edit2, Trash2, Eye, EyeOff, AlertTriangle, Loader2, X, CheckSquare, Square, Activity, Clock, Users, Search, Filter, RotateCcw, RefreshCw, RefreshCcw, Calendar, Palmtree, FileSpreadsheet } from 'lucide-react';
 import { getSocket } from '../services/socket';
 import TimetableManager from './hod/TimetableManager';
+import HolidayManager from './hod/HolidayManager';
 
 // ── Delete Confirmation Modal ──────────────────────────────────────────────
 function DeleteConfirmModal({ room, onConfirm, onCancel }) {
@@ -83,8 +84,8 @@ function DeleteConfirmModal({ room, onConfirm, onCancel }) {
         {/* Body */}
         <div className="px-8 py-5 space-y-3.5">
           <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs">
-            <p className="font-bold text-[#1D1D1F]">{room.name} <span className="text-slate-400 font-mono">({room.roomNumber})</span></p>
-            <p className="text-[#86868B] mt-0.5">{room.building} • Floor {normalizeFloor(room.floor)} • {room.department}</p>
+            <p className="font-bold text-mac-text">{room.name} </p>
+            <p className="text-mac-subtext mt-0.5">{room.building} • Floor {normalizeFloor(room.floor)} • {room.department}</p>
           </div>
 
           <div className="bg-amber-50/80 border border-amber-200/80 rounded-lg p-3 text-xs text-amber-900">
@@ -110,7 +111,7 @@ function DeleteConfirmModal({ room, onConfirm, onCancel }) {
                   className={`w-full border rounded-lg px-3 py-2 pr-9 text-xs outline-none transition-all ${
                     error
                       ? 'border-rose-300 bg-rose-50/50 focus:ring-2 focus:ring-rose-200'
-                      : 'border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500'
+                      : 'border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-mac-blue/50/20 focus:border-indigo-500'
                   }`}
                 />
                 <button
@@ -159,12 +160,12 @@ function DeleteConfirmModal({ room, onConfirm, onCancel }) {
 
 // ── Main Admin Dashboard ───────────────────────────────────────────────────
 export default function AdminDashboard({ user, onLogout }) {
+
   const [departments, setDepartments] = useState(['Computer Science & Engineering', 'Common / Institute Level']);
   const [rooms, setRooms] = useState([]);
   const [formData, setFormData] = useState({
     name: '',
-    roomNumber: '',
-    capacity: '',
+        capacity: '',
     type: 'Classroom',
     floor: '0',
     building: 'Main Building',
@@ -174,11 +175,39 @@ export default function AdminDashboard({ user, onLogout }) {
     hasSmartBoard: false,
     hasWiFi: false,
   });
-  const [editingId, setEditingId] = useState(null);
-  const [formError, setFormError] = useState('');
+    const [formError, setFormError] = useState('');
   const [formLoading, setFormLoading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [activeTab, setActiveTab] = useState('rooms'); // 'rooms' | 'status'
+
+  const [adminUsersList, setAdminUsersList] = useState([]);
+  const [userSearch, setUserSearch] = useState('');
+
+  const fetchAdminUsers = async () => {
+    try {
+      const res = await api.get('/api/auth/users');
+      setAdminUsersList(res.data?.data || []);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'users') {
+      fetchAdminUsers();
+    }
+  }, [activeTab]);
+
+  const handleDeleteUser = async (id, name) => {
+    if (!window.confirm(`Are you sure you want to permanently delete ${name}?`)) return;
+    try {
+      await api.delete(`/api/auth/users/${id}`);
+      fetchAdminUsers();
+    } catch (err) {
+      alert('Failed to delete user.');
+    }
+  };
+
 
   // Room Status Dashboard State
   const [statusRooms, setStatusRooms] = useState([]);
@@ -275,7 +304,7 @@ export default function AdminDashboard({ user, onLogout }) {
         const q = statusSearch.trim().toLowerCase();
         const match =
           (r.name || '').toLowerCase().includes(q) ||
-          (r.roomNumber || '').toLowerCase().includes(q) ||
+          
           (r.building || '').toLowerCase().includes(q) ||
           (r.occupancy?.facultyName || '').toLowerCase().includes(q) ||
           (r.occupancy?.purpose || '').toLowerCase().includes(q);
@@ -291,8 +320,7 @@ export default function AdminDashboard({ user, onLogout }) {
     setFormError('');
 
     const cleanName = (formData.name || '').trim();
-    const cleanRoomNumber = (formData.roomNumber || '').trim().toUpperCase();
-
+    
     if (!cleanName || cleanName.length < 2) {
       setFormError('Room name must be at least 2 characters long.');
       return;
@@ -302,15 +330,7 @@ export default function AdminDashboard({ user, onLogout }) {
       return;
     }
 
-    if (!cleanRoomNumber || cleanRoomNumber.length < 1) {
-      setFormError('Room number is required.');
-      return;
-    }
-    if (cleanRoomNumber.length > 20) {
-      setFormError('Room number cannot exceed 20 characters.');
-      return;
-    }
-
+        
     const capacityNum = parseInt(formData.capacity, 10);
     if (isNaN(capacityNum) || capacityNum <= 0) {
       setFormError('Room capacity must be a positive integer greater than 0.');
@@ -323,19 +343,17 @@ export default function AdminDashboard({ user, onLogout }) {
 
     // Duplicate check in selected department
     const isDuplicate = rooms.some((r) => {
-      const isCurrentEditing = editingId && (r.id === editingId || r._id === editingId);
-      if (isCurrentEditing) return false;
 
       return (
         r.department === formData.department &&
         (r.name.trim().toLowerCase() === cleanName.toLowerCase() ||
-          r.roomNumber.trim().toUpperCase() === cleanRoomNumber)
+          false)
       );
     });
 
     if (isDuplicate) {
       setFormError(
-        `A room with the name "${cleanName}" or room number "${cleanRoomNumber}" already exists in "${formData.department}".`
+        `A room with the name "${cleanName}" already exists in "${formData.department}".`
       );
       return;
     }
@@ -344,24 +362,16 @@ export default function AdminDashboard({ user, onLogout }) {
     const payload = {
       ...formData,
       name: cleanName,
-      roomNumber: cleanRoomNumber,
-      capacity: capacityNum,
+            capacity: capacityNum,
     };
 
     try {
-      if (editingId) {
-        console.log(`🛠️  [ADMIN] Updating room: ${editingId}`, payload);
-        await updateRoom(editingId, payload);
-        console.log(`✅ [ADMIN] Room updated successfully`);
-      } else {
-        console.log(`🛠️  [ADMIN] Creating room: ${cleanRoomNumber} (${cleanName})`);
-        await createRoom(payload);
-        console.log(`✅ [ADMIN] Room created successfully`);
-      }
+      console.log(`🛠️  [ADMIN] Creating room: ${cleanName}`);
+      await createRoom(payload);
+      console.log(`✅ [ADMIN] Room created successfully`);
       setFormData({
         name: '',
-        roomNumber: '',
-        capacity: '',
+                capacity: '',
         type: 'Classroom',
         floor: '0',
         building: 'Main Building',
@@ -371,7 +381,6 @@ export default function AdminDashboard({ user, onLogout }) {
         hasSmartBoard: false,
         hasWiFi: false,
       });
-      setEditingId(null);
       fetchRooms();
     } catch (err) {
       const errMsg = err.message || err.response?.data?.message || 'Error saving room configuration.';
@@ -401,44 +410,12 @@ export default function AdminDashboard({ user, onLogout }) {
     }
   };
 
-  const handleEdit = (room) => {
-    setEditingId(room.id || room._id);
-    let normalizedFloor = room.floor;
-    if (normalizedFloor === 'Ground Floor' || normalizedFloor === '0') normalizedFloor = '0';
-    else if (normalizedFloor === 'First Floor' || normalizedFloor === '1') normalizedFloor = '1';
-    else if (normalizedFloor === 'Second Floor' || normalizedFloor === '2') normalizedFloor = '2';
-    else if (normalizedFloor === 'Third Floor' || normalizedFloor === '3') normalizedFloor = '3';
-    else normalizedFloor = '0';
-
-    let normalizedBuilding = room.building;
-    if (!['Main Building', 'Architecture Building', 'CCC Room'].includes(normalizedBuilding)) {
-      normalizedBuilding = 'Main Building';
-    }
-
-    setFormData({
-      name: room.name,
-      roomNumber: room.roomNumber,
-      capacity: room.capacity,
-      type: room.type,
-      floor: normalizedFloor,
-      building: normalizedBuilding,
-      department: room.department,
-      hasAC: Boolean(room.hasAC),
-      hasProjector: Boolean(room.hasProjector),
-      hasSmartBoard: Boolean(room.hasSmartBoard),
-      hasWiFi: Boolean(room.hasWiFi),
-    });
-    setFormError('');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
 
   const handleCancelEdit = () => {
-    setEditingId(null);
     setFormError('');
     setFormData({
       name: '',
-      roomNumber: '',
-      capacity: '',
+            capacity: '',
       type: 'Classroom',
       floor: '0',
       building: 'Main Building',
@@ -468,8 +445,8 @@ export default function AdminDashboard({ user, onLogout }) {
             onClick={() => setActiveTab('rooms')}
             className={`px-5 py-3 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
               activeTab === 'rooms'
-                ? 'bg-white text-[#0055B3] shadow-sm border border-slate-200'
-                : 'text-[#86868B] hover:text-slate-700'
+                ? 'bg-white text-mac-blue-dark shadow-sm border border-slate-200'
+                : 'text-mac-subtext hover:text-slate-700'
             }`}
           >
             <Building2 className="w-3.5 h-3.5" /> Room Manager
@@ -479,7 +456,7 @@ export default function AdminDashboard({ user, onLogout }) {
             className={`px-5 py-3 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
               activeTab === 'status'
                 ? 'bg-white text-emerald-700 shadow-sm border border-slate-200'
-                : 'text-[#86868B] hover:text-slate-700'
+                : 'text-mac-subtext hover:text-slate-700'
             }`}
           >
             <Activity className="w-3.5 h-3.5" /> Live Room Status
@@ -488,15 +465,124 @@ export default function AdminDashboard({ user, onLogout }) {
             onClick={() => setActiveTab('timetable')}
             className={`px-5 py-3 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
               activeTab === 'timetable'
-                ? 'bg-white text-[#0055B3] shadow-sm border border-slate-200'
-                : 'text-[#86868B] hover:text-slate-700'
+                ? 'bg-white text-mac-blue-dark shadow-sm border border-slate-200'
+                : 'text-mac-subtext hover:text-slate-700'
             }`}
           >
             <Calendar className="w-3.5 h-3.5" /> Master Timetables
           </button>
+          <button
+            onClick={() => setActiveTab('holidays')}
+            className={`px-5 py-3 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              activeTab === 'holidays'
+                ? 'bg-white text-mac-blue shadow-sm border border-slate-200'
+                : 'text-mac-subtext hover:text-slate-700'
+            }`}
+          >
+            <Palmtree className="w-3.5 h-3.5" /> Holidays
+          </button>
+          <button
+            onClick={() => setActiveTab('reports')}
+            className={`px-5 py-3 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              activeTab === 'reports'
+                ? 'bg-white text-indigo-600 shadow-sm border border-slate-200'
+                : 'text-mac-subtext hover:text-slate-700'
+            }`}
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" /> Reports
+          </button>
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`px-5 py-3 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              activeTab === 'users'
+                ? 'bg-white text-red-600 shadow-sm border border-slate-200'
+                : 'text-mac-subtext hover:text-slate-700'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" /> Users & HODs
+          </button>
         </div>
 
+        
+        {/* ── Users Panel ──────────────────────────── */}
+        
+
         {/* ── Live Room Status Panel ──────────────────────────── */}
+        
+        {activeTab === 'users' && (
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
+              <div>
+                <h3 className="font-semibold text-slate-800">User Management</h3>
+                <p className="text-xs text-slate-500 mt-1">Delete HODs or Faculty accounts on request.</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 w-3.5 h-3.5" />
+                  <input
+                    type="text"
+                    placeholder="Search name, email, or dept..."
+                    value={userSearch}
+                    onChange={(e) => setUserSearch(e.target.value)}
+                    className="pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-xs bg-white focus:ring-2 focus:ring-mac-blue/20 focus:border-indigo-500 outline-none w-64"
+                  />
+                </div>
+                <button onClick={fetchAdminUsers} className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors bg-white border border-slate-200 rounded-lg shadow-sm" title="Refresh Users">
+                  <RefreshCcw size={16} />
+                </button>
+              </div>
+            </div>
+            <div className="p-0">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600">
+                    <th className="p-3 pl-4">Name</th>
+                    <th className="p-3">Email</th>
+                    <th className="p-3">Role</th>
+                    <th className="p-3">Department</th>
+                    <th className="p-3 text-right pr-4">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {adminUsersList.length === 0 ? (
+                    <tr>
+                      <td colSpan="5" className="p-8 text-center text-slate-400 text-sm">No users found</td>
+                    </tr>
+                  ) : (
+                    adminUsersList.filter(u => 
+                      (u.name || '').toLowerCase().includes((userSearch || '').toLowerCase()) || 
+                      (u.email || '').toLowerCase().includes((userSearch || '').toLowerCase()) || 
+                      (u.department && u.department.toLowerCase().includes(userSearch.toLowerCase()))
+                    ).map(u => (
+                      <tr key={u._id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
+                        <td className="p-3 pl-4 text-sm font-medium text-slate-700">{u.name}</td>
+                        <td className="p-3 text-sm text-slate-500">{u.email}</td>
+                        <td className="p-3">
+                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                            u.role === 'HOD' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
+                          }`}>
+                            {u.role}
+                          </span>
+                        </td>
+                        <td className="p-3 text-sm text-slate-600">{u.department || 'N/A'}</td>
+                        <td className="p-3 text-right pr-4">
+                          <button
+                            onClick={() => handleDeleteUser(u._id, u.name)}
+                            className="p-1.5 text-red-500 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors"
+                            title="Delete User"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'status' && (
           <div className="space-y-4">
             {/* Summary Cards */}
@@ -504,18 +590,18 @@ export default function AdminDashboard({ user, onLogout }) {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="bg-white border border-slate-200 rounded-lg px-5 py-3 text-center shadow-sm">
                   <p className="text-2xl font-black text-slate-800">{statusSummary.total}</p>
-                  <p className="text-[11px] font-semibold text-[#86868B] uppercase tracking-wide mt-0.5">Total Rooms</p>
+                  <p className="text-[11px] font-semibold text-mac-subtext uppercase tracking-wide mt-0.5">Total Rooms</p>
                 </div>
-                <div className="bg-white border border-[#E5E5EA] rounded-lg px-5 py-3 text-center shadow-sm">
+                <div className="bg-white border border-mac-border rounded-lg px-5 py-3 text-center shadow-sm">
                   <p className="text-2xl font-black text-emerald-700">{statusSummary.free}</p>
                   <p className="text-[11px] font-semibold text-emerald-600 uppercase tracking-wide mt-0.5">Free Now</p>
                 </div>
-                <div className="bg-white border border-[#E5E5EA] rounded-lg px-5 py-3 text-center shadow-sm">
+                <div className="bg-white border border-mac-border rounded-lg px-5 py-3 text-center shadow-sm">
                   <p className="text-2xl font-black text-rose-700">{statusSummary.occupied}</p>
                   <p className="text-[11px] font-semibold text-rose-600 uppercase tracking-wide mt-0.5">Occupied</p>
                 </div>
-                <div className="bg-[#F5F5F7] border border-slate-200 rounded-lg px-5 py-3 text-center shadow-sm">
-                  <p className="text-lg font-bold text-[#0055B3]">{statusSummary.asOf}</p>
+                <div className="bg-mac-bg border border-slate-200 rounded-lg px-5 py-3 text-center shadow-sm">
+                  <p className="text-lg font-bold text-mac-blue-dark">{statusSummary.asOf}</p>
                   
                 </div>
               </div>
@@ -537,7 +623,7 @@ export default function AdminDashboard({ user, onLogout }) {
                       className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
                         statusFilter === val
                           ? 'bg-white text-slate-800 shadow-sm border border-slate-200'
-                          : 'text-[#86868B] hover:text-slate-700'
+                          : 'text-mac-subtext hover:text-slate-700'
                       }`}
                     >
                       {label} ({count})
@@ -549,7 +635,7 @@ export default function AdminDashboard({ user, onLogout }) {
                 <select
                   value={statusDeptFilter}
                   onChange={(e) => setStatusDeptFilter(e.target.value)}
-                  className="px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-medium bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500"
+                  className="px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-medium bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-mac-blue/50/20 focus:border-indigo-500"
                 >
                   <option value="ALL">All Departments</option>
                   {departments.map((d) => (
@@ -565,7 +651,7 @@ export default function AdminDashboard({ user, onLogout }) {
                     value={statusSearch}
                     onChange={(e) => setStatusSearch(e.target.value)}
                     placeholder="Search room, faculty, purpose..."
-                    className="w-full pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500"
+                    className="w-full pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-mac-blue/50/20 focus:border-indigo-500"
                   />
                 </div>
 
@@ -573,7 +659,7 @@ export default function AdminDashboard({ user, onLogout }) {
                 <button
                   onClick={fetchRoomStatus}
                   disabled={statusLoading}
-                  className="p-1.5 text-[#86868B] hover:text-[#007AFF] bg-slate-50 hover:bg-[#F5F5F7] rounded-lg transition-colors border border-slate-200 disabled:opacity-50"
+                  className="p-1.5 text-mac-subtext hover:text-mac-blue bg-slate-50 hover:bg-mac-bg rounded-lg transition-colors border border-slate-200 disabled:opacity-50"
                   title="Refresh status"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${statusLoading ? 'animate-spin' : ''}`} />
@@ -612,15 +698,15 @@ export default function AdminDashboard({ user, onLogout }) {
                             room.currentStatus === 'occupied' ? 'bg-rose-500 animate-pulse' : 'bg-emerald-500'
                           }`}
                         />
-                        <h3 className="font-bold text-sm text-[#1D1D1F] truncate">{room.name}</h3>
-                        <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-[#86868B] text-[10px] font-mono flex-shrink-0">
-                          #{room.roomNumber}
+                        <h3 className="font-bold text-sm text-mac-text truncate">{room.name}</h3>
+                        <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-mac-subtext text-[10px] font-mono flex-shrink-0">
+                          
                         </span>
-                        <span className="px-2 py-0.5 rounded-md bg-[#F5F5F7] border border-indigo-100 text-[#0055B3] text-[10px] font-semibold flex-shrink-0">
+                        <span className="px-2 py-0.5 rounded-md bg-mac-bg border border-indigo-100 text-mac-blue-dark text-[10px] font-semibold flex-shrink-0">
                           {room.department}
                         </span>
                       </div>
-                      <p className="text-[11px] text-[#86868B] mt-1">
+                      <p className="text-[11px] text-mac-subtext mt-1">
                         {room.building} • Floor {normalizeFloor(room.floor)} • {room.type} • {room.capacity} seats
                       </p>
                     </div>
@@ -639,7 +725,7 @@ export default function AdminDashboard({ user, onLogout }) {
                           <p className="text-xs font-semibold text-slate-800 mt-1 truncate">
                             {room.occupancy.facultyName}
                           </p>
-                          <p className="text-[11px] text-[#86868B] truncate">{room.occupancy.purpose}</p>
+                          <p className="text-[11px] text-mac-subtext truncate">{room.occupancy.purpose}</p>
                           <p className="text-[10px] text-slate-400 mt-0.5 flex items-center justify-end gap-1">
                             <Clock className="w-3 h-3" />
                             {room.occupancy.startTime} – {room.occupancy.endTime}
@@ -679,7 +765,7 @@ export default function AdminDashboard({ user, onLogout }) {
             <div className="bg-white border border-slate-200 rounded-lg px-8 py-5 shadow-sm space-y-3.5 sticky top-6">
               <div className="border-b border-slate-100 pb-2.5">
                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-800">
-                  {editingId ? 'Update Room Configuration' : 'Allocate Room'}
+                  'Allocate Room'
                 </h2>
               </div>
 
@@ -691,23 +777,12 @@ export default function AdminDashboard({ user, onLogout }) {
                     type="text"
                     value={formData.name}
                     onChange={(e) => setFormData({...formData, name: e.target.value})}
-                    className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
+                    className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-mac-blue/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
                     placeholder="e.g. F-14"
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Room Number</label>
-                    <input
-                      required
-                      type="text"
-                      value={formData.roomNumber}
-                      onChange={(e) => setFormData({...formData, roomNumber: e.target.value})}
-                      className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium uppercase"
-                      placeholder="e.g. 101"
-                    />
-                  </div>
+                <div className="grid grid-cols-1 gap-3">
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-600 mb-1">Capacity (Seats)</label>
                     <input
@@ -716,7 +791,7 @@ export default function AdminDashboard({ user, onLogout }) {
                       min="1"
                       value={formData.capacity}
                       onChange={(e) => setFormData({...formData, capacity: e.target.value})}
-                      className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
+                      className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-mac-blue/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
                       placeholder="e.g. 60"
                     />
                   </div>
@@ -727,7 +802,7 @@ export default function AdminDashboard({ user, onLogout }) {
                   <select
                     value={formData.department}
                     onChange={(e) => setFormData({...formData, department: e.target.value})}
-                    className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-semibold bg-[#F5F5F7]/70 text-indigo-800 outline-none focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500"
+                    className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs font-semibold bg-mac-bg/70 text-indigo-800 outline-none focus:ring-2 focus:ring-mac-blue/50/20 focus:border-indigo-500"
                   >
                     {departments.map(d => <option key={d} value={d}>{d}</option>)}
                   </select>
@@ -794,7 +869,7 @@ export default function AdminDashboard({ user, onLogout }) {
                           key={key}
                           className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all ${
                             checked
-                              ? 'bg-[#F5F5F7] border-slate-200 text-indigo-800 font-semibold'
+                              ? 'bg-mac-bg border-slate-200 text-indigo-800 font-semibold'
                               : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-white'
                           }`}
                         >
@@ -805,7 +880,7 @@ export default function AdminDashboard({ user, onLogout }) {
                             className="hidden"
                           />
                           {checked ? (
-                            <CheckSquare className="w-3.5 h-3.5 text-[#007AFF] flex-shrink-0" />
+                            <CheckSquare className="w-3.5 h-3.5 text-mac-blue flex-shrink-0" />
                           ) : (
                             <Square className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
                           )}
@@ -817,7 +892,7 @@ export default function AdminDashboard({ user, onLogout }) {
                 </div>
 
                 {formError && (
-                  <p className="text-xs text-rose-600 bg-white border border-[#E5E5EA] rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
+                  <p className="text-xs text-rose-600 bg-white border border-mac-border rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" /> {formError}
                   </p>
                 )}
@@ -826,25 +901,15 @@ export default function AdminDashboard({ user, onLogout }) {
                   <button
                     type="submit"
                     disabled={formLoading}
-                    className="flex-1 bg-[#007AFF] text-white font-bold py-2 rounded-lg text-xs flex items-center justify-center gap-1.5 hover:bg-[#0066CC] disabled:opacity-60 transition-colors shadow-sm shadow-indigo-100"
+                    className="flex-1 bg-mac-blue text-white font-bold py-2 rounded-lg text-xs flex items-center justify-center gap-1.5 hover:bg-mac-blue-hover disabled:opacity-60 transition-colors shadow-sm shadow-indigo-100"
                   >
                     {formLoading ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : editingId ? (
-                      <><Edit2 className="w-3.5 h-3.5" /> Save Changes</>
                     ) : (
                       <><Plus className="w-3.5 h-3.5" /> Allocate Room</>
                     )}
                   </button>
-                  {editingId && (
-                    <button
-                      type="button"
-                      onClick={handleCancelEdit}
-                      className="px-3.5 bg-slate-100 text-slate-600 font-semibold rounded-lg text-xs hover:bg-slate-200 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  )}
+                  
                 </div>
               </form>
             </div>
@@ -871,8 +936,8 @@ export default function AdminDashboard({ user, onLogout }) {
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-bold text-sm text-[#1D1D1F] truncate">{room.name}</h3>
-                      <span className="px-2 py-0.5 rounded-md bg-[#F5F5F7] border border-indigo-100 text-[#0055B3] text-[10px] font-semibold flex-shrink-0">
+                      <h3 className="font-bold text-sm text-mac-text truncate">{room.name}</h3>
+                      <span className="px-2 py-0.5 rounded-md bg-mac-bg border border-indigo-100 text-mac-blue-dark text-[10px] font-semibold flex-shrink-0">
                         {room.department}
                       </span>
                       <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-medium flex-shrink-0">
@@ -880,8 +945,8 @@ export default function AdminDashboard({ user, onLogout }) {
                       </span>
                     </div>
 
-                    <p className="text-[11px] text-[#86868B] mt-1">
-                      {room.building} • Floor {normalizeFloor(room.floor)} • #{room.roomNumber} • {room.capacity} seats
+                    <p className="text-[11px] text-mac-subtext mt-1">
+                      {room.building} • Floor {normalizeFloor(room.floor)} •  {room.capacity} seats
                     </p>
 
                     {/* Compact Amenities Indicators */}
@@ -894,13 +959,7 @@ export default function AdminDashboard({ user, onLogout }) {
                   </div>
 
                   <div className="flex gap-1.5 flex-shrink-0">
-                    <button
-                      onClick={() => handleEdit(room)}
-                      title="Edit room"
-                      className="p-1.5 text-slate-400 hover:text-[#007AFF] bg-slate-50 hover:bg-[#F5F5F7] rounded-lg transition-colors border border-slate-200"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
+
                     <button
                       onClick={() => handleDeleteClick(room)}
                       title="Delete room"
@@ -920,6 +979,157 @@ export default function AdminDashboard({ user, onLogout }) {
         {activeTab === 'timetable' && (
           <TimetableManager user={{ role: 'ADMIN' }} isAdmin={true} />
         )}
+
+        {activeTab === 'holidays' && (
+          <HolidayManager user={{ role: 'ADMIN' }} isAdmin={true} />
+        )}
+
+                {/* ── Reports Panel ──────────────────────────── */}
+        
+        
+
+        {activeTab === 'reports' && (
+          <div className="space-y-6">
+            {/* Timetable Report Card */}
+            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 max-w-4xl mx-auto">
+              <div className="mb-6">
+                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-indigo-600" />
+                  Historical Timetable Blueprint
+                </h3>
+                <p className="text-sm text-slate-500 mt-1">
+                  Generate CSV reports of the official timetable plan exactly as it existed on any past date.
+                </p>
+              </div>
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const fd = new FormData(e.target);
+                  const params = new URLSearchParams();
+                  if (fd.get('targetDate')) params.append('targetDate', fd.get('targetDate'));
+                  if (fd.get('department')) params.append('department', fd.get('department'));
+                  if (fd.get('semester')) params.append('semester', fd.get('semester'));
+                  
+                  const token = localStorage.getItem('token');
+                  fetch(`/api/timetable/report/csv?${params.toString()}`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                  })
+                  .then(res => {
+                    if (!res.ok) throw new Error('Failed to generate report');
+                    return res.blob();
+                  })
+                  .then(blob => {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `timetable_blueprint_${fd.get('targetDate') || 'current'}.csv`;
+                    a.click();
+                  })
+                  .catch(err => alert(err.message));
+                }}
+                className="space-y-6"
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">Snapshot Date</label>
+                    <input type="date" name="targetDate" defaultValue={new Date().toISOString().split('T')[0]} max={new Date().toISOString().split('T')[0]} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-mac-blue/20 outline-none transition-all bg-slate-50" />
+                    <p className="text-[10px] text-slate-400 mt-1">See timetable as it existed on this day</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">Department Filter</label>
+                    <select name="department" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-mac-blue/20 outline-none bg-slate-50">
+                      <option value="ALL">All Departments</option>
+                      {departments.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">Semester Filter</label>
+                    <select name="semester" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-mac-blue/20 outline-none bg-slate-50">
+                      <option value="ALL">All Semesters</option>
+                      {[1,2,3,4,5,6,7,8].map(s => <option key={s} value={s}>{s}th Semester</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-slate-100 flex justify-end">
+                  <button type="submit" className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-lg shadow-sm transition-all flex items-center gap-2">
+                    <FileSpreadsheet className="w-4 h-4" />
+                    Download Blueprint CSV
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* Actual Room Usage Report Card */}
+            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 max-w-4xl mx-auto">
+              <div className="mb-6">
+                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-emerald-600" />
+                  Actual Room Usage (Bookings)
+                </h3>
+                <p className="text-sm text-slate-500 mt-1">
+                  Generate CSV reports of completed and active room bookings. This explicitly filters out cancelled or rejected reservations to show who actually used the rooms.
+                </p>
+              </div>
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const fd = new FormData(e.target);
+                  const params = new URLSearchParams();
+                  if (fd.get('startDate')) params.append('startDate', fd.get('startDate'));
+                  if (fd.get('endDate')) params.append('endDate', fd.get('endDate'));
+                  if (fd.get('department')) params.append('department', fd.get('department'));
+                  
+                  const token = localStorage.getItem('token');
+                  fetch(`/api/bookings/report/csv?${params.toString()}`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                  })
+                  .then(res => {
+                    if (!res.ok) throw new Error('Failed to generate report');
+                    return res.blob();
+                  })
+                  .then(blob => {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `room_usage_${fd.get('startDate')}_to_${fd.get('endDate')}.csv`;
+                    a.click();
+                  })
+                  .catch(err => alert(err.message));
+                }}
+                className="space-y-6"
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">Date Range (Start)</label>
+                    <input type="date" required name="startDate" defaultValue={new Date(new Date().setFullYear(new Date().getFullYear() - 1)).toISOString().split('T')[0]} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all bg-slate-50" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">Date Range (End)</label>
+                    <input type="date" required name="endDate" defaultValue={new Date().toISOString().split('T')[0]} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all bg-slate-50" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">Department Filter</label>
+                    <select name="department" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500/20 outline-none bg-slate-50">
+                      <option value="ALL">All Departments</option>
+                      {departments.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-slate-100 flex justify-end">
+                  <button type="submit" className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-lg shadow-sm transition-all flex items-center gap-2">
+                    <FileSpreadsheet className="w-4 h-4" />
+                    Download Usage CSV
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
       </div>
     </>
   );

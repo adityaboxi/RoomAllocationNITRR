@@ -5,7 +5,7 @@ const Timetable = require('../models/Timetable');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
 const Holiday = require('../models/Holiday');
-const { sendBookingCancellationEmail, sendRoomDeletedNotificationEmail } = require('../utils/email');
+const { sendBookingCancellationEmail, sendRoomDeletedNotificationEmail, sendNewRoomAddedEmail } = require('../utils/email');
 const { getIO, emitToUser } = require('../utils/socket');
 const { getDayOfWeek } = require('../utils/helpers');
 
@@ -81,13 +81,13 @@ exports.getRooms = async (req, res) => {
       const sanitized = escapeRegex(search.trim());
       query.$or = [
         { name: { $regex: sanitized, $options: 'i' } },
-        { roomNumber: { $regex: sanitized, $options: 'i' } },
+        
         { building: { $regex: sanitized, $options: 'i' } },
       ];
     }
 
-    let sortQuery = { floor: 1, roomNumber: 1 };
-    if (sortBy === 'floor') sortQuery = { floor: 1, roomNumber: 1 };
+    let sortQuery = { floor: 1, name: 1 };
+    if (sortBy === 'floor') sortQuery = { floor: 1, name: 1 };
     else if (sortBy === 'capacity') sortQuery = { capacity: -1 };
     else if (sortBy === 'name') sortQuery = { name: 1 };
 
@@ -140,7 +140,7 @@ exports.getAllRoomsStatus = async (req, res) => {
     const currentDay = dayNames[now.getDay()];
 
     // 1. Fetch all active rooms
-    const allRooms = await Room.find({ isActive: true }).sort({ department: 1, floor: 1, roomNumber: 1 }).lean();
+    const allRooms = await Room.find({ isActive: true }).sort({ department: 1, floor: 1, name: 1 }).lean();
     const allRoomIds = allRooms.map((r) => r._id.toString());
 
     // 2. Auto-complete past bookings
@@ -414,7 +414,7 @@ exports.getAvailableRooms = async (req, res) => {
       ...baseQuery,
       _id: { $nin: unavailableIds },
     })
-      .sort({ floor: 1, roomNumber: 1 })
+      .sort({ floor: 1, name: 1 })
       .lean();
 
     const formatted = availableRooms.map((r) => ({
@@ -440,13 +440,13 @@ exports.getAvailableRooms = async (req, res) => {
 // ---------- CREATE ROOM (ADMIN ONLY) ----------
 exports.createRoom = async (req, res) => {
   try {
-    let { name, roomNumber, capacity, type, floor, building, department } = req.body;
+    let { name, capacity, type, floor, building, department } = req.body;
 
     if (req.user.role !== 'ADMIN') {
       return res.status(403).json({ success: false, message: 'Permission denied: Only Admin can add rooms.' });
     }
 
-    if (!name || !roomNumber || !capacity || !type || !floor || !building || !department) {
+    if (!name || !capacity || !type || !floor || !building || !department) {
       return res.status(400).json({ success: false, message: 'All required room fields (including branch allocation) must be provided.' });
     }
 
@@ -456,22 +456,20 @@ exports.createRoom = async (req, res) => {
     }
 
     name = name.trim();
-    roomNumber = roomNumber.trim().toUpperCase();
-    department = department.trim();
+        department = department.trim();
 
     const existing = await Room.findOne({
       isActive: true,
       $or: [
-        { roomNumber: { $regex: new RegExp('^' + escapeRegex(roomNumber) + '$', 'i') } },
         { name: { $regex: new RegExp('^' + escapeRegex(name) + '$', 'i') }, department },
       ],
     }).populate('createdBy', 'name email');
 
     if (existing) {
-      if (existing.roomNumber.toUpperCase() === roomNumber.toUpperCase()) {
+      if (false) {
         return res.status(400).json({
           success: false,
-          message: `🚫 Cannot add room: Room Number "${existing.roomNumber}" is already registered in the "${existing.department || 'another'}" department.`,
+          message: `Room name already exists`,
         });
       } else {
         return res.status(400).json({
@@ -484,7 +482,6 @@ exports.createRoom = async (req, res) => {
     await Room.deleteMany({
       isActive: false,
       $or: [
-        { roomNumber: { $regex: new RegExp('^' + escapeRegex(roomNumber) + '$', 'i') } },
         { name: { $regex: new RegExp('^' + escapeRegex(name) + '$', 'i') }, department },
       ],
     });
@@ -492,7 +489,7 @@ exports.createRoom = async (req, res) => {
     const room = await Room.create({
       ...req.body,
       name,
-      roomNumber,
+
       capacity: numericCapacity,
       department,
       isActive: true,
@@ -500,6 +497,36 @@ exports.createRoom = async (req, res) => {
       createdBy: req.user._id,
       createdByName: req.user.name,
     });
+
+
+    // Notify the HOD(s) of this department
+    try {
+      const departmentHODs = await User.find({ department, role: 'HOD' });
+      for (const hod of departmentHODs) {
+        // Create in-app notification
+        const Notification = require('../models/Notification');
+        await Notification.create({
+          userId: hod._id,
+          title: 'New Room Assigned',
+          message: `Admin has assigned a new room "${room.name}" to your department. Please upload its timetable.`,
+          type: 'system-alert'
+        });
+
+        // Send Email
+        await sendNewRoomAddedEmail({
+          hodEmail: hod.email,
+          hodName: hod.name,
+          roomName: room.name,
+          department: room.department,
+          building: room.building,
+          floor: room.floor,
+          capacity: room.capacity,
+          type: room.type
+        });
+      }
+    } catch (notifyErr) {
+      console.error('❌ [ROOM] Failed to notify HOD about new room:', notifyErr.message || notifyErr);
+    }
 
     const io = getIO();
     if (io) {
@@ -535,10 +562,7 @@ exports.updateRoom = async (req, res) => {
       });
     }
 
-    if (req.body.roomNumber) {
-      req.body.roomNumber = req.body.roomNumber.trim().toUpperCase();
-    }
-    if (req.body.name) {
+        if (req.body.name) {
       req.body.name = req.body.name.trim();
     }
     if (req.body.capacity) {
@@ -548,19 +572,14 @@ exports.updateRoom = async (req, res) => {
       req.body.department = req.body.department.trim();
     }
 
-    if (req.body.name || req.body.roomNumber) {
+    if (req.body.name ) {
       const duplicateQuery = {
         isActive: true,
         _id: { $ne: id },
         $or: [],
       };
 
-      if (req.body.roomNumber) {
-        duplicateQuery.$or.push({
-          roomNumber: { $regex: new RegExp('^' + escapeRegex(req.body.roomNumber) + '$', 'i') },
-        });
-      }
-      if (req.body.name) {
+            if (req.body.name) {
         duplicateQuery.$or.push({
           name: { $regex: new RegExp('^' + escapeRegex(req.body.name) + '$', 'i') },
           department: req.body.department || room.department,
@@ -571,12 +590,12 @@ exports.updateRoom = async (req, res) => {
         const duplicate = await Room.findOne(duplicateQuery).populate('createdBy', 'name email');
         if (duplicate) {
           if (
-            req.body.roomNumber &&
-            duplicate.roomNumber.toUpperCase() === req.body.roomNumber.toUpperCase()
+            false &&
+            false
           ) {
             return res.status(400).json({
               success: false,
-              message: `🚫 Cannot update room: Room Number "${duplicate.roomNumber}" is already in use in the "${duplicate.department}" department.`,
+              message: `Room name already exists`,
             });
           } else {
             return res.status(400).json({
@@ -756,7 +775,7 @@ exports.deleteRoom = async (req, res) => {
     const roomSnapshot = {
       _id: room._id,
       name: room.name,
-      roomNumber: room.roomNumber,
+
       building: room.building,
       floor: room.floor,
       department: room.department,
@@ -776,7 +795,7 @@ exports.deleteRoom = async (req, res) => {
       status: 'active',
     });
 
-    const cancellationReason = `Room "${roomSnapshot.name}" (${roomSnapshot.roomNumber}) in ${roomSnapshot.building} has been permanently removed from the ${roomSnapshot.department} department inventory by the System Administrator.`;
+    const cancellationReason = `Room "${roomSnapshot.name}" in ${roomSnapshot.building} has been permanently removed from the ${roomSnapshot.department} department inventory by the System Administrator.`;
 
     // Cancel all affected bookings and notify each faculty member
     for (const booking of affectedBookings) {
@@ -839,12 +858,11 @@ exports.deleteRoom = async (req, res) => {
           // In-app notification for HOD
           await Notification.create({
             userId: hod._id,
-            message: `🏫 Admin removed room "${roomSnapshot.name}" (${roomSnapshot.roomNumber}) from your department. ${timetableDeleteResult.deletedCount} timetable slot(s) and ${affectedBookings.length} booking(s) were cancelled.`,
+            message: `🏫 Admin removed room "${roomSnapshot.name}" from your department. ${timetableDeleteResult.deletedCount} timetable slot(s) and ${affectedBookings.length} booking(s) were cancelled.`,
             type: 'system',
             metadata: {
               roomId: roomSnapshot._id,
               roomName: roomSnapshot.name,
-              roomNumber: roomSnapshot.roomNumber,
               department: roomSnapshot.department,
               bookingsCancelled: affectedBookings.length,
               timetableSlotsRemoved: timetableDeleteResult.deletedCount,
@@ -864,7 +882,6 @@ exports.deleteRoom = async (req, res) => {
             hodEmail: hod.email,
             hodName: hod.name,
             roomName: roomSnapshot.name,
-            roomNumber: roomSnapshot.roomNumber,
             building: roomSnapshot.building,
             floor: roomSnapshot.floor,
             department: roomSnapshot.department,
@@ -906,7 +923,7 @@ exports.deleteRoom = async (req, res) => {
 // ---------- GET ROOMS BY FLOOR ----------
 exports.getRoomsByFloor = async (req, res) => {
   try {
-    const rooms = await Room.find({ isActive: true }).sort({ floor: 1, roomNumber: 1 }).lean();
+    const rooms = await Room.find({ isActive: true }).sort({ floor: 1, name: 1 }).lean();
     const groupedByFloor = rooms.reduce((acc, room) => {
       const key = room.floor || 'Unknown';
       if (!acc[key]) acc[key] = [];
@@ -922,7 +939,7 @@ exports.getRoomsByFloor = async (req, res) => {
 // ---------- GET ROOMS BY BUILDING ----------
 exports.getRoomsByBuilding = async (req, res) => {
   try {
-    const rooms = await Room.find({ isActive: true }).sort({ building: 1, floor: 1, roomNumber: 1 }).lean();
+    const rooms = await Room.find({ isActive: true }).sort({ building: 1, floor: 1, name: 1 }).lean();
     const groupedByBuilding = rooms.reduce((acc, room) => {
       const key = room.building || 'Main Building';
       if (!acc[key]) acc[key] = [];
@@ -940,7 +957,7 @@ exports.getRoomsByDepartment = async (req, res) => {
   try {
     const { department } = req.params;
     const rooms = await Room.find({ department: department.trim(), isActive: true })
-      .sort({ floor: 1, roomNumber: 1 })
+      .sort({ floor: 1, name: 1 })
       .lean();
     const formatted = rooms.map((r) => ({ ...r, id: r._id.toString() }));
     res.json({ success: true, data: formatted, total: formatted.length });

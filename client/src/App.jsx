@@ -305,7 +305,7 @@ export default function App() {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 font-sans">
         <div className="flex flex-col items-center gap-4 text-center">
-          <div className="w-14 h-14 rounded-2xl bg-[#007AFF]/20 border border-indigo-500/30 flex items-center justify-center animate-pulse">
+          <div className="w-14 h-14 rounded-2xl bg-mac-blue/20 border border-indigo-500/30 flex items-center justify-center animate-pulse">
             <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
           </div>
           <div className="text-white font-bold text-lg tracking-tight">NIT Raipur Room Allocation</div>
@@ -317,7 +317,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-[#F5F5F7] flex flex-col font-sans text-[#1D1D1F]">
+      <div className="min-h-screen bg-mac-bg flex flex-col font-sans text-mac-text">
         <Navbar
           currentUser={currentUser}
           onLogout={handleLogout}

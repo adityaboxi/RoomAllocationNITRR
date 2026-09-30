@@ -40,6 +40,8 @@ import {
   Search,
   Filter,
   RotateCcw,
+  LayoutGrid,
+  List,
 } from 'lucide-react';
 
 // ============================================================================
@@ -103,10 +105,11 @@ export default function TimetableManager({ user, isAdmin = false }) {
   const [filterSection, setFilterSection] = useState('ALL');
   const [filterRoomId, setFilterRoomId] = useState('ALL');
   const [filterDay, setFilterDay] = useState('ALL');
+  const [filterSlot, setFilterSlot] = useState('ALL');
+  const [viewMode, setViewMode] = useState('GRID');
   const [filterSearch, setFilterSearch] = useState('');
 
-  const [editingEntry, setEditingEntry] = useState(null);
-  const [error, setError] = useState('');
+    const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
   const fileInputRef = useRef(null);
@@ -248,21 +251,29 @@ export default function TimetableManager({ user, isAdmin = false }) {
           entry.facultyEmail || '',
           entry.classGroup || '',
           entry.roomId?.name || '',
-          entry.roomId?.roomNumber || '',
+          
           entry.roomId?.building || '',
         ].join(' ').toLowerCase();
         if (!corpus.includes(q)) return false;
       }
 
+
+      // Slot filter
+      if (filterSlot !== 'ALL') {
+        const slotKey = `${entry.startTime}-${entry.endTime}`;
+        if (slotKey !== filterSlot) return false;
+      }
+
       return true;
     });
-  }, [timetable, filterRoomId, filterSemester, filterSection, filterDay, filterSearch]);
+  }, [timetable, filterRoomId, filterSemester, filterSection, filterDay, filterSearch, filterSlot]);
 
   const hasActiveFilters =
     filterRoomId !== 'ALL' ||
     filterSemester !== 'ALL' ||
     filterSection !== 'ALL' ||
     filterDay !== 'ALL' ||
+    filterSlot !== 'ALL' ||
     Boolean(filterSearch.trim());
 
   const resetFilters = () => {
@@ -502,83 +513,6 @@ export default function TimetableManager({ user, isAdmin = false }) {
     URL.revokeObjectURL(url);
   };
 
-  const handleUpdateEntry = async (entryId, updatedData) => {
-    if (loading) return;
-    const trimmedSubject = (updatedData.subject || '').trim();
-    const trimmedFaculty = (updatedData.faculty || '').trim();
-    const trimmedClassGroup = (updatedData.classGroup || '').trim();
-    const trimmedEmail = (updatedData.facultyEmail || '').trim().toLowerCase();
-
-    if (!updatedData.startTime || !updatedData.endTime || !trimmedSubject || !trimmedFaculty) {
-      setError('Start Time, End Time, Subject, and Faculty are all required.');
-      return;
-    }
-
-    if (trimmedSubject.length < 2) {
-      setError('Subject must be at least 2 characters long.');
-      return;
-    }
-    if (trimmedSubject.length > 100) {
-      setError('Subject cannot exceed 100 characters.');
-      return;
-    }
-
-    if (trimmedFaculty.length < 2) {
-      setError('Faculty name must be at least 2 characters long.');
-      return;
-    }
-    if (trimmedFaculty.length > 100) {
-      setError('Faculty name cannot exceed 100 characters.');
-      return;
-    }
-
-    if (trimmedClassGroup.length > 50) {
-      setError('Class Group cannot exceed 50 characters.');
-      return;
-    }
-
-    if (trimmedEmail) {
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-        setError('Faculty email format is invalid. Please enter a valid email address.');
-        return;
-      }
-    }
-
-    const slotKey = `${updatedData.startTime}-${updatedData.endTime}`;
-    
-    if (!VALID_TIMETABLE_SLOTS.includes(slotKey)) {
-      setError(`Invalid time slot ${slotKey}. You must use the exact 50-minute institutional slots.`);
-      return;
-    }
-
-    if (slotKey === '13:10-14:10') {
-      setError('The 13:10-14:10 slot is reserved for the institutional break and cannot be assigned a class.');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-    console.log(`📝 [TIMETABLE] Updating entry: ${entryId}`, updatedData);
-
-    try {
-      const cleanRoomId =
-        updatedData.roomId && typeof updatedData.roomId === 'object'
-          ? updatedData.roomId._id || updatedData.roomId.id
-          : updatedData.roomId;
-
-      await updateTimetableEntry(entryId, { ...updatedData, roomId: cleanRoomId });
-      console.log(`✅ [TIMETABLE] Entry ${entryId} updated`);
-      setSuccess('Timetable entry updated successfully.');
-      setEditingEntry(null);
-      await fetchScheduleTable();
-    } catch (err) {
-      const errMsg = extractErrorMessage(err, 'Failed to update timetable entry.');
-      console.error('❌ [TIMETABLE] Update entry failed:', errMsg);
-      setError(errMsg);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleDeleteEntry = async (entryId) => {
     if (actionLoadingId) return;
@@ -606,7 +540,7 @@ export default function TimetableManager({ user, isAdmin = false }) {
     <div className="space-y-6">
       {/* Alert Banners */}
       {error && (
-        <div className="px-5 py-3 bg-white border border-[#E5E5EA] rounded-lg flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
+        <div className="px-5 py-3 bg-white border border-mac-border rounded-lg flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
           <AlertCircle className="w-5 h-5 mr-2.5 text-rose-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1 whitespace-pre-line font-medium">{error}</div>
           <button type="button" onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
@@ -616,7 +550,7 @@ export default function TimetableManager({ user, isAdmin = false }) {
       )}
 
       {success && (
-        <div className="px-5 py-3 bg-white border border-[#E5E5EA] rounded-lg flex items-start text-emerald-800 text-sm font-medium animate-fadeIn">
+        <div className="px-5 py-3 bg-white border border-mac-border rounded-lg flex items-start text-emerald-800 text-sm font-medium animate-fadeIn">
           <CheckCircle2 className="w-5 h-5 mr-2.5 text-emerald-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1">{success}</div>
           <button type="button" onClick={() => setSuccess('')} className="text-emerald-500 hover:text-emerald-700">
@@ -631,11 +565,11 @@ export default function TimetableManager({ user, isAdmin = false }) {
           <div className="lg:col-span-5 space-y-6">
           <div className="bg-white border border-slate-200 rounded-lg px-8 py-5 sm:px-8 py-5 shadow-sm">
             <div className="flex items-center gap-2.5 mb-5 pb-3 border-b border-slate-100">
-              <div className="w-9 h-9 rounded-lg bg-[#F5F5F7] text-[#007AFF] flex items-center justify-center">
+              <div className="w-9 h-9 rounded-lg bg-mac-bg text-mac-blue flex items-center justify-center">
                 <FileSpreadsheet className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-[#1D1D1F]">Upload Room Timetable</h3>
+                <h3 className="text-base font-bold text-mac-text">Upload Room Timetable</h3>
                 <p className="text-xs text-slate-400">Department of {user?.department}</p>
               </div>
             </div>
@@ -649,11 +583,11 @@ export default function TimetableManager({ user, isAdmin = false }) {
                 <select
                   value={uploadRoomId}
                   onChange={(e) => setUploadRoomId(e.target.value)}
-                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-xs sm:text-sm bg-slate-50/50 font-bold text-[#1D1D1F] outline-none focus:bg-white focus:ring-2 focus:ring-[#007AFF] transition-all"
+                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-xs sm:text-sm bg-slate-50/50 font-bold text-mac-text outline-none focus:bg-white focus:ring-2 focus:ring-mac-blue transition-all"
                 >
                   {rooms.map((r) => (
                     <option key={r.id || r._id} value={r.id || r._id}>
-                      {r.name} — {r.roomNumber} ({normalizeFloor(r.floor)}, {r.building})
+                      {r.name} ({normalizeFloor(r.floor)}, {r.building})
                     </option>
                   ))}
                 </select>
@@ -668,7 +602,7 @@ export default function TimetableManager({ user, isAdmin = false }) {
                   <select
                     value={uploadSemester}
                     onChange={(e) => setUploadSemester(e.target.value)}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs sm:text-sm bg-slate-50/50 font-semibold text-[#1D1D1F] outline-none focus:bg-white focus:ring-2 focus:ring-[#007AFF]"
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs sm:text-sm bg-slate-50/50 font-semibold text-mac-text outline-none focus:bg-white focus:ring-2 focus:ring-mac-blue"
                   >
                     {['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'].map((s) => (
                       <option key={s} value={s}>{s} Semester</option>
@@ -682,7 +616,7 @@ export default function TimetableManager({ user, isAdmin = false }) {
                   <select
                     value={uploadSection}
                     onChange={(e) => setUploadSection(e.target.value)}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs sm:text-sm bg-slate-50/50 font-semibold text-[#1D1D1F] outline-none focus:bg-white focus:ring-2 focus:ring-[#007AFF]"
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs sm:text-sm bg-slate-50/50 font-semibold text-mac-text outline-none focus:bg-white focus:ring-2 focus:ring-mac-blue"
                   >
                     {['A', 'B', 'C', 'D'].map((sec) => (
                       <option key={sec} value={sec}>Section {sec}</option>
@@ -695,20 +629,20 @@ export default function TimetableManager({ user, isAdmin = false }) {
               <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-lg space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
-                    <FileText className="w-4 h-4 text-[#007AFF]" />
+                    <FileText className="w-4 h-4 text-mac-blue" />
                     <span>Download Pre-Formatted Template</span>
                   </div>
                   <button
                     type="button"
                     onClick={downloadTemplate}
-                    className="px-3 py-1 bg-[#007AFF] hover:bg-[#0066CC] text-white rounded-lg text-xs font-bold inline-flex items-center gap-1.5 shadow-sm transition-all"
+                    className="px-3 py-1 bg-mac-blue hover:bg-mac-blue-hover text-white rounded-lg text-xs font-bold inline-flex items-center gap-1.5 shadow-sm transition-all"
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span>.CSV Template</span>
                   </button>
                 </div>
 
-                <div className="text-[11px] text-[#86868B] leading-relaxed">
+                <div className="text-[11px] text-mac-subtext leading-relaxed">
                   Generates an editable spreadsheet pre-filled for <strong className="text-slate-700">{uploadSemester} Sem Sec {uploadSection}</strong> (Monday–Saturday slots in 24h format).
                 </div>
               </div>
@@ -723,13 +657,13 @@ export default function TimetableManager({ user, isAdmin = false }) {
                   type="file"
                   accept=".xlsx,.xls,.csv"
                   onChange={handleFileSelect}
-                  className="block w-full text-xs text-[#86868B] file:mr-3 file:py-2 file:px-3.5 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-[#F5F5F7] file:text-[#0055B3] hover:file:bg-indigo-100 cursor-pointer border border-slate-200 rounded-lg p-1 bg-slate-50/50"
+                  className="block w-full text-xs text-mac-subtext file:mr-3 file:py-2 file:px-3.5 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-mac-bg file:text-mac-blue-dark hover:file:bg-indigo-100 cursor-pointer border border-slate-200 rounded-lg p-1 bg-slate-50/50"
                 />
               </div>
 
               {/* Staged File Card with Submit Button */}
               {selectedFile && (
-                <div className="bg-[#F5F5F7]/60 border border-slate-200 rounded-lg px-5 py-3 space-y-3 animate-fadeIn">
+                <div className="bg-mac-bg/60 border border-slate-200 rounded-lg px-5 py-3 space-y-3 animate-fadeIn">
                   <div className="flex items-center justify-between text-xs text-indigo-950 font-medium">
                     <span className="truncate pr-2 font-semibold">
                       📄 {selectedFile.name} ({(selectedFile.size / 1024).toFixed(1)} KB)
@@ -750,7 +684,7 @@ export default function TimetableManager({ user, isAdmin = false }) {
                     type="button"
                     onClick={handleSubmitFile}
                     disabled={uploading}
-                    className="w-full bg-[#007AFF] text-white py-2.5 rounded-lg text-xs sm:text-sm font-bold hover:bg-[#0066CC] disabled:opacity-50 transition-all flex items-center justify-center gap-2 shadow-sm"
+                    className="w-full bg-mac-blue text-white py-2.5 rounded-lg text-xs sm:text-sm font-bold hover:bg-mac-blue-hover disabled:opacity-50 transition-all flex items-center justify-center gap-2 shadow-sm"
                   >
                     {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                     <span>{uploading ? 'Validating & Publishing...' : 'Upload & Publish Timetable'}</span>
@@ -769,8 +703,8 @@ export default function TimetableManager({ user, isAdmin = false }) {
             <div className="px-5 py-3 sm:px-8 py-5 border-b border-slate-100 bg-slate-50/50 space-y-3">
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-2">
-                  <BookOpen className="w-5 h-5 text-[#007AFF]" />
-                  <h3 className="text-base font-bold text-[#1D1D1F]">
+                  <BookOpen className="w-5 h-5 text-mac-blue" />
+                  <h3 className="text-base font-bold text-mac-text">
                     Published Schedule ({displayedTimetable.length}{displayedTimetable.length !== timetable.length ? ` of ${timetable.length}` : ''} Slots)
                   </h3>
                 </div>
@@ -785,10 +719,28 @@ export default function TimetableManager({ user, isAdmin = false }) {
                       <span>Reset</span>
                     </button>
                   )}
+                  <div className="flex bg-slate-100 rounded-lg p-0.5 border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('GRID')}
+                      className={`p-1.5 rounded-md transition-all ${viewMode === 'GRID' ? 'bg-white shadow-sm text-mac-blue' : 'text-slate-500 hover:text-slate-700'}`}
+                      title="Grid View"
+                    >
+                      <LayoutGrid className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('LIST')}
+                      className={`p-1.5 rounded-md transition-all ${viewMode === 'LIST' ? 'bg-white shadow-sm text-mac-blue' : 'text-slate-500 hover:text-slate-700'}`}
+                      title="List View"
+                    >
+                      <List className="w-4 h-4" />
+                    </button>
+                  </div>
                   <button
                     type="button"
                     onClick={fetchScheduleTable}
-                    className="p-1.5 text-[#86868B] hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition-colors"
+                    className="p-1.5 text-mac-subtext hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition-colors"
                     title="Refresh Schedule"
                   >
                     <RefreshCw className="w-4 h-4" />
@@ -804,7 +756,7 @@ export default function TimetableManager({ user, isAdmin = false }) {
                   value={filterSearch}
                   onChange={(e) => setFilterSearch(e.target.value)}
                   placeholder="Search by subject, professor, or group..."
-                  className="w-full border border-slate-200 rounded-lg pl-8 pr-8 py-1.5 text-xs bg-white text-slate-800 placeholder-slate-400 outline-none focus:ring-2 focus:ring-[#007AFF]"
+                  className="w-full border border-slate-200 rounded-lg pl-8 pr-8 py-1.5 text-xs bg-white text-slate-800 placeholder-slate-400 outline-none focus:ring-2 focus:ring-mac-blue"
                 />
                 {filterSearch && (
                   <button
@@ -821,7 +773,7 @@ export default function TimetableManager({ user, isAdmin = false }) {
               <div className={`grid grid-cols-2 ${isAdmin ? 'sm:grid-cols-5' : 'sm:grid-cols-4'} gap-2 pt-1`}>
                 {isAdmin && (
                   <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[#86868B] mb-1">
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-mac-subtext mb-1">
                       Department
                     </label>
                     <select
@@ -841,7 +793,7 @@ export default function TimetableManager({ user, isAdmin = false }) {
                 )}
                 
                 <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[#86868B] mb-1">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-mac-subtext mb-1">
                     Room
                   </label>
                   <select
@@ -852,14 +804,14 @@ export default function TimetableManager({ user, isAdmin = false }) {
                     <option value="ALL">All Rooms</option>
                     {rooms.map((r) => (
                       <option key={r.id || r._id} value={r.id || r._id}>
-                        {r.name} ({r.roomNumber})
+                        {r.name}
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[#86868B] mb-1">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-mac-subtext mb-1">
                     Semester
                   </label>
                   <select
@@ -875,7 +827,7 @@ export default function TimetableManager({ user, isAdmin = false }) {
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[#86868B] mb-1">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-mac-subtext mb-1">
                     Section
                   </label>
                   <select
@@ -891,7 +843,7 @@ export default function TimetableManager({ user, isAdmin = false }) {
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[#86868B] mb-1">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-mac-subtext mb-1">
                     Day
                   </label>
                   <select
@@ -905,13 +857,29 @@ export default function TimetableManager({ user, isAdmin = false }) {
                     ))}
                   </select>
                 </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-mac-subtext mb-1">
+                    Time Slot
+                  </label>
+                  <select
+                    value={filterSlot}
+                    onChange={(e) => setFilterSlot(e.target.value)}
+                    className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white font-medium text-slate-800 outline-none"
+                  >
+                    <option value="ALL">All Slots</option>
+                    {VALID_TIMETABLE_SLOTS.map((slot) => (
+                      <option key={slot} value={slot}>{slot}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 
             {tableLoading ? (
               <div className="p-12 text-center text-slate-400 text-sm">Loading timetable slots...</div>
             ) : displayedTimetable.length === 0 ? (
-              <div className="p-12 text-center text-[#86868B]">
+              <div className="p-12 text-center text-mac-subtext">
                 <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                 <p className="text-sm font-medium">No published slots match your filter selection.</p>
                 <p className="text-xs text-slate-400 mt-1">
@@ -921,15 +889,91 @@ export default function TimetableManager({ user, isAdmin = false }) {
                   <button
                     type="button"
                     onClick={resetFilters}
-                    className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-[#007AFF] bg-[#F5F5F7] hover:bg-indigo-100 rounded-lg transition-colors"
+                    className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-mac-blue bg-mac-bg hover:bg-indigo-100 rounded-lg transition-colors"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>Clear All Filters</span>
                   </button>
                 )}
               </div>
-            ) : (
-              <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+            ) : viewMode === 'GRID' ? (() => {
+              const groupedByRoom = displayedTimetable.reduce((acc, entry) => {
+                const roomId = entry.roomId?._id || entry.roomId?.id || 'unknown';
+                if (!acc[roomId]) acc[roomId] = { room: entry.roomId, entries: [] };
+                acc[roomId].entries.push(entry);
+                return acc;
+              }, {});
+
+              const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+              const slots = VALID_TIMETABLE_SLOTS;
+
+              return (
+                <div className="space-y-6 overflow-y-auto max-h-[700px] pr-2 custom-scrollbar">
+                  {Object.values(groupedByRoom).map(({ room, entries }) => (
+                    <div key={room?._id || room?.id || 'unknown'} className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                      <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Building2 className="w-4 h-4 text-mac-blue" />
+                          <h4 className="font-bold text-mac-text">{room?.name || 'Classroom'} <span className="text-mac-subtext text-sm font-medium">()</span></h4>
+                        </div>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-slate-200 table-fixed">
+                          <thead className="bg-slate-50">
+                            <tr>
+                              <th className="px-3 py-2.5 text-[10px] font-bold text-slate-600 uppercase tracking-wider text-center border-r border-slate-200 bg-slate-100 w-[80px]">Day / Time</th>
+                              {slots.map(slot => (
+                                <th key={slot} className="px-1 py-2 text-[10px] font-bold text-slate-600 uppercase tracking-wider text-center border-r border-slate-200 w-[120px]">
+                                  {slot}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {days.map(day => (
+                              <tr key={day}>
+                                <td className="px-2 py-3 text-[11px] font-bold text-slate-700 border-r border-slate-200 bg-slate-50 text-center">
+                                  {day.substring(0, 3)}
+                                </td>
+                                {slots.map(slot => {
+                                  const entry = entries.find(e => e.day === day && `${e.startTime}-${e.endTime}` === slot);
+                                  return (
+                                    <td key={slot} className="p-1 border-r border-slate-100 align-top relative group h-[75px]">
+                                      {entry ? (
+                                        <div className="h-full w-full bg-indigo-50/70 rounded p-1.5 border border-indigo-100/60 flex flex-col justify-between hover:bg-indigo-100 transition-colors">
+                                          <div>
+                                            <div className="text-[10px] font-bold text-slate-800 leading-tight line-clamp-2" title={entry.subject}>{entry.subject}</div>
+                                            <div className="text-[9px] font-medium text-slate-600 truncate mt-0.5">{entry.faculty}</div>
+                                          </div>
+                                          <div className="flex justify-between items-end mt-1">
+                                            {entry.semester && (
+                                              <span className="text-[8px] font-bold text-mac-blue bg-blue-100/50 px-1 rounded truncate">
+                                                {String(entry.semester).replace(/[^0-9]/g, '')}S {entry.section}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5 bg-white/90 shadow-sm rounded border border-slate-200 p-0.5">
+                                            
+                                            <button onClick={() => handleDeleteEntry(entry.id || entry._id)} className="p-1 text-slate-400 hover:text-rose-600 rounded bg-white"><Trash2 className="w-3 h-3"/></button>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <div className="h-full w-full flex items-center justify-center text-[9px] text-slate-300 italic opacity-0 group-hover:opacity-100 transition-opacity">Free</div>
+                                      )}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })() : (
+              <div className="overflow-x-auto max-h-[600px] overflow-y-auto custom-scrollbar">
                 <table className="min-w-full divide-y divide-slate-200">
                   <thead className="bg-slate-50 sticky top-0 z-10">
                     <tr>
@@ -958,8 +1002,8 @@ export default function TimetableManager({ user, isAdmin = false }) {
                       return (
                         <tr key={entryId} className="hover:bg-slate-50/80 transition-colors">
                           <td className="px-4 py-3.5 text-sm">
-                            <div className="font-bold text-[#1D1D1F]">{entry.day}</div>
-                            <div className="text-xs text-[#86868B] flex items-center gap-1 font-mono mt-0.5">
+                            <div className="font-bold text-mac-text">{entry.day}</div>
+                            <div className="text-xs text-mac-subtext flex items-center gap-1 font-mono mt-0.5">
                               <Clock className="w-3 h-3" />
                               <span>{entry.startTime} - {entry.endTime}</span>
                             </div>
@@ -971,17 +1015,17 @@ export default function TimetableManager({ user, isAdmin = false }) {
 
                           <td className="px-4 py-3.5 text-sm">
                             <div className="font-medium text-indigo-900 flex items-center gap-1">
-                              <Building2 className="w-3.5 h-3.5 text-[#007AFF]" />
+                              <Building2 className="w-3.5 h-3.5 text-mac-blue" />
                               <span>{entry.roomId?.name || 'Room'}</span>
                             </div>
                             <div className="text-[11px] text-slate-400 font-mono">
-                              {entry.roomId?.roomNumber || ''}
+                              
                             </div>
                           </td>
 
                           <td className="px-4 py-3.5 text-sm">
                             <div className="text-slate-800 font-medium">{entry.faculty}</div>
-                            <div className="text-[11px] text-[#86868B] flex items-center flex-wrap gap-1 mt-1">
+                            <div className="text-[11px] text-mac-subtext flex items-center flex-wrap gap-1 mt-1">
                               {entry.semester && (
                                 <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
                                   {String(entry.semester).toLowerCase().includes('sem') ? entry.semester : `${entry.semester} Sem`}
@@ -996,19 +1040,6 @@ export default function TimetableManager({ user, isAdmin = false }) {
                           </td>
 
                           <td className="px-4 py-3.5 text-sm text-right space-x-1.5 whitespace-nowrap">
-                            <button
-                              type="button"
-                              onClick={() => setEditingEntry({
-                                ...entry,
-                                id: entryId,
-                                roomId: entry.roomId?._id || entry.roomId?.id || entry.roomId,
-                              })}
-                              disabled={isRowBusy}
-                              className="p-1.5 text-slate-600 hover:text-[#007AFF] hover:bg-[#F5F5F7] rounded-lg transition-colors disabled:opacity-40"
-                              title="Edit Entry"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
                             <button
                               type="button"
                               onClick={() => handleDeleteEntry(entryId)}
@@ -1028,106 +1059,6 @@ export default function TimetableManager({ user, isAdmin = false }) {
             )}
           </div>
 
-          {/* Inline Edit Form */}
-          {editingEntry && (
-            <div className="bg-white border-2 border-slate-200 rounded-lg px-8 py-5 shadow-lg animate-fadeIn">
-              <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-100">
-                <h4 className="text-sm font-bold text-[#1D1D1F] flex items-center gap-2">
-                  <Edit2 className="w-4 h-4 text-[#007AFF]" />
-                  Edit Schedule Slot ({editingEntry.day})
-                </h4>
-                <button
-                  type="button"
-                  onClick={() => setEditingEntry(null)}
-                  className="text-slate-400 hover:text-slate-600"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Start Time</label>
-                  <select
-                    value={editingEntry.startTime}
-                    onChange={(e) => setEditingEntry({ ...editingEntry, startTime: e.target.value })}
-                    className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#007AFF]"
-                  >
-                    {['08:10', '09:00', '09:50', '10:40', '11:30', '12:20', '13:10', '14:10', '15:00', '15:50', '16:40', '17:30', '18:20'].map(t => (
-                      <option key={'start-'+t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">End Time</label>
-                  <select
-                    value={editingEntry.endTime}
-                    onChange={(e) => setEditingEntry({ ...editingEntry, endTime: e.target.value })}
-                    className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#007AFF]"
-                  >
-                    {['08:10', '09:00', '09:50', '10:40', '11:30', '12:20', '13:10', '14:10', '15:00', '15:50', '16:40', '17:30', '18:20'].map(t => (
-                      <option key={'end-'+t} value={t} disabled={t <= editingEntry.startTime}>{t}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Room</label>
-                  <select
-                    value={
-                      editingEntry.roomId && typeof editingEntry.roomId === 'object'
-                        ? editingEntry.roomId._id || editingEntry.roomId.id
-                        : editingEntry.roomId
-                    }
-                    onChange={(e) => setEditingEntry({ ...editingEntry, roomId: e.target.value })}
-                    className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#007AFF]"
-                  >
-                    {rooms.map((r) => (
-                      <option key={r.id || r._id} value={r.id || r._id}>
-                        {r.name} ({r.roomNumber})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Subject</label>
-                  <input
-                    type="text"
-                    value={editingEntry.subject}
-                    onChange={(e) => setEditingEntry({ ...editingEntry, subject: e.target.value })}
-                    className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#007AFF]"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Faculty Name</label>
-                  <input
-                    type="text"
-                    value={editingEntry.faculty}
-                    onChange={(e) => setEditingEntry({ ...editingEntry, faculty: e.target.value })}
-                    className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#007AFF]"
-                  />
-                </div>
-              </div>
-
-              <div className="mt-4 flex gap-2 justify-end">
-                <button
-                  type="button"
-                  onClick={() => setEditingEntry(null)}
-                  className="bg-slate-100 text-slate-700 px-4 py-1.5 rounded-lg text-xs font-semibold hover:bg-slate-200 transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleUpdateEntry(editingEntry.id, editingEntry)}
-                  disabled={loading}
-                  className="bg-[#007AFF] text-white px-5 py-1.5 rounded-lg text-xs font-bold hover:bg-[#0066CC] shadow-sm disabled:opacity-50 flex items-center gap-1.5 transition-all"
-                >
-                  {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  <span>{loading ? 'Saving...' : 'Save Changes'}</span>
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>

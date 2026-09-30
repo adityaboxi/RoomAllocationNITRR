@@ -54,7 +54,7 @@ exports.getPendingReviews = async (req, res) => {
       _id: { $nin: reviewedBookingIds },
       date: { $lte: todayStr, $gte: lookbackDateStr },
     })
-      .populate('roomId', 'name roomNumber floor building')
+      .populate('roomId', 'name floor building')
       .sort({ date: -1, endTime: -1 })
       .limit(20); // Only queue up to 20 popups at a time
 
@@ -201,7 +201,7 @@ exports.getRoomReviews = async (req, res) => {
 exports.getMyReviews = async (req, res) => {
   try {
     const reviews = await Review.find({ facultyId: req.user._id || req.user.id })
-      .populate('roomId', 'name roomNumber building floor')
+      .populate('roomId', 'name building floor')
       .sort({ createdAt: -1 })
       .limit(100) // Safety Limit: prevent huge payloads
       .lean();

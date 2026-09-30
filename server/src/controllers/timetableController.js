@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const Timetable = require('../models/Timetable');
+const TimetableHistory = require('../models/TimetableHistory');
 const Room = require('../models/Room');
 const Booking = require('../models/Booking');
 const User = require('../models/User');
@@ -14,6 +15,35 @@ const path = require('path');
 const { Readable } = require('stream');
 
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Archive helper to move old state to History schema
+const archiveTimetableEntries = async (entries, action, recordedBy) => {
+  if (!entries || entries.length === 0) return;
+  const historyDocs = entries.map(entry => ({
+    originalId: entry._id,
+    roomId: entry.roomId,
+    day: entry.day,
+    startTime: entry.startTime,
+    endTime: entry.endTime,
+    subject: entry.subject,
+    classGroup: entry.classGroup,
+    faculty: entry.faculty,
+    facultyEmail: entry.facultyEmail,
+    semester: entry.semester,
+    section: entry.section,
+    department: entry.department,
+    validFrom: entry.createdAt || new Date(),
+    validTo: new Date(),
+    action: action || 'ARCHIVED',
+    recordedBy: recordedBy
+  }));
+  try {
+    await TimetableHistory.insertMany(historyDocs);
+  } catch (err) {
+    console.error('❌ [TIMETABLE] History Archival Failed:', err);
+  }
+};
+
 const isValidTimeFormat = (time) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(time);
 
 // ============================================================================
@@ -57,7 +87,7 @@ const buildDepartmentRoomMap = async (department) => {
   rooms.forEach((r) => {
     roomMap.set(r._id.toString(), r);
     roomMap.set(r.name.trim().toLowerCase(), r);
-    roomMap.set(r.roomNumber.trim().toLowerCase(), r);
+    roomMap.set(r.name.trim().toLowerCase(), r);
   });
 
   return { rooms, roomMap };
@@ -78,7 +108,7 @@ const cancelConflictingBookings = async (timetableEntries, department) => {
     department,
     status: 'active',
     $or: conflictConditions,
-  }).populate('roomId', 'name roomNumber building floor');
+  }).populate('roomId', 'name building floor');
 
   const cancelledBookings = [];
 
@@ -277,13 +307,12 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
       ],
       startTime: { $lt: entry.endTime },
       endTime: { $gt: entry.startTime },
-    }).populate('roomId', 'name roomNumber');
+    }).populate('roomId', 'name');
 
     if (roomConflict) {
       const roomName = roomConflict.roomId?.name || 'Classroom';
-      const roomNum = roomConflict.roomId?.roomNumber || '';
-      throw new Error(
-        `🚫 Timetable Collision: Room "${roomName}" (${roomNum}) is already occupied on ${entry.day} (${roomConflict.startTime} - ${roomConflict.endTime}) by ${roomConflict.subject} for ${roomConflict.semester} Sem Sec ${roomConflict.section} (Prof. ${roomConflict.faculty}).`
+            throw new Error(
+        `🚫 Timetable Collision: Room "${roomName}" is already occupied on ${entry.day} (${roomConflict.startTime} - ${roomConflict.endTime}) by ${roomConflict.subject} for ${roomConflict.semester} Sem Sec ${roomConflict.section} (Prof. ${roomConflict.faculty}).`
       );
     }
 
@@ -320,7 +349,7 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
       isActive: true,
       startTime: { $lt: entry.endTime },
       endTime: { $gt: entry.startTime },
-    }).populate('roomId', 'name roomNumber');
+    }).populate('roomId', 'name');
 
     if (facultyConflict) {
       const fDept = facultyConflict.department ? `[${facultyConflict.department}] ` : '';
@@ -334,16 +363,22 @@ const replaceTimetableEntries = async ({ department, semester, section, entries,
   // 3. Deactivate old slots ONLY for the matching (department, roomId, semester, section)
   const targetRoomIds = [...new Set(validatedEntries.map((e) => e.roomId.toString()))];
 
-  await Timetable.updateMany(
-    {
+  const oldEntries = await Timetable.find({
       department,
       roomId: { $in: targetRoomIds },
       semester,
       section,
-      isActive: true,
-    },
-    { $set: { isActive: false }, $inc: { version: 1 } }
-  );
+    });
+    // Archive old entries before deleting
+    await archiveTimetableEntries(oldEntries, 'BATCH_UPLOAD');
+    
+    // Physically delete them from the main working table to prevent DB bloat
+    await Timetable.deleteMany({
+      department,
+      roomId: { $in: targetRoomIds },
+      semester,
+      section,
+    });
 
   const createdEntries = await Timetable.insertMany(validatedEntries);
   const cancelledBookings = await cancelConflictingBookings(createdEntries, department);
@@ -395,8 +430,11 @@ exports.getTimetable = async (req, res) => {
     const { department, semester, section, day, faculty, roomId, search } = req.query;
     const query = { isActive: true };
 
-    if (req.user.role === 'HOD') query.department = req.user.department;
-    if (department && department !== 'ALL') query.department = department.trim();
+    if (req.user.role === 'HOD') {
+      query.department = req.user.department;
+    } else if (department && department !== 'ALL') {
+      query.department = department.trim();
+    }
 
     if (semester && semester !== 'ALL') {
       const semRegex = normalizeSemesterRegex(semester);
@@ -429,7 +467,7 @@ exports.getTimetable = async (req, res) => {
     }
 
     const entries = await Timetable.find(query)
-      .populate('roomId', 'name roomNumber floor building department')
+      .populate('roomId', 'name floor building department')
       .lean();
 
     const formatted = sortTimetableEntries(entries.map((e) => ({ ...e, id: e._id.toString() })));
@@ -464,7 +502,7 @@ exports.getTimetableByDepartment = async (req, res) => {
     }
 
     const entries = await Timetable.find(query)
-      .populate('roomId', 'name roomNumber floor building department')
+      .populate('roomId', 'name floor building department')
       .lean();
 
     const formatted = sortTimetableEntries(entries.map((e) => ({ ...e, id: e._id.toString() })));
@@ -488,7 +526,7 @@ exports.getTimetableByFaculty = async (req, res) => {
     if (department && department !== 'ALL') query.department = department.trim();
 
     const entries = await Timetable.find(query)
-      .populate('roomId', 'name roomNumber floor building department')
+      .populate('roomId', 'name floor building department')
       .lean();
 
     const formatted = sortTimetableEntries(entries.map((e) => ({ ...e, id: e._id.toString() })));
@@ -515,7 +553,7 @@ exports.getTimetableByRoom = async (req, res) => {
     }
 
     const entries = await Timetable.find(query)
-      .populate('roomId', 'name roomNumber floor building department')
+      .populate('roomId', 'name floor building department')
       .lean();
 
     const formatted = sortTimetableEntries(entries.map((e) => ({ ...e, id: e._id.toString() })));
@@ -694,7 +732,7 @@ exports.updateRoomDayTimetable = async (req, res) => {
 
       if (roomConflict) {
         throw new Error(
-          `🚫 Timetable Collision: Room "${room.name}" (${room.roomNumber}) is already occupied on ${day} from ${roomConflict.startTime} to ${roomConflict.endTime} by ${roomConflict.subject} for ${roomConflict.semester} Sem Sec ${roomConflict.section} (Prof. ${roomConflict.faculty}).`
+          `🚫 Timetable Collision: Room "${room.name}" is already occupied on ${day} from ${roomConflict.startTime} to ${roomConflict.endTime} by ${roomConflict.subject} for ${roomConflict.semester} Sem Sec ${roomConflict.section} (Prof. ${roomConflict.faculty}).`
         );
       }
 
@@ -731,7 +769,7 @@ exports.updateRoomDayTimetable = async (req, res) => {
         isActive: true,
         startTime: { $lt: entry.endTime },
         endTime: { $gt: entry.startTime },
-      }).populate('roomId', 'name roomNumber');
+      }).populate('roomId', 'name');
 
       if (facultyConflict) {
         const fDept = facultyConflict.department ? `[${facultyConflict.department}] ` : '';
@@ -884,7 +922,7 @@ exports.replaceTimetableFromFile = async (req, res) => {
     ];
 
     if (!targetRoom) {
-      requiredHeaderPatterns.push({ key: 'roomId', match: ['roomid', 'room', 'roomnumber'] });
+      requiredHeaderPatterns.push({ key: 'roomId', match: ['roomid', 'room'] });
     }
 
     const missingHeaders = [];
@@ -923,7 +961,7 @@ exports.replaceTimetableFromFile = async (req, res) => {
         startTime: get('Start Time', 'StartTime', 'Start'),
         endTime: get('End Time', 'EndTime', 'End'),
         subject: get('Subject', 'Course'),
-        roomId: targetRoom ? targetRoom._id.toString() : get('RoomId', 'Room ID', 'Room', 'RoomNumber'),
+        roomId: targetRoom ? targetRoom._id.toString() : get('RoomId', 'Room ID', 'Room'),
         classGroup: get('Class Group', 'ClassGroup', 'Group') || `${semester} Sec ${section}`,
         faculty: get('Faculty', 'Professor', 'Teacher'),
         facultyEmail: get('Faculty Email', 'FacultyEmail', 'Email', 'Professor Email', 'Teacher Email'),
@@ -1054,7 +1092,7 @@ exports.updateTimetableEntry = async (req, res) => {
       _id: { $ne: id },
       startTime: { $lt: checkEndTime },
       endTime: { $gt: checkStartTime },
-    }).populate('roomId', 'name roomNumber');
+    }).populate('roomId', 'name');
 
     if (roomCollision) {
       const rName = roomCollision.roomId?.name || 'Classroom';
@@ -1103,7 +1141,7 @@ exports.updateTimetableEntry = async (req, res) => {
         _id: { $ne: id },
         startTime: { $lt: checkEndTime },
         endTime: { $gt: checkStartTime },
-      }).populate('roomId', 'name roomNumber');
+      }).populate('roomId', 'name');
 
       if (facultyCollision) {
         const rName = facultyCollision.roomId?.name || 'Classroom';
@@ -1115,18 +1153,30 @@ exports.updateTimetableEntry = async (req, res) => {
       }
     }
 
-    if (targetRoomId) entry.roomId = targetRoomId;
-    if (startTime) entry.startTime = startTime;
-    if (endTime) entry.endTime = endTime;
-    if (subject) entry.subject = subject.trim();
-    if (classGroup) entry.classGroup = classGroup.trim();
-    if (faculty) entry.faculty = faculty.trim();
-    if (checkFacultyEmail !== undefined) entry.facultyEmail = checkFacultyEmail;
+    // ARCHIVE AND DELETE (physically moves to history schema to prevent DB bloat)
+    await archiveTimetableEntries([entry], 'UPDATED', req.user._id || req.user.id);
+    await Timetable.findByIdAndDelete(entry._id);
 
-    entry.version += 1;
-    await entry.save();
+    const newEntryData = {
+      roomId: targetRoomId || entry.roomId,
+      day: entry.day,
+      startTime: startTime || entry.startTime,
+      endTime: endTime || entry.endTime,
+      subject: (subject || entry.subject).trim(),
+      classGroup: (classGroup || entry.classGroup).trim(),
+      faculty: (faculty || entry.faculty).trim(),
+      facultyEmail: checkFacultyEmail !== undefined ? checkFacultyEmail : entry.facultyEmail,
+      semester: entry.semester,
+      section: entry.section,
+      department: entry.department,
+      isActive: true,
+      version: entry.version + 1,
+      createdBy: req.user.id || req.user._id,
+    };
 
-    await cancelConflictingBookings([entry], entry.department);
+    const newEntry = await Timetable.create(newEntryData);
+
+    await cancelConflictingBookings([newEntry], newEntry.department);
 
     const io = getIO();
     if (io) {
@@ -1138,7 +1188,7 @@ exports.updateTimetableEntry = async (req, res) => {
       });
     }
 
-    const updated = await Timetable.findById(id).populate('roomId', 'name roomNumber floor building department');
+    const updated = await Timetable.findById(newEntry._id).populate('roomId', 'name floor building department');
     res.json({ success: true, message: 'Timetable entry updated successfully', data: updated });
   } catch (error) {
     console.error('❌ [TIMETABLE] updateTimetableEntry error:', error.message || error);
@@ -1164,8 +1214,8 @@ exports.deleteTimetableEntry = async (req, res) => {
       return res.status(403).json({ success: false, message: 'You can only delete timetable for your own department' });
     }
 
-    entry.isActive = false;
-    await entry.save();
+    await archiveTimetableEntries([entry], 'DELETED', req.user._id || req.user.id);
+    await Timetable.findByIdAndDelete(entry._id);
 
     const io = getIO();
     if (io) {
@@ -1181,5 +1231,71 @@ exports.deleteTimetableEntry = async (req, res) => {
   } catch (error) {
     console.error('❌ [TIMETABLE] deleteTimetableEntry error:', error.message || error);
     res.status(400).json({ success: false, message: error.message });
+  }
+};
+// ---------- GENERATE TIMETABLE CSV REPORT (WITH HISTORICAL SNAPSHOTS) ----------
+exports.generateTimetableReport = async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN' && req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ success: false, message: 'Only Admins can generate this report' });
+    }
+
+    const { targetDate, department, roomId, semester, day } = req.query;
+    
+    // Parse target date or default to now
+    let snapshotTime = new Date();
+    if (targetDate) {
+      snapshotTime = new Date(targetDate);
+      snapshotTime.setHours(23, 59, 59, 999); // End of the target day
+    }
+
+    const query = {
+      validFrom: { $lte: snapshotTime },
+      $or: [
+        { validTo: null },
+        { validTo: { $gt: snapshotTime } }
+      ]
+    };
+
+    if (department && department !== 'ALL') query.department = department.trim();
+    if (roomId && roomId !== 'ALL') query.roomId = roomId;
+    if (semester && semester !== 'ALL') query.semester = semester.trim();
+    if (day && day !== 'ALL') query.day = day.trim();
+
+    const timetableData = await TimetableHistory.find(query)
+      .populate('roomId', 'name building floor')
+      .sort({ day: 1, startTime: 1 })
+      .lean();
+
+    // Format as CSV
+    const headers = ['Day', 'Start Time', 'End Time', 'Room', 'Department', 'Subject', 'Faculty', 'Semester', 'Section'];
+    
+    const csvRows = [headers.join(',')];
+    
+    timetableData.forEach(entry => {
+      const roomName = entry.roomId?.name || 'Unknown Room';
+            const row = [
+        entry.day,
+        entry.startTime,
+        entry.endTime,
+        `"${roomName}"`,
+        roomNum,
+        `"${entry.department}"`,
+        `"${entry.subject}"`,
+        `"${entry.faculty}"`,
+        entry.semester,
+        entry.section
+      ];
+      csvRows.push(row.join(','));
+    });
+
+    const csvString = csvRows.join('\n');
+    
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="timetable_report_${targetDate || 'current'}.csv"`);
+    res.status(200).send(csvString);
+  } catch (error) {
+    console.error('❌ [TIMETABLE] generateTimetableReport error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };

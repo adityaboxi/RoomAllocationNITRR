@@ -657,3 +657,28 @@ exports.verifySignupOtp = async (req, res) => {
     res.status(500).json({ success: false, message: 'OTP verification failed' });
   }
 };
+exports.getUsersForAdmin = async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Forbidden' });
+    const User = require('../models/User');
+    const users = await User.find({}).select('-password').sort({ role: 1, department: 1, name: 1 });
+    res.json({ success: true, data: users });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to fetch users' });
+  }
+};
+
+exports.deleteUserByAdmin = async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Forbidden' });
+    const User = require('../models/User');
+    const userToDelete = await User.findById(req.params.id);
+    if (!userToDelete) return res.status(404).json({ success: false, message: 'User not found' });
+    
+    // Optional: cascade delete timetables or bookings if needed, but keeping them might be preferred.
+    await User.findByIdAndDelete(req.params.id);
+    res.json({ success: true, message: 'User successfully deleted' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to delete user' });
+  }
+};

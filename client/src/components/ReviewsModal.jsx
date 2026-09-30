@@ -78,11 +78,11 @@ export default function ReviewModal({ room, onClose }) {
               <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-[#1D1D1F] leading-tight">
+              <h2 className="text-lg font-bold text-mac-text leading-tight">
                 {room.name || 'Room Reviews'}
               </h2>
-              <div className="text-xs text-[#86868B] flex items-center gap-2 mt-0.5">
-                <span>{room.roomNumber || ''}</span>
+              <div className="text-xs text-mac-subtext flex items-center gap-2 mt-0.5">
+                
                 <span>•</span>
                 <span>
                   {avgRating !== null ? (
@@ -141,7 +141,7 @@ export default function ReviewModal({ room, onClose }) {
                     {r.comment || 'No comment provided'}
                   </p>
 
-                  <div className="text-[11px] font-semibold text-[#86868B]">
+                  <div className="text-[11px] font-semibold text-mac-subtext">
                     {r.facultyName || r.facultyId?.name || 'Faculty Member'}
                   </div>
                 </div>

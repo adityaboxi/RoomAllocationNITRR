@@ -80,7 +80,7 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
             <Sparkles className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-[#1D1D1F] leading-tight">Rate Your Class Session</h2>
+            <h2 className="text-lg font-bold text-mac-text leading-tight">Rate Your Class Session</h2>
             <p className="text-xs text-slate-400">Feedback helps maintain room infrastructure</p>
           </div>
         </div>
@@ -90,7 +90,7 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
         </p>
 
         {error && (
-          <div className="bg-white border border-[#E5E5EA] text-rose-800 p-3 rounded-lg mb-4 text-xs font-medium whitespace-pre-line">
+          <div className="bg-white border border-mac-border text-rose-800 p-3 rounded-lg mb-4 text-xs font-medium whitespace-pre-line">
             {error}
           </div>
         )}
@@ -120,7 +120,7 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
                   />
                 </button>
               ))}
-              <span className="text-xs font-bold text-[#86868B] ml-2">
+              <span className="text-xs font-bold text-mac-subtext ml-2">
                 {rating > 0 ? `${rating} of 5` : ''}
               </span>
             </div>
@@ -133,7 +133,7 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
             <textarea
               value={comment}
               onChange={(e) => setComment(e.target.value)}
-              className="w-full border border-slate-200 rounded-lg p-3 text-xs sm:text-sm focus:ring-2 focus:ring-[#007AFF] focus:bg-white bg-slate-50/50 outline-none transition-all"
+              className="w-full border border-slate-200 rounded-lg p-3 text-xs sm:text-sm focus:ring-2 focus:ring-mac-blue focus:bg-white bg-slate-50/50 outline-none transition-all"
               rows="3"
               placeholder="e.g. Projector worked well, AC temperature was comfortable..."
               disabled={loading}

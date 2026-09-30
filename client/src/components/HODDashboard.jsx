@@ -99,8 +99,8 @@ export default function HODDashboard({ user }) {
             onClick={() => setActiveTab('book')}
             className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-all ${
               activeTab === 'book'
-                ? 'bg-white text-[#1D1D1F] shadow-sm'
-                : 'text-[#86868B] hover:text-[#1D1D1F]'
+                ? 'bg-white text-mac-text shadow-sm'
+                : 'text-mac-subtext hover:text-mac-text'
             }`}
           >
             <CalendarPlus className="w-3.5 h-3.5 text-amber-600" />
@@ -112,11 +112,11 @@ export default function HODDashboard({ user }) {
             onClick={() => setActiveTab('timetable')}
             className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-all ${
               activeTab === 'timetable'
-                ? 'bg-white text-[#1D1D1F] shadow-sm'
-                : 'text-[#86868B] hover:text-[#1D1D1F]'
+                ? 'bg-white text-mac-text shadow-sm'
+                : 'text-mac-subtext hover:text-mac-text'
             }`}
           >
-            <Calendar className="w-3.5 h-3.5 text-[#007AFF]" />
+            <Calendar className="w-3.5 h-3.5 text-mac-blue" />
             <span>Timetable</span>
           </button>
 
@@ -125,8 +125,8 @@ export default function HODDashboard({ user }) {
             onClick={() => setActiveTab('holidays')}
             className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg transition-all ${
               activeTab === 'holidays'
-                ? 'bg-white text-[#1D1D1F] shadow-sm'
-                : 'text-[#86868B] hover:text-[#1D1D1F]'
+                ? 'bg-white text-mac-text shadow-sm'
+                : 'text-mac-subtext hover:text-mac-text'
             }`}
           >
             <Palmtree className="w-3.5 h-3.5 text-teal-600" />
@@ -142,10 +142,10 @@ export default function HODDashboard({ user }) {
           <div className="bg-white border border-slate-200 rounded-lg px-5 py-3 shadow-sm">
             <div className="flex items-center justify-between text-slate-400 mb-1">
               <span className="text-xs font-semibold uppercase tracking-wider">Total Rooms</span>
-              <Building2 className="w-4 h-4 text-[#007AFF]" />
+              <Building2 className="w-4 h-4 text-mac-blue" />
             </div>
-            <div className="text-2xl font-black text-[#1D1D1F] font-mono">{stats.totalRooms || 0}</div>
-            <div className="text-[11px] text-[#86868B] mt-0.5 font-medium">
+            <div className="text-2xl font-black text-mac-text font-mono">{stats.totalRooms || 0}</div>
+            <div className="text-[11px] text-mac-subtext mt-0.5 font-medium">
               <span className="text-emerald-600 font-semibold">{stats.availableRooms || 0} free</span> • <span className="text-rose-600 font-semibold">{stats.occupiedRooms || 0} occupied</span>
             </div>
           </div>
@@ -156,7 +156,7 @@ export default function HODDashboard({ user }) {
               <span className="text-xs font-semibold uppercase tracking-wider">Upcoming Bookings</span>
               <Clock className="w-4 h-4 text-emerald-500" />
             </div>
-            <div className="text-2xl font-black text-[#1D1D1F] font-mono">{stats.activeBookings || 0}</div>
+            <div className="text-2xl font-black text-mac-text font-mono">{stats.activeBookings || 0}</div>
             <div className="text-[11px] text-emerald-600 font-medium mt-0.5">
               {stats.todayBookings || 0} remaining today
             </div>
@@ -168,7 +168,7 @@ export default function HODDashboard({ user }) {
               <span className="text-xs font-semibold uppercase tracking-wider">Timetable Slots</span>
               <Calendar className="w-4 h-4 text-amber-500" />
             </div>
-            <div className="text-2xl font-black text-[#1D1D1F] font-mono">{stats.totalTimetable || 0}</div>
+            <div className="text-2xl font-black text-mac-text font-mono">{stats.totalTimetable || 0}</div>
             <div className="text-[11px] text-slate-400 mt-0.5">Weekly semester classes</div>
           </div>
         </div>

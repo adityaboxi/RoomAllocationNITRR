@@ -83,7 +83,7 @@ const roomMatchesSearchQuery = (room, query) => {
 
   const searchableCorpus = [
     room.name || '',
-    room.roomNumber || '',
+    
     room.building || '',
     room.floor || '',
     room.type || '',
@@ -397,7 +397,7 @@ export default function RoomDashboard({ user }) {
       if (sortBy === 'NAME_ASC') {
         return (a.name || '').localeCompare(b.name || '');
       }
-      return (a.floor || '').localeCompare(b.floor || '') || (a.roomNumber || '').localeCompare(b.roomNumber || '');
+      return (a.floor || '').localeCompare(b.floor || '') ;
     });
 
   const totalRoomsCount = rooms.length;
@@ -408,7 +408,7 @@ export default function RoomDashboard({ user }) {
     <div className="space-y-6 font-sans">
       {/* Live Holiday Notice Banner */}
       {isHoliday && (
-        <div className="px-5 py-3 bg-white border border-[#E5E5EA] rounded-lg flex items-center gap-3 text-amber-900 shadow-sm animate-fadeIn">
+        <div className="px-5 py-3 bg-white border border-mac-border rounded-lg flex items-center gap-3 text-amber-900 shadow-sm animate-fadeIn">
           <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center text-amber-700 flex-shrink-0">
             <Palmtree className="w-5 h-5" />
           </div>
@@ -426,11 +426,11 @@ export default function RoomDashboard({ user }) {
         {/* Top Title & Status Filter Tabs */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-[#F5F5F7] text-[#007AFF] flex items-center justify-center">
+            <div className="w-10 h-10 rounded-lg bg-mac-bg text-mac-blue flex items-center justify-center">
               <Building2 className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-[#1D1D1F] leading-tight">
+              <h2 className="text-base font-bold text-mac-text leading-tight">
                 Live Room Status & Search
               </h2>
               
@@ -445,8 +445,8 @@ export default function RoomDashboard({ user }) {
                 onClick={() => setStatusFilter('ALL')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                   statusFilter === 'ALL'
-                    ? 'bg-white text-[#1D1D1F] shadow-sm'
-                    : 'text-slate-600 hover:text-[#1D1D1F]'
+                    ? 'bg-white text-mac-text shadow-sm'
+                    : 'text-slate-600 hover:text-mac-text'
                 }`}
               >
                 All ({totalRoomsCount})
@@ -504,7 +504,7 @@ export default function RoomDashboard({ user }) {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search by room name, #, building, floor, or amenity..."
-              className="w-full pl-10 pr-8 py-2 bg-slate-50/50 border border-slate-200 rounded-lg text-xs sm:text-sm outline-none focus:bg-white focus:ring-2 focus:ring-[#007AFF] transition-all placeholder:text-slate-400"
+              className="w-full pl-10 pr-8 py-2 bg-slate-50/50 border border-slate-200 rounded-lg text-xs sm:text-sm outline-none focus:bg-white focus:ring-2 focus:ring-mac-blue transition-all placeholder:text-slate-400"
             />
             {searchTerm && (
               <button
@@ -521,7 +521,7 @@ export default function RoomDashboard({ user }) {
             <select
               value={selectedFloor}
               onChange={(e) => setSelectedFloor(e.target.value)}
-              className="w-full border border-slate-200 bg-slate-50/50 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-[#007AFF] transition-all"
+              className="w-full border border-slate-200 bg-slate-50/50 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-mac-blue transition-all"
             >
               {floors.map((fl) => (
                 <option key={fl} value={fl}>
@@ -535,7 +535,7 @@ export default function RoomDashboard({ user }) {
             <select
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
-              className="w-full border border-slate-200 bg-slate-50/50 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-[#007AFF] transition-all"
+              className="w-full border border-slate-200 bg-slate-50/50 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-mac-blue transition-all"
             >
               {roomTypes.map((t) => (
                 <option key={t} value={t}>
@@ -549,7 +549,7 @@ export default function RoomDashboard({ user }) {
             <select
               value={minCapacity}
               onChange={(e) => setMinCapacity(e.target.value)}
-              className="w-full border border-slate-200 bg-slate-50/50 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-[#007AFF] transition-all"
+              className="w-full border border-slate-200 bg-slate-50/50 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-mac-blue transition-all"
             >
               <option value="ALL">Any Capacity</option>
               <option value="30">30+ Seats</option>
@@ -563,7 +563,7 @@ export default function RoomDashboard({ user }) {
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
-                className="w-full border border-slate-200 bg-slate-50/50 rounded-lg pl-3 pr-7 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-[#007AFF] transition-all appearance-none"
+                className="w-full border border-slate-200 bg-slate-50/50 rounded-lg pl-3 pr-7 py-2 text-xs font-semibold text-slate-700 outline-none focus:bg-white focus:ring-2 focus:ring-mac-blue transition-all appearance-none"
               >
                 <option value="DEFAULT">Sort: Default</option>
                 <option value="CAPACITY_DESC">Capacity (High to Low)</option>
@@ -586,7 +586,7 @@ export default function RoomDashboard({ user }) {
             onClick={() => setFilterProjector(!filterProjector)}
             className={`px-3 py-1 text-xs font-bold rounded-lg border transition-all ${
               filterProjector
-                ? 'bg-[#007AFF] text-white border-indigo-600 shadow-sm'
+                ? 'bg-mac-blue text-white border-indigo-600 shadow-sm'
                 : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
             }`}
           >
@@ -598,7 +598,7 @@ export default function RoomDashboard({ user }) {
             onClick={() => setFilterAC(!filterAC)}
             className={`px-3 py-1 text-xs font-bold rounded-lg border transition-all ${
               filterAC
-                ? 'bg-[#007AFF] text-white border-indigo-600 shadow-sm'
+                ? 'bg-mac-blue text-white border-indigo-600 shadow-sm'
                 : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
             }`}
           >
@@ -610,7 +610,7 @@ export default function RoomDashboard({ user }) {
             onClick={() => setFilterSmartBoard(!filterSmartBoard)}
             className={`px-3 py-1 text-xs font-bold rounded-lg border transition-all ${
               filterSmartBoard
-                ? 'bg-[#007AFF] text-white border-indigo-600 shadow-sm'
+                ? 'bg-mac-blue text-white border-indigo-600 shadow-sm'
                 : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
             }`}
           >
@@ -622,7 +622,7 @@ export default function RoomDashboard({ user }) {
             onClick={() => setFilterWiFi(!filterWiFi)}
             className={`px-3 py-1 text-xs font-bold rounded-lg border transition-all ${
               filterWiFi
-                ? 'bg-[#007AFF] text-white border-indigo-600 shadow-sm'
+                ? 'bg-mac-blue text-white border-indigo-600 shadow-sm'
                 : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
             }`}
           >
@@ -640,14 +640,14 @@ export default function RoomDashboard({ user }) {
             </button>
           )}
 
-          <div className="ml-auto text-xs text-[#86868B] font-medium">
+          <div className="ml-auto text-xs text-mac-subtext font-medium">
             Showing <strong className="text-slate-800">{filteredRooms.length}</strong> of {totalRoomsCount} rooms
           </div>
         </div>
       </div>
 
       {error && (
-        <div className="px-5 py-3 bg-white border border-[#E5E5EA] rounded-lg flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
+        <div className="px-5 py-3 bg-white border border-mac-border rounded-lg flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
           <AlertCircle className="w-5 h-5 mr-2.5 text-rose-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1 whitespace-pre-line">{error}</div>
           <button type="button" onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
@@ -659,7 +659,7 @@ export default function RoomDashboard({ user }) {
       {/* Room Status Cards Grid */}
       {loading && rooms.length === 0 ? (
         <div className="p-16 text-center text-slate-400 text-sm flex items-center justify-center gap-2">
-          <Loader2 className="w-5 h-5 animate-spin text-[#007AFF]" />
+          <Loader2 className="w-5 h-5 animate-spin text-mac-blue" />
           <span>Loading live room availability...</span>
         </div>
       ) : filteredRooms.length === 0 ? (
@@ -671,7 +671,7 @@ export default function RoomDashboard({ user }) {
             <button
               type="button"
               onClick={handleResetFilters}
-              className="mt-4 px-5 py-3 bg-[#F5F5F7] text-[#007AFF] rounded-lg text-xs font-bold hover:bg-indigo-100 transition-colors inline-block"
+              className="mt-4 px-5 py-3 bg-mac-bg text-mac-blue rounded-lg text-xs font-bold hover:bg-indigo-100 transition-colors inline-block"
             >
               Reset All Filters
             </button>
@@ -704,7 +704,7 @@ export default function RoomDashboard({ user }) {
                 key={roomId}
                 className={`bg-white border rounded-lg px-8 py-5 shadow-sm flex flex-col justify-between transition-all duration-200 ${
                   isMyOngoingClass
-                    ? 'border-indigo-500 ring-2 ring-indigo-200 shadow-md bg-[#F5F5F7]/20'
+                    ? 'border-indigo-500 ring-2 ring-indigo-200 shadow-md bg-mac-bg/20'
                     : available
                     ? 'border-slate-200 hover:border-indigo-300 hover:shadow-md'
                     : 'border-slate-200/70 bg-slate-50/50'
@@ -713,11 +713,11 @@ export default function RoomDashboard({ user }) {
                 <div>
                   <div className="flex justify-between items-start mb-2">
                     <div>
-                      <h3 className="font-bold text-base text-[#1D1D1F] leading-tight">
+                      <h3 className="font-bold text-base text-mac-text leading-tight">
                         {room.name}
                       </h3>
-                      <div className="text-xs font-mono text-[#86868B] mt-0.5">
-                        {room.roomNumber} {room.type ? `• ${room.type}` : ''}
+                      <div className="text-xs font-mono text-mac-subtext mt-0.5">
+                        {room.type ? `• ${room.type}` : ''}
                       </div>
                     </div>
 
@@ -732,7 +732,7 @@ export default function RoomDashboard({ user }) {
                         <span>Free Now</span>
                       </span>
                     ) : isMyOngoingClass ? (
-                      <span className="px-3 py-1 text-xs font-extrabold rounded-full bg-[#007AFF] text-white shadow-sm flex items-center gap-1.5 animate-pulse">
+                      <span className="px-3 py-1 text-xs font-extrabold rounded-full bg-mac-blue text-white shadow-sm flex items-center gap-1.5 animate-pulse">
                         <GraduationCap className="w-3.5 h-3.5" />
                         <span>In Class</span>
                       </span>
@@ -749,7 +749,7 @@ export default function RoomDashboard({ user }) {
                     <div
                       className={`mt-2 p-2.5 rounded-lg text-xs font-medium border ${
                         isMyOngoingClass
-                          ? 'bg-[#F5F5F7] border-indigo-100 text-indigo-900'
+                          ? 'bg-mac-bg border-indigo-100 text-indigo-900'
                           : 'bg-rose-50 border-rose-100 text-rose-900'
                       }`}
                     >
@@ -813,7 +813,7 @@ export default function RoomDashboard({ user }) {
                   <button
                     type="button"
                     onClick={() => handleViewReviews(room)}
-                    className="text-xs font-semibold text-[#007AFF] hover:text-indigo-800"
+                    className="text-xs font-semibold text-mac-blue hover:text-indigo-800"
                   >
                     {reviewCount > 0 ? `(${reviewCount} reviews)` : 'Reviews'}
                   </button>

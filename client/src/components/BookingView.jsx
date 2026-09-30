@@ -240,6 +240,7 @@ export default function BookingView({ user }) {
 
   const [departments, setDepartments] = useState(FALLBACK_DEPARTMENTS);
   const [selectedBranch, setSelectedBranch] = useState('ALL');
+  const [selectedRoomName, setSelectedRoomName] = useState('ALL');
   const [selectedFloor, setSelectedFloor] = useState('ALL');
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -256,6 +257,21 @@ export default function BookingView({ user }) {
   const [rooms, setRooms] = useState([]);
   const [availableRoomIds, setAvailableRoomIds] = useState([]);
   const [occupancyMap, setOccupancyMap] = useState({});
+
+  
+  const availableRoomNames = useMemo(() => {
+    let filtered = rooms || [];
+    if (selectedBranch !== 'ALL') {
+      filtered = filtered.filter(r => r.department === selectedBranch);
+    }
+    return [...new Set(filtered.map(r => r.name))].filter(Boolean).sort((a, b) => a.localeCompare(b));
+  }, [rooms, selectedBranch]);
+
+  useEffect(() => {
+    if (selectedRoomName !== 'ALL' && !availableRoomNames.includes(selectedRoomName)) {
+      setSelectedRoomName('ALL');
+    }
+  }, [availableRoomNames, selectedRoomName]);
 
   const floorOptions = useMemo(() => {
     const standard = ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'];
@@ -784,6 +800,7 @@ export default function BookingView({ user }) {
 
   const resetFilters = () => {
     setSelectedBranch('ALL');
+    setSelectedRoomName('ALL');
     setSelectedFloor('ALL');
     setStatusFilter('ALL');
     setSearchTerm('');
@@ -801,6 +818,12 @@ export default function BookingView({ user }) {
     return rooms.filter((room) => {
       // 1. Department Filter
       if (selectedBranch !== 'ALL' && room.department !== selectedBranch) {
+        return false;
+      }
+
+
+      // 1.5. Room Name Filter
+      if (selectedRoomName !== 'ALL' && room.name !== selectedRoomName) {
         return false;
       }
 
@@ -856,7 +879,7 @@ export default function BookingView({ user }) {
 
         const corpus = [
           room.name || '',
-          room.roomNumber || '',
+          
           room.building || '',
           room.floor ? `floor ${normalizeFloor(room.floor)}` : '',
           room.type || '',
@@ -876,6 +899,7 @@ export default function BookingView({ user }) {
   }, [
     rooms,
     selectedBranch,
+    selectedRoomName,
     selectedFloor,
     selectedType,
     minCapacity,
@@ -920,6 +944,7 @@ export default function BookingView({ user }) {
 
   const hasActiveFilters =
     selectedBranch !== 'ALL' ||
+    selectedRoomName !== 'ALL' ||
     selectedFloor !== 'ALL' ||
     statusFilter !== 'ALL' ||
     searchTerm.trim() !== '' ||
@@ -935,7 +960,7 @@ export default function BookingView({ user }) {
     <div className="space-y-6 font-sans">
       {/* Alert Notices */}
       {error && (
-        <div className="px-5 py-3 bg-white border border-[#E5E5EA] rounded-lg flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
+        <div className="px-5 py-3 bg-white border border-mac-border rounded-lg flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
           <AlertCircle className="w-5 h-5 mr-2.5 text-rose-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1 whitespace-pre-line font-medium">{error}</div>
           <button type="button" onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
@@ -945,7 +970,7 @@ export default function BookingView({ user }) {
       )}
 
       {success && (
-        <div className="px-5 py-3 bg-white border border-[#E5E5EA] rounded-lg flex items-start text-emerald-800 text-sm font-medium animate-fadeIn">
+        <div className="px-5 py-3 bg-white border border-mac-border rounded-lg flex items-start text-emerald-800 text-sm font-medium animate-fadeIn">
           <CheckCircle2 className="w-5 h-5 mr-2.5 text-emerald-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1 font-medium">{success}</div>
           <button type="button" onClick={() => setSuccess('')} className="text-emerald-500 hover:text-emerald-700">
@@ -957,22 +982,22 @@ export default function BookingView({ user }) {
       {/* 1. Date, Time & Branch Slot Selector */}
       <div className="bg-white border border-slate-200 rounded-lg px-8 py-5 shadow-sm">
         <div className="flex items-center gap-2 pb-3 mb-4 border-b border-slate-100">
-          <Clock className="w-4 h-4 text-[#007AFF]" />
+          <Clock className="w-4 h-4 text-mac-blue" />
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
             Reservation Slot
           </h3>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-4">
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1">
-              <Filter className="w-3.5 h-3.5 text-[#007AFF]" />
+              <Filter className="w-3.5 h-3.5 text-mac-blue" />
               Department
             </label>
             <select
               value={selectedBranch}
               onChange={(e) => setSelectedBranch(e.target.value)}
-              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
+              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-mac-blue/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
             >
               <option value="ALL">All Departments</option>
               {departments.map((dept) => (
@@ -983,12 +1008,28 @@ export default function BookingView({ user }) {
             </select>
           </div>
 
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Room Name</label>
+            <select
+              value={selectedRoomName}
+              onChange={(e) => setSelectedRoomName(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-mac-blue/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
+            >
+              <option value="ALL">All Rooms</option>
+              {availableRoomNames.map((rn) => (
+                <option key={rn} value={rn}>
+                  {rn}
+                </option>
+              ))}
+            </select>
+          </div>
           <div>
             <label className="block text-[11px] font-semibold text-slate-600 mb-1">Floor</label>
             <select
               value={selectedFloor}
               onChange={(e) => setSelectedFloor(e.target.value)}
-              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
+              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-mac-blue/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
             >
               <option value="ALL">All Floors</option>
               {floorOptions.map((fl) => (
@@ -1008,7 +1049,7 @@ export default function BookingView({ user }) {
               max={maxDateStr}
               value={bookingData.date}
               onChange={handleBookingInput}
-              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
+              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-mac-blue/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
             />
           </div>
 
@@ -1018,7 +1059,7 @@ export default function BookingView({ user }) {
               name="startTime"
               value={bookingData.startTime}
               onChange={handleBookingInput}
-              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
+              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-mac-blue/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
             >
               {getAvailableStartSlots(bookingData.date).map((t) => (
                 <option key={'start-' + t} value={t}>
@@ -1034,7 +1075,7 @@ export default function BookingView({ user }) {
               name="endTime"
               value={bookingData.endTime}
               onChange={handleBookingInput}
-              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
+              className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-mac-blue/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
             >
               {getAvailableEndSlots(bookingData.startTime, bookingData.date).map((t) => (
                 <option key={'end-' + t} value={t}>
@@ -1049,7 +1090,7 @@ export default function BookingView({ user }) {
         <div className="mt-3 pt-3 border-t border-slate-100">
           <div className="flex items-center justify-between mb-2 flex-wrap gap-1.5">
             <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
-              <BookOpen className="w-3.5 h-3.5 text-[#007AFF]" />
+              <BookOpen className="w-3.5 h-3.5 text-mac-blue" />
               NIT Raipur Timetable Slots (08:10 - 18:20)
             </span>
             <span className="text-[11px] text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
@@ -1080,7 +1121,7 @@ export default function BookingView({ user }) {
                     }}
                     className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex flex-col items-center flex-shrink-0 ${
                       isSelected
-                        ? 'bg-[#007AFF] text-white shadow-sm ring-2 ring-[#007AFF]/30'
+                        ? 'bg-mac-blue text-white shadow-sm ring-2 ring-mac-blue/30'
                         : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
                     }`}
                     title={`${p.label}`}
@@ -1097,7 +1138,7 @@ export default function BookingView({ user }) {
 
       {/* Holiday Alert */}
       {isHolidayDate && (
-        <div className="p-3.5 bg-white border border-[#E5E5EA] rounded-lg flex items-center gap-3 text-amber-900">
+        <div className="p-3.5 bg-white border border-mac-border rounded-lg flex items-center gap-3 text-amber-900">
           <Palmtree className="w-5 h-5 text-amber-600 flex-shrink-0" />
           <div className="text-xs">
             <span className="font-bold">{bookingData.date} is a Holiday:</span> {holidayDateTitle}. Booking unavailable.
@@ -1109,7 +1150,7 @@ export default function BookingView({ user }) {
       <div className="bg-white border border-slate-200 rounded-lg px-8 py-5 shadow-sm space-y-3.5">
         <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 flex-wrap gap-2">
           <div className="flex items-center gap-2">
-            <Building2 className="w-4 h-4 text-[#007AFF]" />
+            <Building2 className="w-4 h-4 text-mac-blue" />
             <h2 className="text-xs font-bold uppercase tracking-wider text-slate-800">
               Filters & Room Search
             </h2>
@@ -1122,8 +1163,8 @@ export default function BookingView({ user }) {
               onClick={() => setStatusFilter('ALL')}
               className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
                 statusFilter === 'ALL'
-                  ? 'bg-[#007AFF] text-white shadow-sm'
-                  : 'text-slate-600 hover:text-[#1D1D1F]'
+                  ? 'bg-mac-blue text-white shadow-sm'
+                  : 'text-slate-600 hover:text-mac-text'
               }`}
             >
               All ({baseFilteredRooms.length})
@@ -1164,7 +1205,7 @@ export default function BookingView({ user }) {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search room or building..."
-              className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-[#1D1D1F]"
+              className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-mac-blue/50/20 focus:border-indigo-500 outline-none text-mac-text"
             />
           </div>
 
@@ -1172,7 +1213,7 @@ export default function BookingView({ user }) {
             <select
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
+              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-mac-blue/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
             >
               <option value="ALL">All Types</option>
               {STANDARD_ROOM_TYPES.filter((t) => t !== 'ALL').map((type) => (
@@ -1187,7 +1228,7 @@ export default function BookingView({ user }) {
             <select
               value={minCapacity}
               onChange={(e) => setMinCapacity(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
+              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-mac-blue/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
             >
               <option value="ALL">Any Capacity</option>
               <option value="30">30+ Seats</option>
@@ -1201,7 +1242,7 @@ export default function BookingView({ user }) {
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
+              className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-mac-blue/50/20 focus:border-indigo-500 outline-none text-slate-800 font-medium"
             >
               <option value="DEFAULT">Sort: Default</option>
               <option value="NAME_ASC">Name (A-Z)</option>
@@ -1215,8 +1256,8 @@ export default function BookingView({ user }) {
               title="Reset all filters"
               className={`p-1.5 border rounded-lg transition-colors flex items-center justify-center ${
                 hasActiveFilters
-                  ? 'border-indigo-300 bg-[#F5F5F7] text-[#0055B3] hover:bg-indigo-100 shadow-sm'
-                  : 'border-slate-200 text-[#86868B] hover:text-slate-800 hover:bg-slate-100'
+                  ? 'border-indigo-300 bg-mac-bg text-mac-blue-dark hover:bg-indigo-100 shadow-sm'
+                  : 'border-slate-200 text-mac-subtext hover:text-slate-800 hover:bg-slate-100'
               }`}
             >
               <RotateCcw className="w-3.5 h-3.5" />
@@ -1226,7 +1267,7 @@ export default function BookingView({ user }) {
 
         {/* Amenity Badges */}
         <div className="flex items-center gap-1.5 flex-wrap pt-1">
-          <span className="text-[11px] font-semibold text-[#86868B] mr-1">Amenities:</span>
+          <span className="text-[11px] font-semibold text-mac-subtext mr-1">Amenities:</span>
           {[
             { label: 'Projector', state: filterProjector, toggle: setFilterProjector },
             { label: 'AC', state: filterAC, toggle: setFilterAC },
@@ -1239,7 +1280,7 @@ export default function BookingView({ user }) {
               onClick={() => toggle((p) => !p)}
               className={`px-2.5 py-1 rounded-md text-xs font-semibold border transition-all ${
                 state
-                  ? 'bg-[#F5F5F7] text-[#0055B3] border-slate-200'
+                  ? 'bg-mac-bg text-mac-blue-dark border-slate-200'
                   : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
               }`}
             >
@@ -1255,24 +1296,24 @@ export default function BookingView({ user }) {
           <h2 className="text-sm font-bold text-slate-800">
             Available Classrooms ({filteredRooms.length})
           </h2>
-          <span className="text-[11px] font-medium text-[#86868B]">
+          <span className="text-[11px] font-medium text-mac-subtext">
             {bookingData.date} • {bookingData.startTime} - {bookingData.endTime}
           </span>
         </div>
 
         {initialLoading ? (
-          <div className="p-12 text-center text-[#86868B] text-xs flex items-center justify-center gap-2">
-            <Loader2 className="w-4 h-4 animate-spin text-[#007AFF]" />
+          <div className="p-12 text-center text-mac-subtext text-xs flex items-center justify-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin text-mac-blue" />
             <span>Loading rooms...</span>
           </div>
         ) : filteredRooms.length === 0 ? (
-          <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-[#86868B]">
+          <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-mac-subtext">
             <Building2 className="w-10 h-10 text-slate-300 mx-auto mb-2.5" />
             <p className="text-xs font-semibold">No classrooms match criteria.</p>
             <button
               type="button"
               onClick={resetFilters}
-              className="mt-2 text-xs font-bold text-[#007AFF] hover:underline"
+              className="mt-2 text-xs font-bold text-mac-blue hover:underline"
             >
               Reset Filters
             </button>
@@ -1305,11 +1346,11 @@ export default function BookingView({ user }) {
                   <div>
                     <div className="flex justify-between items-start mb-2">
                       <div>
-                        <h3 className="font-bold text-sm text-[#1D1D1F] leading-tight">
+                        <h3 className="font-bold text-sm text-mac-text leading-tight">
                           {room.name}
                         </h3>
-                        <div className="text-[11px] font-mono text-[#86868B] mt-0.5">
-                          #{room.roomNumber} {room.department ? `• ${room.department}` : ''}
+                        <div className="text-[11px] font-mono text-mac-subtext mt-0.5">
+                           {room.department ? `• ${room.department}` : ''}
                         </div>
                       </div>
 
@@ -1405,7 +1446,7 @@ export default function BookingView({ user }) {
                           </div>
                         )}
 
-                        <div className="text-[10px] text-[#86868B] flex items-center justify-between pt-0.5">
+                        <div className="text-[10px] text-mac-subtext flex items-center justify-between pt-0.5">
                           <span>
                             {occupancyInfo?.facultyName
                               ? `Prof. ${occupancyInfo.facultyName}`
@@ -1432,7 +1473,7 @@ export default function BookingView({ user }) {
                       <button
                         type="button"
                         onClick={() => handleViewReviews(room)}
-                        className="text-xs font-medium text-[#007AFF] hover:text-indigo-800"
+                        className="text-xs font-medium text-mac-blue hover:text-indigo-800"
                       >
                         {roomReviews.length > 0 ? `${roomReviews.length} reviews` : 'Reviews'}
                       </button>
@@ -1444,7 +1485,7 @@ export default function BookingView({ user }) {
                       <button
                         type="button"
                         onClick={() => handleSelectRoom(room)}
-                        className="w-full bg-[#007AFF] text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-[#0066CC] transition-colors shadow-sm shadow-indigo-100 flex items-center justify-center gap-1.5"
+                        className="w-full bg-mac-blue text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-mac-blue-hover transition-colors shadow-sm shadow-indigo-100 flex items-center justify-center gap-1.5"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" />
                         <span>Reserve Slot</span>
@@ -1472,12 +1513,12 @@ export default function BookingView({ user }) {
         <div className="bg-white border-2 border-indigo-600 rounded-lg px-8 py-5 shadow-md">
           <div className="flex items-center justify-between pb-2.5 mb-3.5 border-b border-slate-100">
             <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-[#007AFF]" />
+              <Sparkles className="w-4 h-4 text-mac-blue" />
               <div>
-                <h3 className="text-sm font-bold text-[#1D1D1F]">
+                <h3 className="text-sm font-bold text-mac-text">
                   Confirm Reservation: {selectedRoom.name}
                 </h3>
-                <p className="text-[11px] text-[#86868B]">
+                <p className="text-[11px] text-mac-subtext">
                   {selectedRoom.department} • {bookingData.date} • {bookingData.startTime} - {bookingData.endTime}
                 </p>
               </div>
@@ -1502,7 +1543,7 @@ export default function BookingView({ user }) {
                 value={bookingData.purpose}
                 onChange={handleBookingInput}
                 placeholder="Lecture, Seminar, Project..."
-                className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-[#1D1D1F]"
+                className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-mac-blue/50/20 focus:border-indigo-500 outline-none text-mac-text"
                 required
               />
             </div>
@@ -1517,7 +1558,7 @@ export default function BookingView({ user }) {
                 value={bookingData.comment}
                 onChange={handleBookingInput}
                 placeholder="Optional notes or requirements"
-                className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-[#007AFF]/50/20 focus:border-indigo-500 outline-none text-[#1D1D1F]"
+                className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-mac-blue/50/20 focus:border-indigo-500 outline-none text-mac-text"
               />
             </div>
           </div>
@@ -1534,7 +1575,7 @@ export default function BookingView({ user }) {
               type="button"
               onClick={handleConfirmBooking}
               disabled={loading}
-              className="bg-[#007AFF] text-white px-5 py-1.5 rounded-lg text-xs font-bold hover:bg-[#0066CC] shadow-sm transition-all disabled:opacity-50 flex items-center gap-1.5"
+              className="bg-mac-blue text-white px-5 py-1.5 rounded-lg text-xs font-bold hover:bg-mac-blue-hover shadow-sm transition-all disabled:opacity-50 flex items-center gap-1.5"
             >
               {loading ? (
                 <>
@@ -1556,7 +1597,7 @@ export default function BookingView({ user }) {
       <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-[#007AFF]" />
+            <Calendar className="w-4 h-4 text-mac-blue" />
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
               My Bookings ({myBookings.length})
             </h3>
@@ -1599,15 +1640,15 @@ export default function BookingView({ user }) {
                   return (
                     <tr key={bookingId} className="hover:bg-slate-50/70 transition-colors">
                       <td className="px-4 py-3">
-                        <div className="font-bold text-[#1D1D1F]">{b.roomId?.name || 'Room'}</div>
-                        <div className="text-[11px] text-[#86868B] font-mono">
-                          {b.roomId?.roomNumber || ''}
+                        <div className="font-bold text-mac-text">{b.roomId?.name || 'Room'}</div>
+                        <div className="text-[11px] text-mac-subtext font-mono">
+                          
                         </div>
                       </td>
 
                       <td className="px-4 py-3 text-slate-700">
                         <div className="font-medium">{b.date}</div>
-                        <div className="text-[11px] text-[#86868B] font-mono">
+                        <div className="text-[11px] text-mac-subtext font-mono">
                           {b.startTime} - {b.endTime}
                         </div>
                       </td>
@@ -1615,7 +1656,7 @@ export default function BookingView({ user }) {
                       <td className="px-4 py-3 text-slate-700">
                         <div className="font-medium">{b.purpose}</div>
                         {b.comment && b.comment !== 'No comment provided' && (
-                          <div className="text-[11px] text-[#86868B] italic mt-0.5">{b.comment}</div>
+                          <div className="text-[11px] text-mac-subtext italic mt-0.5">{b.comment}</div>
                         )}
                       </td>
 

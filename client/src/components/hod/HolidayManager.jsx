@@ -30,17 +30,17 @@ const getTodayDateString = () => {
 };
 
 export default function HolidayManager({ user }) {
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
   const todayStr = getTodayDateString();
   const [holidays, setHolidays] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
-  const [editingHoliday, setEditingHoliday] = useState(null);
-
+  
   const initialFormState = {
     title: '',
     date: todayStr,
-    type: 'NATIONAL', // 'NATIONAL' | 'EMERGENCY'
+    type: isAdmin ? 'NATIONAL' : 'EMERGENCY', // 'NATIONAL' | 'EMERGENCY'
     description: '',
   };
 
@@ -90,24 +90,7 @@ export default function HolidayManager({ user }) {
     setSuccess('');
   };
 
-  const handleEditClick = (holiday) => {
-    setEditingHoliday(holiday);
-    setFormData({
-      title: holiday.title || '',
-      date: holiday.date || todayStr,
-      type: holiday.type || 'NATIONAL',
-      description: holiday.description || '',
-    });
-    setError('');
-    setSuccess('');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
 
-  const handleCancelEdit = () => {
-    setEditingHoliday(null);
-    setFormData(initialFormState);
-    setError('');
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -154,18 +137,10 @@ export default function HolidayManager({ user }) {
           (formData.type === 'NATIONAL' ? 'National / Annual Holiday' : 'Emergency / Local Holiday'),
       };
 
-      if (editingHoliday) {
-        const id = editingHoliday.id || editingHoliday._id;
-        const res = await updateHoliday(id, payload);
-        console.log(`✅ [HOLIDAY] Holiday "${formData.title}" updated`);
-        setSuccess(res.message || `Holiday "${formData.title}" updated successfully!`);
-      } else {
-        const res = await createHoliday(payload);
-        console.log(`✅ [HOLIDAY] Holiday "${formData.title}" declared`);
-        setSuccess(res.message || `Holiday "${formData.title}" declared successfully!`);
-      }
-
-      handleCancelEdit();
+      const res = await createHoliday(payload);
+      console.log(`✅ [HOLIDAY] Holiday "${formData.title}" declared`);
+      setSuccess(res.message || `Holiday "${formData.title}" declared successfully!`);
+      setFormData({ title: '', date: '', type: isAdmin ? 'NATIONAL' : 'EMERGENCY', description: '' });
       await fetchHolidaysList();
     } catch (err) {
       const errMsg = extractErrorMessage(err, 'Failed to save holiday details.');
@@ -193,9 +168,7 @@ export default function HolidayManager({ user }) {
       await deleteHoliday(holidayId);
       console.log(`✅ [HOLIDAY] Holiday "${holiday.title}" revoked successfully`);
       setSuccess(`Holiday "${holiday.title}" removed successfully.`);
-      if (editingHoliday && (editingHoliday.id === holidayId || editingHoliday._id === holidayId)) {
-        handleCancelEdit();
-      }
+
       await fetchHolidaysList();
     } catch (err) {
       const errMsg = extractErrorMessage(err, 'Failed to remove holiday.');
@@ -209,7 +182,7 @@ export default function HolidayManager({ user }) {
   return (
     <div className="space-y-6 font-sans">
       {error && (
-        <div className="px-5 py-3 bg-white border border-[#E5E5EA] rounded-lg flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
+        <div className="px-5 py-3 bg-white border border-mac-border rounded-lg flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
           <AlertCircle className="w-5 h-5 mr-2.5 text-rose-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1 whitespace-pre-line">{error}</div>
           <button type="button" onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
@@ -219,7 +192,7 @@ export default function HolidayManager({ user }) {
       )}
 
       {success && (
-        <div className="px-5 py-3 bg-white border border-[#E5E5EA] rounded-lg flex items-start text-emerald-800 text-sm font-medium animate-fadeIn">
+        <div className="px-5 py-3 bg-white border border-mac-border rounded-lg flex items-start text-emerald-800 text-sm font-medium animate-fadeIn">
           <CheckCircle2 className="w-5 h-5 mr-2.5 text-emerald-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1">{success}</div>
           <button type="button" onClick={() => setSuccess('')} className="text-emerald-500 hover:text-emerald-700">
@@ -233,66 +206,37 @@ export default function HolidayManager({ user }) {
         <div className="lg:col-span-4 bg-white border border-slate-200 rounded-lg px-8 py-5 shadow-sm">
           <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-[#F5F5F7] text-[#007AFF] flex items-center justify-center">
-                {editingHoliday ? <Edit2 className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+              <div className="w-8 h-8 rounded-lg bg-mac-bg text-mac-blue flex items-center justify-center">
+                <Plus className="w-4 h-4" />
               </div>
-              <h3 className="text-base font-bold text-[#1D1D1F]">
-                {editingHoliday ? 'Edit Holiday' : 'Declare Holiday / Closure'}
+              <h3 className="text-base font-bold text-mac-text">
+                'Declare Holiday / Closure'
               </h3>
             </div>
-            {editingHoliday && (
-              <button
-                type="button"
-                onClick={handleCancelEdit}
-                className="text-xs text-[#86868B] hover:text-slate-700 font-semibold"
-              >
-                Cancel
-              </button>
-            )}
+            
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Holiday Type Selector (National vs Emergency) */}
+            {/* Fixed Holiday Type based on Role */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                 Holiday Category *
               </label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setFormData((p) => ({ ...p, type: 'NATIONAL' }))}
-                  className={`p-2.5 rounded-lg border text-left flex flex-col justify-between transition-all ${
-                    formData.type === 'NATIONAL'
-                      ? 'border-indigo-600 bg-[#F5F5F7]/70 text-indigo-950 shadow-sm ring-2 ring-[#007AFF]/50/20'
-                      : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 text-xs font-bold">
-                    <Landmark className="w-3.5 h-3.5 text-[#007AFF]" />
-                    <span>National / Fixed</span>
+              <div className="p-3 rounded-lg border border-slate-200 bg-slate-50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                {isAdmin ? (
+                  <div className="flex items-center gap-2 text-xs font-bold text-indigo-950">
+                    <Landmark className="w-4 h-4 text-mac-blue" />
+                    <span>National / Fixed (Global College-Wide)</span>
                   </div>
-                  <span className="text-[10px] text-[#86868B] mt-1">
-                    Repeats annually (Never pruned)
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setFormData((p) => ({ ...p, type: 'EMERGENCY' }))}
-                  className={`p-2.5 rounded-lg border text-left flex flex-col justify-between transition-all ${
-                    formData.type === 'EMERGENCY'
-                      ? 'border-amber-600 bg-amber-50/70 text-amber-950 shadow-sm ring-2 ring-amber-500/20'
-                      : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 text-xs font-bold">
-                    <Zap className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Emergency / Local</span>
+                ) : (
+                  <div className="flex items-center gap-2 text-xs font-bold text-rose-950">
+                    <Zap className="w-4 h-4 text-rose-600" />
+                    <span>Emergency / Local (Department-Wise)</span>
                   </div>
-                  <span className="text-[10px] text-[#86868B] mt-1">
-                    One-time date (Pruned in 90d)
-                  </span>
-                </button>
+                )}
+                <span className="text-[10px] text-mac-subtext font-medium px-2 py-1 bg-white border border-slate-200 rounded">
+                  {isAdmin ? 'Locks all rooms across the institution' : 'Locks all rooms in your department'}
+                </span>
               </div>
             </div>
 
@@ -310,7 +254,7 @@ export default function HolidayManager({ user }) {
                     ? 'e.g. Independence Day, Republic Day'
                     : 'e.g. Weather Alert, Campus Maintenance'
                 }
-                className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
+                className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-mac-blue outline-none transition-all"
                 required
               />
             </div>
@@ -323,7 +267,7 @@ export default function HolidayManager({ user }) {
                 min={todayStr}
                 value={formData.date}
                 onChange={handleChange}
-                className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
+                className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-mac-blue outline-none transition-all"
                 required
               />
             </div>
@@ -338,18 +282,18 @@ export default function HolidayManager({ user }) {
                 onChange={handleChange}
                 rows={2}
                 placeholder="e.g. All lectures and lab sessions suspended"
-                className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all resize-none"
+                className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-mac-blue outline-none transition-all resize-none"
               />
             </div>
 
-            <div className="p-3 bg-white border border-[#E5E5EA] rounded-lg text-[11px] text-amber-800 leading-relaxed">
+            <div className="p-3 bg-white border border-mac-border rounded-lg text-[11px] text-amber-800 leading-relaxed">
               <strong>Impact:</strong> Declaring or updating this holiday will mark all rooms in {user?.department} as closed and automatically cancel conflicting bookings with email notices.
             </div>
 
             <button
               type="submit"
               disabled={submitting}
-              className="w-full bg-[#007AFF] text-white py-2.5 px-4 rounded-lg text-sm font-bold hover:bg-[#0066CC] transition-all shadow-sm disabled:opacity-50 flex items-center justify-center gap-2"
+              className="w-full bg-mac-blue text-white py-2.5 px-4 rounded-lg text-sm font-bold hover:bg-mac-blue-hover transition-all shadow-sm disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {submitting ? (
                 <>
@@ -357,7 +301,7 @@ export default function HolidayManager({ user }) {
                   <span>Saving Holiday...</span>
                 </>
               ) : (
-                <span>{editingHoliday ? 'Update Holiday' : 'Declare Holiday'}</span>
+                <span>'Declare Holiday'</span>
               )}
             </button>
           </form>
@@ -367,9 +311,9 @@ export default function HolidayManager({ user }) {
         <div className="lg:col-span-8 bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden flex flex-col justify-between">
           <div className="px-8 py-5 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Palmtree className="w-5 h-5 text-[#007AFF]" />
-              <h3 className="text-base font-bold text-[#1D1D1F]">
-                Department Holidays ({holidays.length})
+              <Palmtree className="w-5 h-5 text-mac-blue" />
+              <h3 className="text-base font-bold text-mac-text">
+                {isAdmin ? `Institutional Holidays (${holidays.length})` : `Department Holidays (${holidays.length})`}
               </h3>
             </div>
           </div>
@@ -377,7 +321,7 @@ export default function HolidayManager({ user }) {
           <div className="overflow-x-auto flex-1">
             {loading ? (
               <div className="p-12 text-center text-slate-400 text-sm flex items-center justify-center gap-2">
-                <Loader2 className="w-5 h-5 animate-spin text-[#007AFF]" />
+                <Loader2 className="w-5 h-5 animate-spin text-mac-blue" />
                 <span>Loading holidays...</span>
               </div>
             ) : holidays.length === 0 ? (
@@ -412,7 +356,7 @@ export default function HolidayManager({ user }) {
                     return (
                       <tr key={holidayId} className="hover:bg-slate-50/80 transition-colors">
                         <td className="px-4 py-3.5 text-sm">
-                          <div className="font-bold text-[#1D1D1F] flex items-center gap-1.5">
+                          <div className="font-bold text-mac-text flex items-center gap-1.5">
                             <span>{h.title}</span>
                             <span
                               className={`px-2 py-0.5 text-[10px] font-bold rounded-md ${
@@ -451,10 +395,12 @@ export default function HolidayManager({ user }) {
 
                         <td className="px-4 py-3.5 text-sm text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1">
-                            <button
+                            {(isAdmin || h.department !== 'ALL') && (
+                              <>
+                                <button
                               type="button"
                               onClick={() => handleEditClick(h)}
-                              className="p-1.5 text-[#86868B] hover:text-[#007AFF] hover:bg-slate-100 rounded-lg transition-colors"
+                              className="p-1.5 text-mac-subtext hover:text-mac-blue hover:bg-slate-100 rounded-lg transition-colors"
                               title="Edit / Reschedule Holiday"
                             >
                               <Edit2 className="w-4 h-4" />
@@ -469,6 +415,8 @@ export default function HolidayManager({ user }) {
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>

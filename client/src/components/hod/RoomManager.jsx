@@ -65,12 +65,10 @@ export default function RoomManager({ user }) {
   const [loading, setLoading] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState(null);
   const [fetchLoading, setFetchLoading] = useState(true);
-  const [editingRoom, setEditingRoom] = useState(null);
-
+  
   const initialFormState = {
     name: '',
-    roomNumber: '',
-    capacity: '',
+        capacity: '',
     type: 'Classroom',
     floor: '',
     building: 'Main Building',
@@ -158,7 +156,6 @@ export default function RoomManager({ user }) {
 
   const resetForm = () => {
     setFormData(initialFormState);
-    setEditingRoom(null);
     setError('');
   };
 
@@ -169,8 +166,7 @@ export default function RoomManager({ user }) {
     setSuccess('');
 
     const trimmedName = formData.name.trim();
-    const trimmedNumber = formData.roomNumber.trim().toUpperCase();
-
+    
     if (!trimmedName || trimmedName.length < 2) {
       setError('Room name must be at least 2 characters long.');
       return;
@@ -180,14 +176,6 @@ export default function RoomManager({ user }) {
       return;
     }
 
-    if (!trimmedNumber || trimmedNumber.length < 1) {
-      setError('Please provide a valid room number.');
-      return;
-    }
-    if (trimmedNumber.length > 20) {
-      setError('Room number cannot exceed 20 characters.');
-      return;
-    }
 
     const trimmedFloor = (formData.floor || '').trim();
     if (!trimmedFloor) {
@@ -211,18 +199,16 @@ export default function RoomManager({ user }) {
 
     // Instant duplicate check against department's existing room catalog
     const isDuplicate = rooms.some((r) => {
-      const isCurrentEditing = editingRoom && (r.id === editingRoom.id || r._id === editingRoom._id);
-      if (isCurrentEditing) return false;
 
       return (
         r.name.trim().toLowerCase() === trimmedName.toLowerCase() ||
-        r.roomNumber.trim().toUpperCase() === trimmedNumber
+        false
       );
     });
 
     if (isDuplicate) {
       setError(
-        `This room is already present! A room with the name "${trimmedName}" or room number "${trimmedNumber}" already exists in the ${user?.department} department.`
+        `This room is already present! A room with the name "${trimmedName}" already exists in the ${user?.department} department.`
       );
       return;
     }
@@ -242,25 +228,24 @@ export default function RoomManager({ user }) {
     const payload = {
       ...formData,
       name: trimmedName,
-      roomNumber: trimmedNumber,
-      capacity: capacityNum,
+            capacity: capacityNum,
       floor: formData.floor.trim(),
       building: formData.building.trim(),
       department: user?.department,
     };
 
-    console.log(`🏫 [ROOM MGR] Saving room: ${payload.name} (${payload.roomNumber})`);
+    console.log(`🏫 [ROOM MGR] Saving room: ${payload.name}`);
 
     try {
       if (editingRoom) {
         const roomId = editingRoom.id || editingRoom._id;
         await updateRoom(roomId, payload);
         console.log(`✅ [ROOM MGR] Room ${payload.name} updated`);
-        setSuccess(`Room "${payload.name}" (${payload.roomNumber}) updated successfully.`);
+        setSuccess(`Room "${payload.name}" updated successfully.`);
       } else {
         await createRoom(payload);
         console.log(`✅ [ROOM MGR] Room ${payload.name} created`);
-        setSuccess(`Room "${payload.name}" (${payload.roomNumber}) added to ${user?.department} inventory.`);
+        setSuccess(`Room "${payload.name}" added to ${user?.department} inventory.`);
       }
 
       resetForm();
@@ -274,31 +259,6 @@ export default function RoomManager({ user }) {
     }
   };
 
-  const handleEdit = (room) => {
-    const isOwner = room.createdBy && room.createdBy.toString() === currentUserId?.toString();
-    if (!isOwner && !isHOD) {
-      setError(`Permission denied: Only Prof. ${room.createdByName || 'the creator'} or the HOD can edit "${room.name}".`);
-      return;
-    }
-
-    setEditingRoom(room);
-    setFormData({
-      name: room.name || '',
-      roomNumber: room.roomNumber || '',
-      capacity: room.capacity || '',
-      type: room.type || 'Classroom',
-      floor: room.floor || '',
-      building: room.building || 'Main Building',
-      hasProjector: !!room.hasProjector,
-      hasAC: !!room.hasAC,
-      hasSmartBoard: !!room.hasSmartBoard,
-      hasWiFi: !!room.hasWiFi,
-      isAvailable: room.isAvailable !== undefined ? room.isAvailable : true,
-    });
-    setError('');
-    setSuccess('');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
 
   const handleToggle = async (room) => {
     if (actionLoadingId) return;
@@ -338,7 +298,7 @@ export default function RoomManager({ user }) {
 
     const roomId = room.id || room._id;
     const confirmDelete = window.confirm(
-      `Are you sure you want to remove "${room.name}" (${room.roomNumber})?\n\nThis will remove the room and cascade-cancel any scheduled slots and active bookings.`
+      `Are you sure you want to remove "${room.name}" ($)?\n\nThis will remove the room and cascade-cancel any scheduled slots and active bookings.`
     );
     if (!confirmDelete) return;
 
@@ -367,7 +327,7 @@ export default function RoomManager({ user }) {
   return (
     <div className="space-y-6">
       {error && (
-        <div className="px-5 py-3 bg-white border border-[#E5E5EA] rounded-lg flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
+        <div className="px-5 py-3 bg-white border border-mac-border rounded-lg flex items-start text-rose-800 text-sm font-medium animate-fadeIn">
           <AlertCircle className="w-5 h-5 mr-2.5 text-rose-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1 whitespace-pre-line">{error}</div>
           <button type="button" onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
@@ -377,7 +337,7 @@ export default function RoomManager({ user }) {
       )}
 
       {success && (
-        <div className="px-5 py-3 bg-white border border-[#E5E5EA] rounded-lg flex items-start text-emerald-800 text-sm font-medium animate-fadeIn">
+        <div className="px-5 py-3 bg-white border border-mac-border rounded-lg flex items-start text-emerald-800 text-sm font-medium animate-fadeIn">
           <CheckCircle2 className="w-5 h-5 mr-2.5 text-emerald-600 flex-shrink-0 mt-0.5" />
           <div className="flex-1">{success}</div>
           <button type="button" onClick={() => setSuccess('')} className="text-emerald-500 hover:text-emerald-700">
@@ -391,22 +351,14 @@ export default function RoomManager({ user }) {
         <div className="lg:col-span-4 bg-white border border-slate-200 rounded-lg px-8 py-5 sm:px-8 py-5 shadow-sm">
           <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-[#F5F5F7] text-[#007AFF] flex items-center justify-center">
-                {editingRoom ? <Edit2 className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+              <div className="w-8 h-8 rounded-lg bg-mac-bg text-mac-blue flex items-center justify-center">
+                <Plus className="w-4 h-4" />
               </div>
-              <h3 className="text-base font-bold text-[#1D1D1F]">
-                {editingRoom ? 'Edit Room' : 'Add Department Room'}
+              <h3 className="text-base font-bold text-mac-text">
+                'Add Department Room'
               </h3>
             </div>
-            {editingRoom && (
-              <button
-                type="button"
-                onClick={resetForm}
-                className="text-xs text-[#86868B] hover:text-slate-700 font-semibold"
-              >
-                Cancel
-              </button>
-            )}
+            
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-3.5">
@@ -419,25 +371,12 @@ export default function RoomManager({ user }) {
                 value={formData.name}
                 onChange={handleChange}
                 placeholder="e.g. Alan Turing Lab"
-                className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
+                className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-mac-blue outline-none transition-all"
                 required
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Room Number *
-                </label>
-                <input
-                  name="roomNumber"
-                  value={formData.roomNumber}
-                  onChange={handleChange}
-                  placeholder="CS-101"
-                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm uppercase bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
-                  required
-                />
-              </div>
+            <div className="grid grid-cols-1 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Capacity *
@@ -449,7 +388,7 @@ export default function RoomManager({ user }) {
                   value={formData.capacity}
                   onChange={handleChange}
                   placeholder="60"
-                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
+                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-mac-blue outline-none transition-all"
                   required
                 />
               </div>
@@ -462,7 +401,7 @@ export default function RoomManager({ user }) {
                   name="type"
                   value={formData.type}
                   onChange={handleChange}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-mac-blue outline-none transition-all"
                 >
                   <option value="Classroom">Classroom</option>
                   <option value="Lab">Lab</option>
@@ -479,7 +418,7 @@ export default function RoomManager({ user }) {
                   value={formData.floor}
                   onChange={handleChange}
                   placeholder="Ground Floor"
-                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
+                  className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-mac-blue outline-none transition-all"
                   required
                 />
               </div>
@@ -492,7 +431,7 @@ export default function RoomManager({ user }) {
                 value={formData.building}
                 onChange={handleChange}
                 placeholder="Main Campus / CSE Block"
-                className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-[#007AFF] outline-none transition-all"
+                className="w-full border border-slate-200 rounded-lg px-3.5 py-2.5 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 focus:ring-mac-blue outline-none transition-all"
                 required
               />
             </div>
@@ -506,7 +445,7 @@ export default function RoomManager({ user }) {
                     name="hasProjector"
                     checked={formData.hasProjector}
                     onChange={handleChange}
-                    className="rounded border-slate-300 text-[#007AFF] focus:ring-[#007AFF]/50 mr-2"
+                    className="rounded border-slate-300 text-mac-blue focus:ring-mac-blue/50 mr-2"
                   />
                   Projector
                 </label>
@@ -516,7 +455,7 @@ export default function RoomManager({ user }) {
                     name="hasAC"
                     checked={formData.hasAC}
                     onChange={handleChange}
-                    className="rounded border-slate-300 text-[#007AFF] focus:ring-[#007AFF]/50 mr-2"
+                    className="rounded border-slate-300 text-mac-blue focus:ring-mac-blue/50 mr-2"
                   />
                   Air Conditioning
                 </label>
@@ -526,7 +465,7 @@ export default function RoomManager({ user }) {
                     name="hasSmartBoard"
                     checked={formData.hasSmartBoard}
                     onChange={handleChange}
-                    className="rounded border-slate-300 text-[#007AFF] focus:ring-[#007AFF]/50 mr-2"
+                    className="rounded border-slate-300 text-mac-blue focus:ring-mac-blue/50 mr-2"
                   />
                   SmartBoard
                 </label>
@@ -536,7 +475,7 @@ export default function RoomManager({ user }) {
                     name="hasWiFi"
                     checked={formData.hasWiFi}
                     onChange={handleChange}
-                    className="rounded border-slate-300 text-[#007AFF] focus:ring-[#007AFF]/50 mr-2"
+                    className="rounded border-slate-300 text-mac-blue focus:ring-mac-blue/50 mr-2"
                   />
                   WiFi
                 </label>
@@ -550,17 +489,9 @@ export default function RoomManager({ user }) {
                 className="flex-1 bg-slate-900 text-white px-5 py-3.5 rounded-lg text-sm font-bold hover:bg-slate-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm"
               >
                 {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-                <span>{loading ? 'Saving...' : editingRoom ? 'Update Room' : 'Add Room'}</span>
+                <span>{loading ? 'Saving...' : 'Add Room'}</span>
               </button>
-              {editingRoom && (
-                <button
-                  type="button"
-                  onClick={resetForm}
-                  className="bg-slate-100 text-slate-700 px-5 py-3.5 rounded-lg text-sm font-semibold hover:bg-slate-200 transition-all"
-                >
-                  Cancel
-                </button>
-              )}
+              
             </div>
           </form>
         </div>
@@ -571,7 +502,7 @@ export default function RoomManager({ user }) {
             <div className="px-5 py-3 sm:px-8 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <div className="flex items-center gap-2">
                 <Building2 className="w-5 h-5 text-slate-600" />
-                <h3 className="text-base font-bold text-[#1D1D1F]">
+                <h3 className="text-base font-bold text-mac-text">
                   {user?.department} Room Catalog ({rooms.length})
                 </h3>
               </div>
@@ -580,7 +511,7 @@ export default function RoomManager({ user }) {
             {fetchLoading ? (
               <div className="p-12 text-center text-slate-400 text-sm">Loading rooms...</div>
             ) : rooms.length === 0 ? (
-              <div className="p-12 text-center text-[#86868B]">
+              <div className="p-12 text-center text-mac-subtext">
                 <Building2 className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                 <p className="text-sm font-medium">No rooms added to this department yet.</p>
               </div>
@@ -617,15 +548,15 @@ export default function RoomManager({ user }) {
                       return (
                         <tr key={roomId} className="hover:bg-slate-50/80 transition-colors">
                           <td className="px-4 py-3.5 text-sm">
-                            <div className="font-bold text-[#1D1D1F]">{room.name}</div>
-                            <div className="text-xs text-[#86868B] font-mono mt-0.5">
-                              {room.roomNumber}
+                            <div className="font-bold text-mac-text">{room.name}</div>
+                            <div className="text-xs text-mac-subtext font-mono mt-0.5">
+                              
                             </div>
                             <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
-                              <UserCheck className="w-3 h-3 text-[#007AFF]" />
+                              <UserCheck className="w-3 h-3 text-mac-blue" />
                               <span>Added by: <strong className="text-slate-600">{room.createdByName || 'Faculty'}</strong></span>
                               {isOwner && (
-                                <span className="text-[10px] bg-[#F5F5F7] text-[#0055B3] px-1.5 py-0.5 rounded font-bold ml-1">
+                                <span className="text-[10px] bg-mac-bg text-mac-blue-dark px-1.5 py-0.5 rounded font-bold ml-1">
                                   You
                                 </span>
                               )}
@@ -670,7 +601,7 @@ export default function RoomManager({ user }) {
                                   type="button"
                                   onClick={() => handleEdit(room)}
                                   disabled={isActionBusy}
-                                  className="p-1.5 text-slate-600 hover:text-[#007AFF] hover:bg-[#F5F5F7] rounded-lg transition-colors disabled:opacity-40"
+                                  className="p-1.5 text-slate-600 hover:text-mac-blue hover:bg-mac-bg rounded-lg transition-colors disabled:opacity-40"
                                   title="Edit Room"
                                 >
                                   <Edit2 className="w-4 h-4" />

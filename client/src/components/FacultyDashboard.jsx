@@ -89,7 +89,7 @@ export default function FacultyDashboard({ user }) {
 
       {/* Pending Reviews Banner */}
       {pendingReviews.length > 0 && !activeReviewBooking && (
-        <div className="bg-white border border-[#E5E5EA] rounded-lg px-5 py-3 flex items-center justify-between shadow-sm animate-fadeIn">
+        <div className="bg-white border border-mac-border rounded-lg px-5 py-3 flex items-center justify-between shadow-sm animate-fadeIn">
           <div className="flex items-center gap-2.5">
             <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
             <span className="text-xs font-bold text-amber-900">
