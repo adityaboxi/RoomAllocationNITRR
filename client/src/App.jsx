@@ -1,31 +1,97 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
-import AuthPage from './components/AuthPage';
-import Dashboard from './components/Dashboard';
-import NotificationCenter from './components/NotificationCenter';
 import ReviewPopup from './components/ReviewPopup';
-import AdminDashboard from './components/AdminDashboard';
 import {
-  initSocket,
-  disconnectSocket,
-  onBookingCancelled,
-  offBookingCancelled,
-  onBookingCreated,
-  offBookingCreated,
-  onTimetableUpdated,
-  offTimetableUpdated,
-  onRoomDeleted,
-  offRoomDeleted,
-  onHolidayAdded,
-  offHolidayAdded,
-  onHolidayDeleted,
-  offHolidayDeleted,
+  initSocket, disconnectSocket, onBookingCancelled, offBookingCancelled, onBookingCreated, offBookingCreated,
+  onTimetableUpdated, offTimetableUpdated, onRoomDeleted, offRoomDeleted, onHolidayAdded, offHolidayAdded,
+  onHolidayDeleted, offHolidayDeleted,
 } from './services/socket';
 import { getPendingReviews, getNotifications, getMe } from './services/api';
-import { Loader2 } from 'lucide-react';
+import NetworkBanner from './components/NetworkBanner';
+import { Loader2, RefreshCcw, AlertTriangle } from 'lucide-react';
 
-// Strict Route Guard: Restricts dashboard access strictly to authenticated sessions with verified token
+// ============================================================================
+// 🚀 YOUTUBE-STYLE OPTIMIZATIONS: Lazy Loading & Code Splitting
+// By dynamically importing pages, the initial Javascript bundle becomes tiny.
+// Pages only load precisely when the user navigates to them, ensuring zero lag.
+// ============================================================================
+const AuthPage = React.lazy(() => import('./components/AuthPage'));
+const Dashboard = React.lazy(() => import('./components/Dashboard'));
+const AdminDashboard = React.lazy(() => import('./components/AdminDashboard'));
+const NotificationCenter = React.lazy(() => import('./components/NotificationCenter'));
+
+// 🔴 YouTube-style Top Progress Bar for Route Transitions
+function TopProgressBar() {
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setProgress((old) => {
+        if (old >= 90) return 90;
+        return old + Math.random() * 15;
+      });
+    }, 150);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="fixed top-0 left-0 w-full h-1 z-50 overflow-hidden bg-transparent pointer-events-none">
+      <div 
+        className="h-full bg-blue-500 shadow-[0_0_10px_#3b82f6] transition-all duration-200 ease-out"
+        style={{ width: `${progress}%` }}
+      />
+    </div>
+  );
+}
+
+// ============================================================================
+// 🛡️ SELF-HEALING ERROR BOUNDARY (Like YouTube's Crash Recovery)
+// If any React component crashes due to bad code or data, this catches it,
+// prevents the "White Screen of Death", and safely auto-reloads the app.
+// ============================================================================
+class GlobalErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("💥 [CRITICAL] React Component Crashed:", error, errorInfo);
+    // Auto-recover after 3 seconds
+    setTimeout(() => {
+      window.location.reload();
+    }, 3000);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
+          <div className="bg-slate-900 border border-red-500/30 p-8 rounded-2xl max-w-md w-full text-center space-y-4">
+            <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle className="w-8 h-8 text-red-500 animate-pulse" />
+            </div>
+            <h2 className="text-xl font-bold text-white tracking-tight">System Recovering...</h2>
+            <p className="text-slate-400 text-sm">
+              We encountered an unexpected glitch. Don't worry, we are auto-restarting the application to restore functionality.
+            </p>
+            <div className="flex justify-center pt-4">
+              <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// Strict Route Guard
 function ProtectedRoute({ children, user, requiredRole }) {
   const token = localStorage.getItem('token');
   if (!user || !token) {
@@ -37,7 +103,7 @@ function ProtectedRoute({ children, user, requiredRole }) {
   return children;
 }
 
-export default function App() {
+function MainApp() {
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       const saved = localStorage.getItem('currentUser');
@@ -52,83 +118,47 @@ export default function App() {
   const [authChecking, setAuthChecking] = useState(true);
   const [notifications, setNotifications] = useState([]);
   const [pendingReviews, setPendingReviews] = useState([]);
-  const [currentPending, setCurrentPending] = useState(null);
   const [showReviewPopup, setShowReviewPopup] = useState(false);
+  const [currentPending, setCurrentPending] = useState(null);
 
   const socketRef = useRef(null);
   const isMountedRef = useRef(true);
-  const notifAbortControllerRef = useRef(null);
 
-  // Verify persistent authentication session on application boot
   useEffect(() => {
-    let isCancelled = false;
-    const verifyAuthSession = async () => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; };
+  }, []);
+
+  // Centralized Auth Verification (Optimized to run once strictly)
+  useEffect(() => {
+    const verifySession = async () => {
       const token = localStorage.getItem('token');
       if (!token) {
-        if (!isCancelled) {
-          setCurrentUser(null);
-          setAuthChecking(false);
-        }
+        if (isMountedRef.current) setAuthChecking(false);
         return;
       }
-
       try {
         const res = await getMe();
-        if (res?.user && !isCancelled) {
-          setCurrentUser(res.user);
-          localStorage.setItem('currentUser', JSON.stringify(res.user));
-        } else if (!isCancelled) {
-          throw new Error('Invalid user session');
+        if (isMountedRef.current) {
+          setCurrentUser(res.data.user);
         }
       } catch (err) {
-        console.warn('⚠️  [APP] Auth session expired or invalid:', err.message || err);
-        if (!isCancelled) {
+        if (isMountedRef.current) {
           localStorage.removeItem('token');
           localStorage.removeItem('currentUser');
           setCurrentUser(null);
         }
       } finally {
-        if (!isCancelled) {
-          setAuthChecking(false);
-        }
+        if (isMountedRef.current) setAuthChecking(false);
       }
     };
-
-    verifyAuthSession();
-
-    const handleUnauthorized = () => {
-      handleLogout();
-    };
-
-    window.addEventListener('auth:unauthorized', handleUnauthorized);
-    return () => {
-      isCancelled = true;
-      window.removeEventListener('auth:unauthorized', handleUnauthorized);
-    };
+    verifySession();
   }, []);
 
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-      if (notifAbortControllerRef.current) {
-        notifAbortControllerRef.current.abort();
-      }
-    };
-  }, []);
-
-  // Safe notification fetcher with request cancellation
   const fetchUserNotifications = useCallback(async () => {
     if (!currentUser) return;
-
-    if (notifAbortControllerRef.current) {
-      notifAbortControllerRef.current.abort();
-    }
-    const controller = new AbortController();
-    notifAbortControllerRef.current = controller;
-
     try {
-      const res = await getNotifications({}, { signal: controller.signal });
+      const res = await getNotifications();
       if (isMountedRef.current && res?.data) {
         setNotifications(res.data);
       }
@@ -141,7 +171,6 @@ export default function App() {
 
   const fetchingReviewsRef = useRef(false);
 
-  // Safe pending reviews fetcher
   const fetchPendingReviews = useCallback(async () => {
     if (!currentUser || currentUser.role === 'ADMIN' || fetchingReviewsRef.current) return;
     fetchingReviewsRef.current = true;
@@ -165,29 +194,20 @@ export default function App() {
     }
   }, [currentUser]);
 
-  // Background polling for reviews
   useEffect(() => {
     if (!currentUser) return;
-
     fetchUserNotifications();
-
-    // Only fetch reviews for non-ADMIN users
     if (currentUser.role !== 'ADMIN') {
       fetchPendingReviews();
     }
-
     const reviewInterval = currentUser.role !== 'ADMIN'
       ? setInterval(() => {
-          if (isMountedRef.current) {
-            fetchPendingReviews();
-          }
+          if (isMountedRef.current) fetchPendingReviews();
         }, 30000)
       : null;
-
     return () => { if (reviewInterval) clearInterval(reviewInterval); };
   }, [currentUser, fetchUserNotifications, fetchPendingReviews]);
 
-  // Socket Connection Lifecycle & Real-Time Listeners
   useEffect(() => {
     if (!currentUser) {
       if (socketRef.current) {
@@ -196,7 +216,6 @@ export default function App() {
       }
       return;
     }
-
     const token = localStorage.getItem('token');
     if (!token) return;
 
@@ -206,34 +225,22 @@ export default function App() {
 
     const handleCancelled = (data) => {
       fetchUserNotifications();
-
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification('❌ Booking Cancelled', {
-          body: `Room ${data?.roomName || 'Classroom'} on ${data?.date || 'scheduled day'} (${data?.startTime || ''} - ${data?.endTime || ''})`,
+          body: `Room ${data?.roomName || 'Classroom'} on ${data?.date || 'scheduled day'}`,
         });
       }
     };
 
-    const handleCreated = () => {
-      fetchUserNotifications();
-    };
-
-    const handleTimetableUpdate = () => {
-      fetchUserNotifications();
-    };
-
+    const handleCreated = () => fetchUserNotifications();
+    const handleTimetableUpdate = () => fetchUserNotifications();
     const handleRoomDeletedNotification = (data) => {
       fetchUserNotifications();
       if ('Notification' in window && Notification.permission === 'granted' && data?.roomName) {
-        new Notification('🏫 Room Removed', {
-          body: `Room "${data.roomName}" was removed by Administrator.`,
-        });
+        new Notification('🏫 Room Removed', { body: `Room "${data.roomName}" was removed by Administrator.` });
       }
     };
-
-    const handleHolidayChange = () => {
-      fetchUserNotifications();
-    };
+    const handleHolidayChange = () => fetchUserNotifications();
 
     onBookingCancelled(handleCancelled);
     onBookingCreated(handleCreated);
@@ -256,9 +263,7 @@ export default function App() {
     localStorage.setItem('currentUser', JSON.stringify(user));
     setCurrentUser(user);
     if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().catch((err) => {
-        console.warn('⚠️  [APP] Notification permission request error:', err.message || err);
-      });
+      Notification.requestPermission().catch(() => {});
     }
   };
 
@@ -274,7 +279,6 @@ export default function App() {
     setCurrentPending(null);
   };
 
-  // Safe item advancement by matching target ID
   const advanceReviewQueue = (completedId) => {
     setPendingReviews((prevList) => {
       const nextList = prevList.filter((p) => (p.id || p._id) !== completedId);
@@ -289,27 +293,14 @@ export default function App() {
     });
   };
 
-  const handleReviewSubmit = () => {
-    if (currentPending) {
-      advanceReviewQueue(currentPending.id || currentPending._id);
-    }
-  };
-
-  const handleReviewSkip = () => {
-    if (currentPending) {
-      advanceReviewQueue(currentPending.id || currentPending._id);
-    }
-  };
-
   if (authChecking) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 font-sans">
         <div className="flex flex-col items-center gap-4 text-center">
-          <div className="w-14 h-14 rounded-2xl bg-mac-blue/20 border border-indigo-500/30 flex items-center justify-center animate-pulse">
-            <Loader2 className="w-8 h-8 text-indigo-400 animate-spin" />
+          <div className="w-14 h-14 rounded-2xl bg-blue-500/20 border border-blue-500/30 flex items-center justify-center animate-pulse">
+            <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
           </div>
-          <div className="text-white font-bold text-lg tracking-tight">NIT Raipur Room Allocation</div>
-          <div className="text-slate-400 text-xs">Verifying authorization session...</div>
+          <div className="text-white font-bold text-lg tracking-tight">System Initializing...</div>
         </div>
       </div>
     );
@@ -318,69 +309,35 @@ export default function App() {
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-mac-bg flex flex-col font-sans text-mac-text">
-        <Navbar
-          currentUser={currentUser}
-          onLogout={handleLogout}
-          notifications={notifications}
-          onClearNotifications={() => setNotifications([])}
-        />
-
-        <main className="flex-1">
-          <Routes>
-            <Route
-              path="/auth"
-              element={
-                currentUser ? (
-                  <Navigate to={currentUser.role === 'ADMIN' ? '/admin' : '/'} replace />
-                ) : (
-                  <AuthPage onLoginSuccess={handleLoginSuccess} />
-                )
-              }
-            />
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute user={currentUser}>
-                  <Dashboard user={currentUser} onLogout={handleLogout} />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin"
-              element={
-                <ProtectedRoute user={currentUser} requiredRole="ADMIN">
-                  <AdminDashboard user={currentUser} onLogout={handleLogout} />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/notifications"
-              element={
-                <ProtectedRoute user={currentUser}>
-                  <NotificationCenter
-                    user={currentUser}
-                    notifications={notifications}
-                    setNotifications={setNotifications}
-                    onRefresh={fetchUserNotifications}
-                  />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="*"
-              element={<Navigate to={currentUser ? '/' : '/auth'} replace />}
-            />
-          </Routes>
+        <NetworkBanner />
+        <Navbar currentUser={currentUser} onLogout={handleLogout} notifications={notifications} onClearNotifications={() => setNotifications([])} />
+        
+        <main className="flex-1 animate-in fade-in duration-500 slide-in-from-bottom-2">
+          {/* Suspense handles the YouTube-like top loading bar during route switching */}
+          <Suspense fallback={<TopProgressBar />}>
+            <Routes>
+              <Route path="/auth" element={currentUser ? <Navigate to={currentUser.role === 'ADMIN' ? '/admin' : '/'} replace /> : <AuthPage onLoginSuccess={handleLoginSuccess} />} />
+              <Route path="/" element={<ProtectedRoute user={currentUser}><Dashboard user={currentUser} onLogout={handleLogout} /></ProtectedRoute>} />
+              <Route path="/admin" element={<ProtectedRoute user={currentUser} requiredRole="ADMIN"><AdminDashboard user={currentUser} onLogout={handleLogout} /></ProtectedRoute>} />
+              <Route path="/notifications" element={<ProtectedRoute user={currentUser}><NotificationCenter user={currentUser} notifications={notifications} setNotifications={setNotifications} onRefresh={fetchUserNotifications} /></ProtectedRoute>} />
+              <Route path="*" element={<Navigate to={currentUser ? '/' : '/auth'} replace />} />
+            </Routes>
+          </Suspense>
         </main>
 
         {showReviewPopup && currentPending && (
-          <ReviewPopup
-            booking={currentPending}
-            onSubmit={handleReviewSubmit}
-            onSkip={handleReviewSkip}
-          />
+          <ReviewPopup booking={currentPending} onSubmit={() => advanceReviewQueue(currentPending.id || currentPending._id)} onSkip={() => advanceReviewQueue(currentPending.id || currentPending._id)} />
         )}
       </div>
     </BrowserRouter>
+  );
+}
+
+// Wrap the entire app in the self-healing boundary
+export default function App() {
+  return (
+    <GlobalErrorBoundary>
+      <MainApp />
+    </GlobalErrorBoundary>
   );
 }

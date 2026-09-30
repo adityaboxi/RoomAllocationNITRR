@@ -2,6 +2,7 @@ const User = require('../models/User');
 const OTP = require('../models/OTP');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const { getIO } = require('../utils/socket');
 const { generateOTP, generateToken, getJwtSecret } = require('../utils/helpers');
 const { sendOTPEmail } = require('../utils/email');
 
@@ -677,6 +678,10 @@ exports.deleteUserByAdmin = async (req, res) => {
     
     // Optional: cascade delete timetables or bookings if needed, but keeping them might be preferred.
     await User.findByIdAndDelete(req.params.id);
+    const io = getIO();
+    if (io) {
+      io.emit('user-deleted', { userId: req.params.id });
+    }
     res.json({ success: true, message: 'User successfully deleted' });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to delete user' });

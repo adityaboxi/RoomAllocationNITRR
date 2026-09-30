@@ -658,9 +658,20 @@ export default function RoomDashboard({ user }) {
 
       {/* Room Status Cards Grid */}
       {loading && rooms.length === 0 ? (
-        <div className="p-16 text-center text-slate-400 text-sm flex items-center justify-center gap-2">
-          <Loader2 className="w-5 h-5 animate-spin text-mac-blue" />
-          <span>Loading live room availability...</span>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-2">
+          {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+            <div key={i} className="bg-white border border-slate-100 rounded-xl p-5 shadow-sm animate-pulse flex flex-col gap-3">
+              <div className="flex justify-between items-center">
+                <div className="h-5 bg-slate-200 rounded w-1/3"></div>
+                <div className="h-5 w-16 bg-slate-200 rounded-full"></div>
+              </div>
+              <div className="h-3 bg-slate-100 rounded w-1/2"></div>
+              <div className="flex gap-2 mt-4">
+                <div className="h-8 bg-slate-100 rounded w-full"></div>
+                <div className="h-8 bg-slate-100 rounded w-full"></div>
+              </div>
+            </div>
+          ))}
         </div>
       ) : filteredRooms.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-lg p-12 text-center text-slate-400">

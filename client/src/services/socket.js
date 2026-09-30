@@ -183,3 +183,19 @@ export const offHolidayUpdated = (callback) => {
   const s = getSocket();
   if (s && callback) s.off('holiday-updated', callback);
 };
+export const onUserRegistered = (callback) => {
+  if (!socket) return;
+  socket.on('user-registered', callback);
+};
+export const offUserRegistered = (callback) => {
+  if (!socket) return;
+  socket.off('user-registered', callback);
+};
+export const onUserDeleted = (callback) => {
+  if (!socket) return;
+  socket.on('user-deleted', callback);
+};
+export const offUserDeleted = (callback) => {
+  if (!socket) return;
+  socket.off('user-deleted', callback);
+};

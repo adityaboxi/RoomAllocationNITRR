@@ -195,9 +195,17 @@ export default function NotificationCenter({
       )}
 
       {loading ? (
-        <div className="p-12 text-center text-slate-400 text-sm flex items-center justify-center gap-2">
-          <Loader2 className="w-4 h-4 animate-spin" />
-          <span>Loading your inbox...</span>
+        <div className="space-y-2">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="bg-white border border-slate-100 rounded-lg p-4 flex gap-4 animate-pulse">
+              <div className="w-10 h-10 bg-slate-200 rounded-full shrink-0"></div>
+              <div className="flex-1 space-y-2">
+                <div className="h-4 bg-slate-200 rounded w-3/4"></div>
+                <div className="h-3 bg-slate-100 rounded w-1/2"></div>
+                <div className="h-2 bg-slate-100 rounded w-1/4 mt-2"></div>
+              </div>
+            </div>
+          ))}
         </div>
       ) : notifications.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-lg p-16 text-center text-slate-400">

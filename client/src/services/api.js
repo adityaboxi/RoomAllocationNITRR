@@ -5,6 +5,7 @@ const API_BASE = import.meta.env.VITE_API_URL;
 const api = axios.create({
   baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
+  timeout: 10000,
 });
 
 // Request Interceptor
@@ -230,3 +231,6 @@ export const getPendingReviews = () => api.get('/api/reviews/pending');
 export const getMyReviews = () => api.get('/api/reviews/my');
 
 export default api;
+// Admin User Management Endpoints
+export const getAllUsers = () => api.get('/api/auth/users');
+export const deleteUser = (userId) => api.delete(`/api/auth/users/${userId}`);

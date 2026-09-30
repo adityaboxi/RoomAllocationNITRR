@@ -1302,9 +1302,24 @@ export default function BookingView({ user }) {
         </div>
 
         {initialLoading ? (
-          <div className="p-12 text-center text-mac-subtext text-xs flex items-center justify-center gap-2">
-            <Loader2 className="w-4 h-4 animate-spin text-mac-blue" />
-            <span>Loading rooms...</span>
+          <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+              <div key={i} className="bg-white border border-slate-100 rounded-lg p-4 shadow-sm animate-pulse flex flex-col gap-3">
+                <div className="flex justify-between items-start">
+                  <div className="h-4 bg-slate-200 rounded w-1/2"></div>
+                  <div className="h-4 bg-slate-100 rounded w-1/4"></div>
+                </div>
+                <div className="h-3 bg-slate-100 rounded w-2/3 mt-1"></div>
+                <div className="flex gap-2 mt-2">
+                  <div className="h-6 w-12 bg-slate-100 rounded-full"></div>
+                  <div className="h-6 w-12 bg-slate-100 rounded-full"></div>
+                  <div className="h-6 w-12 bg-slate-100 rounded-full"></div>
+                </div>
+                <div className="grid grid-cols-5 gap-1 mt-4">
+                  {[...Array(10)].map((_, j) => <div key={j} className="h-6 bg-slate-100 rounded"></div>)}
+                </div>
+              </div>
+            ))}
           </div>
         ) : filteredRooms.length === 0 ? (
           <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-mac-subtext">

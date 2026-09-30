@@ -14,9 +14,9 @@ const normalizeFloor = (floorVal) => {
   return String(floorVal).trim();
 };
 
-import { getRooms, createRoom, updateRoom, deleteRoom, getDepartments, getAllRoomsStatus } from '../services/api';
+import { getRooms, createRoom, updateRoom, deleteRoom, getDepartments, getAllRoomsStatus, getAllUsers, deleteUser } from '../services/api';
 import { Building2, Plus, Edit2, Trash2, Eye, EyeOff, AlertTriangle, Loader2, X, CheckSquare, Square, Activity, Clock, Users, Search, Filter, RotateCcw, RefreshCw, RefreshCcw, Calendar, Palmtree, FileSpreadsheet } from 'lucide-react';
-import { getSocket } from '../services/socket';
+import { getSocket, onUserRegistered, offUserRegistered, onUserDeleted, offUserDeleted } from '../services/socket';
 import TimetableManager from './hod/TimetableManager';
 import HolidayManager from './hod/HolidayManager';
 
@@ -185,7 +185,7 @@ export default function AdminDashboard({ user, onLogout }) {
 
   const fetchAdminUsers = async () => {
     try {
-      const res = await api.get('/api/auth/users');
+      const res = await getAllUsers();
       setAdminUsersList(res.data?.data || []);
     } catch (err) {
       console.error(err);
@@ -195,13 +195,26 @@ export default function AdminDashboard({ user, onLogout }) {
   useEffect(() => {
     if (activeTab === 'users') {
       fetchAdminUsers();
+      
+      const handleUserChange = () => {
+        console.log("Real-time user change detected. Refreshing list...");
+        fetchAdminUsers();
+      };
+      
+      onUserRegistered(handleUserChange);
+      onUserDeleted(handleUserChange);
+      
+      return () => {
+        offUserRegistered(handleUserChange);
+        offUserDeleted(handleUserChange);
+      };
     }
   }, [activeTab]);
 
   const handleDeleteUser = async (id, name) => {
     if (!window.confirm(`Are you sure you want to permanently delete ${name}?`)) return;
     try {
-      await api.delete(`/api/auth/users/${id}`);
+      await deleteUser(id);
       fetchAdminUsers();
     } catch (err) {
       alert('Failed to delete user.');
@@ -537,16 +550,16 @@ export default function AdminDashboard({ user, onLogout }) {
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600">
                     <th className="p-3 pl-4">Name</th>
-                    <th className="p-3">Email</th>
-                    <th className="p-3">Role</th>
                     <th className="p-3">Department</th>
-                    <th className="p-3 text-right pr-4">Actions</th>
+                    <th className="p-3">Designation</th>
+                    <th className="p-3 text-right pr-4">Email</th>
+                    
                   </tr>
                 </thead>
                 <tbody>
                   {adminUsersList.length === 0 ? (
                     <tr>
-                      <td colSpan="5" className="p-8 text-center text-slate-400 text-sm">No users found</td>
+                      <td colSpan="4" className="p-8 text-center text-slate-400 text-sm">No users found</td>
                     </tr>
                   ) : (
                     adminUsersList.filter(u => 
@@ -556,24 +569,16 @@ export default function AdminDashboard({ user, onLogout }) {
                     ).map(u => (
                       <tr key={u._id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
                         <td className="p-3 pl-4 text-sm font-medium text-slate-700">{u.name}</td>
-                        <td className="p-3 text-sm text-slate-500">{u.email}</td>
+                        <td className="p-3 text-sm text-slate-600">{u.department || 'N/A'}</td>
                         <td className="p-3">
-                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                            u.role === 'HOD' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
+                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold tracking-wider ${
+                            u.role === 'HOD' ? 'bg-amber-100 text-amber-700' : 'bg-blue-50 text-blue-700'
                           }`}>
-                            {u.role}
+                            {u.role === 'HOD' ? 'HOD' : 'Professor'}
                           </span>
                         </td>
-                        <td className="p-3 text-sm text-slate-600">{u.department || 'N/A'}</td>
-                        <td className="p-3 text-right pr-4">
-                          <button
-                            onClick={() => handleDeleteUser(u._id, u.name)}
-                            className="p-1.5 text-red-500 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors"
-                            title="Delete User"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </td>
+                        <td className="p-3 text-right pr-4 text-sm text-slate-500">{u.email}</td>
+                        
                       </tr>
                     ))
                   )}
@@ -669,9 +674,19 @@ export default function AdminDashboard({ user, onLogout }) {
 
             {/* Room Status List */}
             {statusLoading && statusRooms.length === 0 ? (
-              <div className="p-10 text-center text-slate-400 bg-white border border-slate-200 rounded-lg">
-                <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2 text-slate-300" />
-                <p className="text-xs font-medium">Loading live room status...</p>
+              <div className="space-y-3">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <div key={i} className="bg-white border border-slate-100 rounded-lg p-4 shadow-sm flex items-center justify-between animate-pulse">
+                    <div className="flex gap-4 items-center w-full">
+                      <div className="w-10 h-10 bg-slate-200 rounded-full"></div>
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 bg-slate-200 rounded w-1/4"></div>
+                        <div className="h-3 bg-slate-100 rounded w-1/3"></div>
+                      </div>
+                      <div className="h-8 w-24 bg-slate-100 rounded-full"></div>
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : filteredStatusRooms.length === 0 ? (
               <div className="p-10 text-center text-slate-400 bg-white border border-slate-200 rounded-lg">
