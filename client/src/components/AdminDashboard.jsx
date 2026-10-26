@@ -181,12 +181,22 @@ export default function AdminDashboard({ user, onLogout }) {
   const [activeTab, setActiveTab] = useState('rooms'); // 'rooms' | 'status'
 
   const [adminUsersList, setAdminUsersList] = useState([]);
+  const [adminRoomsList, setAdminRoomsList] = useState([]);
   const [userSearch, setUserSearch] = useState('');
 
   const fetchAdminUsers = async () => {
     try {
       const res = await getAllUsers();
       setAdminUsersList(res.data?.data || []);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchAdminRooms = async () => {
+    try {
+      const res = await getAllRoomsStatus();
+      setAdminRoomsList(res.data?.data || []);
     } catch (err) {
       console.error(err);
     }
@@ -208,6 +218,9 @@ export default function AdminDashboard({ user, onLogout }) {
         offUserRegistered(handleUserChange);
         offUserDeleted(handleUserChange);
       };
+    }
+    if (activeTab === 'reports') {
+      fetchAdminRooms();
     }
   }, [activeTab]);
 
