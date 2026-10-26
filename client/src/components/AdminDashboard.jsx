@@ -1024,7 +1024,9 @@ export default function AdminDashboard({ user, onLogout }) {
                   const params = new URLSearchParams();
                   if (fd.get('targetDate')) params.append('targetDate', fd.get('targetDate'));
                   if (fd.get('department')) params.append('department', fd.get('department'));
+                  if (fd.get('roomId')) params.append('roomId', fd.get('roomId'));
                   if (fd.get('semester')) params.append('semester', fd.get('semester'));
+                  if (fd.get('roomId')) params.append('roomId', fd.get('roomId'));
                   
                   const token = localStorage.getItem('token');
                   fetch(`/api/timetable/report/csv?${params.toString()}`, {
@@ -1045,7 +1047,7 @@ export default function AdminDashboard({ user, onLogout }) {
                 }}
                 className="space-y-6"
               >
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1.5">Snapshot Date</label>
                     <input type="date" name="targetDate" defaultValue={new Date().toISOString().split('T')[0]} max={new Date().toISOString().split('T')[0]} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-mac-blue/20 outline-none transition-all bg-slate-50" />
@@ -1063,6 +1065,13 @@ export default function AdminDashboard({ user, onLogout }) {
                     <select name="semester" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-mac-blue/20 outline-none bg-slate-50">
                       <option value="ALL">All Semesters</option>
                       {[1,2,3,4,5,6,7,8].map(s => <option key={s} value={s}>{s}th Semester</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">Room Filter</label>
+                    <select name="roomId" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-mac-blue/20 outline-none bg-slate-50">
+                      <option value="ALL">All Rooms</option>
+                      {adminRoomsList.map(r => <option key={r._id} value={r._id}>{r.name}</option>)}
                     </select>
                   </div>
                 </div>
@@ -1116,7 +1125,7 @@ export default function AdminDashboard({ user, onLogout }) {
                 }}
                 className="space-y-6"
               >
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1.5">Date Range (Start)</label>
                     <input type="date" required name="startDate" defaultValue={new Date(new Date().setFullYear(new Date().getFullYear() - 1)).toISOString().split('T')[0]} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all bg-slate-50" />
