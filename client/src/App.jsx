@@ -21,6 +21,12 @@ const Dashboard = React.lazy(() => import('./components/Dashboard'));
 const AdminDashboard = React.lazy(() => import('./components/AdminDashboard'));
 const NotificationCenter = React.lazy(() => import('./components/NotificationCenter'));
 
+// Safely lazy load System Diagnostics only if present (git-ignored test script)
+const diagModules = import.meta.glob('./components/SystemDiagnostics.jsx');
+const SystemDiagnostics = diagModules['./components/SystemDiagnostics.jsx']
+  ? React.lazy(diagModules['./components/SystemDiagnostics.jsx'])
+  : null;
+
 // 🔴 YouTube-style Top Progress Bar for Route Transitions
 function TopProgressBar() {
   const [progress, setProgress] = useState(0);
@@ -320,6 +326,9 @@ function MainApp() {
               <Route path="/" element={<ProtectedRoute user={currentUser}><Dashboard user={currentUser} onLogout={handleLogout} /></ProtectedRoute>} />
               <Route path="/admin" element={<ProtectedRoute user={currentUser} requiredRole="ADMIN"><AdminDashboard user={currentUser} onLogout={handleLogout} /></ProtectedRoute>} />
               <Route path="/notifications" element={<ProtectedRoute user={currentUser}><NotificationCenter user={currentUser} notifications={notifications} setNotifications={setNotifications} onRefresh={fetchUserNotifications} /></ProtectedRoute>} />
+              {SystemDiagnostics && (
+                <Route path="/system-test" element={<div className="max-w-7xl mx-auto px-4 py-8"><SystemDiagnostics /></div>} />
+              )}
               <Route path="*" element={<Navigate to={currentUser ? '/' : '/auth'} replace />} />
             </Routes>
           </Suspense>

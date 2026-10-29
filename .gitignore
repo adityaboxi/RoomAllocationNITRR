@@ -129,3 +129,15 @@ ehthumbs.db
 *.p8
 credentials.json
 service-account.json
+
+# =================================================================
+# 🧪 10. LOCAL TEST SCRIPTS & TEST SUITES
+# =================================================================
+test-*.js
+test*.js
+*.test.js
+*.spec.js
+tests/
+server/src/scripts/
+client/src/services/systemTestSuite.js
+client/src/components/SystemDiagnostics.jsx
