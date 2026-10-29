@@ -630,7 +630,8 @@ exports.updateRoomDayTimetable = async (req, res) => {
       return res.status(403).json({ success: false, message: '🚫 Timetables cannot be managed for "Common / Institute Level" rooms. These rooms are available for ad-hoc booking only.' });
     }
 
-    if (room.department !== req.user.department) {
+    const isAdmin = req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN';
+    if (!isAdmin && room.department !== req.user.department) {
       return res.status(403).json({ success: false, message: 'You can only update schedules for your department rooms' });
     }
 
@@ -1041,11 +1042,175 @@ exports.replaceTimetableFromFile = async (req, res) => {
 };
 
 // ---------- UPDATE SINGLE ENTRY ----------
+// ---------- CREATE SINGLE TIMETABLE ENTRY ----------
+exports.createTimetableEntry = async (req, res) => {
+  try {
+    const { roomId, day, startTime, endTime, subject, faculty, facultyEmail, semester, section, classGroup } = req.body;
+    const isAdmin = req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN';
+
+    if (!roomId || !day || !startTime || !endTime || !subject || !faculty) {
+      return res.status(400).json({
+        success: false,
+        message: 'Room, Day, Start Time, End Time, Subject, and Faculty are all required.',
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(roomId)) {
+      return res.status(400).json({ success: false, message: 'Invalid room ID format' });
+    }
+
+    const room = await Room.findById(roomId);
+    if (!room || !room.isActive) {
+      return res.status(404).json({ success: false, message: 'Classroom not found or inactive' });
+    }
+
+    if (room.department === 'Common / Institute Level') {
+      return res.status(403).json({
+        success: false,
+        message: '🚫 Timetables cannot be assigned to "Common / Institute Level" rooms. These rooms are available for ad-hoc booking only.',
+      });
+    }
+
+    if (!isAdmin && room.department !== req.user.department) {
+      return res.status(403).json({
+        success: false,
+        message: `Room belongs to "${room.department}". You can only assign rooms from your own department (${req.user.department}).`,
+      });
+    }
+
+    const cleanStartTime = startTime.trim();
+    const cleanEndTime = endTime.trim();
+    const slotKey = `${cleanStartTime}-${cleanEndTime}`;
+
+    if (!VALID_TIMETABLE_SLOTS.includes(slotKey)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid time slot ${slotKey}. You must use the exact 50-minute institutional slots.`,
+      });
+    }
+
+    if (slotKey === '13:10-14:10') {
+      return res.status(400).json({
+        success: false,
+        message: 'The 13:10-14:10 slot is reserved for the institutional break and cannot be assigned a class.',
+      });
+    }
+
+    const cleanDay = day.trim();
+    const cleanSubject = subject.trim();
+    const cleanFaculty = faculty.trim();
+    const cleanSemester = (semester || '5th').trim();
+    const cleanSection = (section || 'A').trim().toUpperCase();
+    const cleanClassGroup = (classGroup || `${cleanSemester} Sec ${cleanSection}`).trim();
+
+    // Check room collision
+    const roomCollision = await Timetable.findOne({
+      roomId: room._id,
+      day: cleanDay,
+      isActive: true,
+      startTime: { $lt: cleanEndTime },
+      endTime: { $gt: cleanStartTime },
+    }).populate('roomId', 'name');
+
+    if (roomCollision) {
+      return res.status(400).json({
+        success: false,
+        message: `🚫 Timetable Collision: Room "${room.name}" is already occupied on ${cleanDay} from ${roomCollision.startTime} to ${roomCollision.endTime} by ${roomCollision.subject} (${roomCollision.semester} Sem Sec ${roomCollision.section}, Prof. ${roomCollision.faculty}).`,
+      });
+    }
+
+    // Faculty email auto-lookup
+    let cleanFacultyEmail = facultyEmail ? String(facultyEmail).trim().toLowerCase() : '';
+    if (!cleanFacultyEmail && cleanFaculty) {
+      const matching = await User.find({
+        name: { $regex: new RegExp('^' + escapeRegex(cleanFaculty) + '$', 'i') },
+        department: room.department,
+        isActive: true,
+      }).select('email');
+      if (matching.length === 1) {
+        cleanFacultyEmail = matching[0].email;
+      }
+    }
+
+    // Check faculty collision
+    let facultyMatchCondition = cleanFacultyEmail
+      ? {
+          $or: [
+            { facultyEmail: cleanFacultyEmail },
+            {
+              faculty: { $regex: new RegExp('^' + escapeRegex(cleanFaculty) + '$', 'i') },
+              facultyEmail: { $in: [null, '', undefined] },
+            },
+          ],
+        }
+      : {
+          faculty: { $regex: new RegExp('^' + escapeRegex(cleanFaculty) + '$', 'i') },
+        };
+
+    const facultyCollision = await Timetable.findOne({
+      ...facultyMatchCondition,
+      day: cleanDay,
+      isActive: true,
+      startTime: { $lt: cleanEndTime },
+      endTime: { $gt: cleanStartTime },
+    }).populate('roomId', 'name');
+
+    if (facultyCollision) {
+      const rName = facultyCollision.roomId?.name || 'Classroom';
+      const fDept = facultyCollision.department ? `[${facultyCollision.department}] ` : '';
+      return res.status(400).json({
+        success: false,
+        message: `🚫 Faculty Collision: Prof. ${cleanFaculty} is already scheduled to teach ${facultyCollision.subject} in room "${rName}" (${fDept}${facultyCollision.semester} Sem Sec ${facultyCollision.section}) on ${cleanDay} from ${facultyCollision.startTime} to ${facultyCollision.endTime}.`,
+      });
+    }
+
+    const newEntry = await Timetable.create({
+      roomId: room._id,
+      day: cleanDay,
+      startTime: cleanStartTime,
+      endTime: cleanEndTime,
+      subject: cleanSubject,
+      classGroup: cleanClassGroup,
+      faculty: cleanFaculty,
+      facultyEmail: cleanFacultyEmail,
+      semester: cleanSemester,
+      section: cleanSection,
+      department: room.department,
+      isActive: true,
+      createdBy: req.user._id || req.user.id,
+    });
+
+    await cancelConflictingBookings([newEntry], newEntry.department);
+
+    const io = getIO();
+    if (io) {
+      io.emit('timetable-updated', {
+        department: newEntry.department,
+        roomId: newEntry.roomId,
+        day: newEntry.day,
+        reason: 'entry-created',
+      });
+    }
+
+    const populated = await Timetable.findById(newEntry._id).populate('roomId', 'name floor building department');
+    res.status(201).json({
+      success: true,
+      message: 'Timetable slot created successfully',
+      data: populated,
+    });
+  } catch (error) {
+    console.error('❌ [TIMETABLE] createTimetableEntry error:', error.message || error);
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// ---------- UPDATE SINGLE ENTRY ----------
 exports.updateTimetableEntry = async (req, res) => {
   try {
     const { id } = req.params;
-    const { startTime, endTime, subject, classGroup, faculty, facultyEmail, roomId } = req.body;
+    const { startTime, endTime, subject, classGroup, faculty, facultyEmail, roomId, day, semester, section } = req.body;
     const targetRoomId = roomId && typeof roomId === 'object' ? roomId._id || roomId.id : roomId;
+    const isAdmin = req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN';
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, message: 'Invalid timetable entry ID' });
@@ -1056,12 +1221,13 @@ exports.updateTimetableEntry = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Timetable entry not found' });
     }
 
-    if (req.user.department !== entry.department) {
+    if (!isAdmin && req.user.department !== entry.department) {
       return res.status(403).json({ success: false, message: 'You can only update timetable for your own department' });
     }
 
     const checkStartTime = (startTime || entry.startTime);
     const checkEndTime = (endTime || entry.endTime);
+    const checkDay = (day || entry.day).trim();
 
     // Strict slot validation on update
     const slotKey = `${checkStartTime}-${checkEndTime}`;
@@ -1085,13 +1251,13 @@ exports.updateTimetableEntry = async (req, res) => {
     if (targetRoom.department === 'Common / Institute Level') {
       return res.status(403).json({ success: false, message: '🚫 Timetables cannot be assigned to "Common / Institute Level" rooms. These rooms are available for ad-hoc booking only.' });
     }
-    if (targetRoom.department !== req.user.department) {
+    if (!isAdmin && targetRoom.department !== req.user.department) {
       return res.status(403).json({ success: false, message: `Room belongs to "${targetRoom.department}". You can only assign rooms from your own department (${req.user.department}).` });
     }
 
     const roomCollision = await Timetable.findOne({
       roomId: checkRoomId,
-      day: entry.day,
+      day: checkDay,
       isActive: true,
       _id: { $ne: id },
       startTime: { $lt: checkEndTime },
@@ -1102,7 +1268,7 @@ exports.updateTimetableEntry = async (req, res) => {
       const rName = roomCollision.roomId?.name || 'Classroom';
       return res.status(400).json({
         success: false,
-        message: `🚫 Timetable Collision: Room "${rName}" is already occupied on ${entry.day} from ${roomCollision.startTime} to ${roomCollision.endTime} by ${roomCollision.subject} (${roomCollision.semester} Sem Sec ${roomCollision.section}, Prof. ${roomCollision.faculty}).`,
+        message: `🚫 Timetable Collision: Room "${rName}" is already occupied on ${checkDay} from ${roomCollision.startTime} to ${roomCollision.endTime} by ${roomCollision.subject} (${roomCollision.semester} Sem Sec ${roomCollision.section}, Prof. ${roomCollision.faculty}).`,
       });
     }
 
@@ -1110,9 +1276,10 @@ exports.updateTimetableEntry = async (req, res) => {
     let checkFacultyEmail = facultyEmail !== undefined ? String(facultyEmail).trim().toLowerCase() : (entry.facultyEmail || '');
 
     if (!checkFacultyEmail && checkFaculty) {
+      const deptToMatch = targetRoom.department || entry.department;
       const matching = await User.find({
         name: { $regex: new RegExp('^' + escapeRegex(checkFaculty) + '$', 'i') },
-        department: req.user.department,
+        department: deptToMatch,
         isActive: true,
       }).select('email');
       if (matching.length === 1) {
@@ -1140,7 +1307,7 @@ exports.updateTimetableEntry = async (req, res) => {
 
       const facultyCollision = await Timetable.findOne({
         ...facultyMatchCondition,
-        day: entry.day,
+        day: checkDay,
         isActive: true,
         _id: { $ne: id },
         startTime: { $lt: checkEndTime },
@@ -1152,7 +1319,7 @@ exports.updateTimetableEntry = async (req, res) => {
         const fDept = facultyCollision.department ? `[${facultyCollision.department}] ` : '';
         return res.status(400).json({
           success: false,
-          message: `🚫 Faculty Collision: Prof. ${checkFaculty} is already scheduled to teach ${facultyCollision.subject} in room "${rName}" (${fDept}${facultyCollision.semester} Sem Sec ${facultyCollision.section}) on ${entry.day} from ${facultyCollision.startTime} to ${facultyCollision.endTime}.`,
+          message: `🚫 Faculty Collision: Prof. ${checkFaculty} is already scheduled to teach ${facultyCollision.subject} in room "${rName}" (${fDept}${facultyCollision.semester} Sem Sec ${facultyCollision.section}) on ${checkDay} from ${facultyCollision.startTime} to ${facultyCollision.endTime}.`,
         });
       }
     }
@@ -1161,20 +1328,24 @@ exports.updateTimetableEntry = async (req, res) => {
     await archiveTimetableEntries([entry], 'UPDATED', req.user._id || req.user.id);
     await Timetable.findByIdAndDelete(entry._id);
 
+    const newSemester = semester ? String(semester).trim() : entry.semester;
+    const newSection = section ? String(section).trim().toUpperCase() : entry.section;
+    const newClassGroup = (classGroup || `${newSemester} Sec ${newSection}`).trim();
+
     const newEntryData = {
       roomId: targetRoomId || entry.roomId,
-      day: entry.day,
-      startTime: startTime || entry.startTime,
-      endTime: endTime || entry.endTime,
-      subject: (subject || entry.subject).trim(),
-      classGroup: (classGroup || entry.classGroup).trim(),
-      faculty: (faculty || entry.faculty).trim(),
+      day: checkDay,
+      startTime: checkStartTime,
+      endTime: checkEndTime,
+      subject: (subject !== undefined ? subject : entry.subject).trim(),
+      classGroup: newClassGroup,
+      faculty: (faculty !== undefined ? faculty : entry.faculty).trim(),
       facultyEmail: checkFacultyEmail !== undefined ? checkFacultyEmail : entry.facultyEmail,
-      semester: entry.semester,
-      section: entry.section,
-      department: entry.department,
+      semester: newSemester,
+      section: newSection,
+      department: targetRoom.department || entry.department,
       isActive: true,
-      version: entry.version + 1,
+      version: (entry.version || 0) + 1,
       createdBy: req.user.id || req.user._id,
     };
 
@@ -1185,9 +1356,9 @@ exports.updateTimetableEntry = async (req, res) => {
     const io = getIO();
     if (io) {
       io.emit('timetable-updated', {
-        department: entry.department,
-        roomId: entry.roomId,
-        day: entry.day,
+        department: newEntry.department,
+        roomId: newEntry.roomId,
+        day: newEntry.day,
         reason: 'entry-updated',
       });
     }
@@ -1204,6 +1375,7 @@ exports.updateTimetableEntry = async (req, res) => {
 exports.deleteTimetableEntry = async (req, res) => {
   try {
     const { id } = req.params;
+    const isAdmin = req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN';
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, message: 'Invalid timetable entry ID' });
@@ -1214,7 +1386,7 @@ exports.deleteTimetableEntry = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Timetable entry not found' });
     }
 
-    if (req.user.department !== entry.department) {
+    if (!isAdmin && req.user.department !== entry.department) {
       return res.status(403).json({ success: false, message: 'You can only delete timetable for your own department' });
     }
 

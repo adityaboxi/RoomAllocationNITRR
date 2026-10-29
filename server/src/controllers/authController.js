@@ -279,6 +279,17 @@ exports.signup = async (req, res) => {
     const user = await User.create({ name, email, password, role, department, isActive: true });
     const token = generateToken(user._id);
 
+    const io = getIO();
+    if (io) {
+      io.emit('user-registered', {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        department: user.department,
+      });
+    }
+
     res.status(201).json({
       success: true,
       token,
@@ -652,6 +663,17 @@ exports.verifySignupOtp = async (req, res) => {
 
     const user = await User.create({ name, email, password, role, department, isActive: true });
     const token = generateToken(user._id);
+
+    const io = getIO();
+    if (io) {
+      io.emit('user-registered', {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        department: user.department,
+      });
+    }
     await user.updateLastLogin();
 
     res.status(201).json({
@@ -675,30 +697,79 @@ exports.verifySignupOtp = async (req, res) => {
 };
 exports.getUsersForAdmin = async (req, res) => {
   try {
-    if (req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Forbidden' });
+    if (req.user.role !== 'ADMIN' && req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
     const User = require('../models/User');
-    const users = await User.find({}).select('-password').sort({ role: 1, department: 1, name: 1 });
-    res.json({ success: true, data: users });
+    const AdminUser = require('../models/AdminUser');
+
+    // 1. Fetch all regular registered users (HODs, Faculty, etc.)
+    const regularUsers = await User.find({})
+      .select('-password')
+      .sort({ role: 1, department: 1, name: 1 })
+      .lean();
+
+    // 2. Fetch all Administrator accounts
+    const adminUsers = await AdminUser.find({})
+      .select('-password')
+      .lean();
+
+    const formattedAdmins = adminUsers.map((admin) => ({
+      ...admin,
+      role: 'ADMIN',
+      department: admin.department === 'ALL' ? 'Institute Administration' : (admin.department || 'Institute Administration'),
+      isSystemAdmin: true,
+    }));
+
+    // Combine both: Admins first, then HODs, then Faculty
+    const allUsers = [...formattedAdmins, ...regularUsers];
+
+    res.json({ success: true, data: allUsers, total: allUsers.length });
   } catch (error) {
+    console.error('❌ [AUTH] getUsersForAdmin error:', error.message || error);
     res.status(500).json({ success: false, message: 'Failed to fetch users' });
   }
 };
 
 exports.deleteUserByAdmin = async (req, res) => {
   try {
-    if (req.user.role !== 'ADMIN') return res.status(403).json({ success: false, message: 'Forbidden' });
+    if (req.user.role !== 'ADMIN' && req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+    const { id } = req.params;
     const User = require('../models/User');
-    const userToDelete = await User.findById(req.params.id);
-    if (!userToDelete) return res.status(404).json({ success: false, message: 'User not found' });
-    
-    // Optional: cascade delete timetables or bookings if needed, but keeping them might be preferred.
-    await User.findByIdAndDelete(req.params.id);
+    const AdminUser = require('../models/AdminUser');
+
+    // 1. Check if user is in AdminUser collection
+    const adminTarget = await AdminUser.findById(id);
+    if (adminTarget) {
+      const primaryAdminEmail = (process.env.ADMIN_EMAIL || 'admin@nitrr.ac.in').toLowerCase();
+      if (adminTarget.email.toLowerCase() === primaryAdminEmail) {
+        return res.status(403).json({
+          success: false,
+          message: '🚫 The primary Super Administrator account cannot be deleted.',
+        });
+      }
+      await AdminUser.findByIdAndDelete(id);
+      const io = getIO();
+      if (io) io.emit('user-deleted', { userId: id });
+      return res.json({ success: true, message: 'Administrator account deleted successfully' });
+    }
+
+    // 2. Check regular User collection
+    const userToDelete = await User.findById(id);
+    if (!userToDelete) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    await User.findByIdAndDelete(id);
     const io = getIO();
     if (io) {
-      io.emit('user-deleted', { userId: req.params.id });
+      io.emit('user-deleted', { userId: id });
     }
-    res.json({ success: true, message: 'User successfully deleted' });
+    res.json({ success: true, message: `${userToDelete.role} ${userToDelete.name} deleted successfully` });
   } catch (error) {
+    console.error('❌ [AUTH] deleteUserByAdmin error:', error.message || error);
     res.status(500).json({ success: false, message: 'Failed to delete user' });
   }
 };

@@ -17,6 +17,7 @@ const normalizeFloor = (floorVal) => {
 import api, {
   getRooms,
   getTimetable,
+  createTimetableEntry,
   updateTimetableEntry,
   deleteTimetableEntry,
 } from '../../services/api';
@@ -27,6 +28,7 @@ import {
   Upload,
   Trash2,
   Edit2,
+  Plus,
   CheckCircle2,
   AlertCircle,
   Clock,
@@ -42,6 +44,7 @@ import {
   RotateCcw,
   LayoutGrid,
   List,
+  Lock,
 } from 'lucide-react';
 
 // ============================================================================
@@ -109,8 +112,25 @@ export default function TimetableManager({ user, isAdmin = false }) {
   const [viewMode, setViewMode] = useState('GRID');
   const [filterSearch, setFilterSearch] = useState('');
 
-    const [error, setError] = useState('');
+  const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  // Interactive Direct Slot Edit & Create Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState('EDIT'); // 'EDIT' or 'CREATE'
+  const [modalSaving, setModalSaving] = useState(false);
+  const [modalError, setModalError] = useState('');
+  const [slotFormData, setSlotFormData] = useState({
+    id: '',
+    roomId: '',
+    day: 'Monday',
+    timeSlot: '08:10-09:00',
+    subject: '',
+    faculty: '',
+    facultyEmail: '',
+    semester: '5th',
+    section: 'A',
+  });
 
   const fileInputRef = useRef(null);
   const reqSeqRef = useRef(0);
@@ -526,6 +546,9 @@ export default function TimetableManager({ user, isAdmin = false }) {
       await deleteTimetableEntry(entryId);
       console.log(`✅ [TIMETABLE] Entry ${entryId} deleted`);
       setSuccess('Slot removed from timetable.');
+      if (isModalOpen && slotFormData.id === entryId) {
+        setIsModalOpen(false);
+      }
       await fetchScheduleTable();
     } catch (err) {
       const errMsg = extractErrorMessage(err, 'Failed to delete timetable entry.');
@@ -533,6 +556,108 @@ export default function TimetableManager({ user, isAdmin = false }) {
       setError(errMsg);
     } finally {
       setActionLoadingId(null);
+    }
+  };
+
+  // Open Direct Slot Edit Modal
+  const handleOpenEditModal = (entry) => {
+    setError('');
+    setSuccess('');
+    setModalError('');
+    setModalMode('EDIT');
+    const slotKey = `${entry.startTime}-${entry.endTime}`;
+    setSlotFormData({
+      id: entry.id || entry._id,
+      roomId: entry.roomId?._id || entry.roomId?.id || entry.roomId || '',
+      day: entry.day || 'Monday',
+      timeSlot: VALID_TIMETABLE_SLOTS.includes(slotKey) ? slotKey : VALID_TIMETABLE_SLOTS[0],
+      subject: entry.subject || '',
+      faculty: entry.faculty || '',
+      facultyEmail: entry.facultyEmail || '',
+      semester: entry.semester || '5th',
+      section: entry.section || 'A',
+    });
+    setIsModalOpen(true);
+  };
+
+  // Open Direct Slot Create Modal (e.g. clicking empty slot in grid)
+  const handleOpenCreateModal = (room, day, slot) => {
+    setError('');
+    setSuccess('');
+    setModalError('');
+    setModalMode('CREATE');
+    setSlotFormData({
+      id: '',
+      roomId: room?._id || room?.id || (rooms[0]?._id || rooms[0]?.id) || '',
+      day: day || 'Monday',
+      timeSlot: slot || '08:10-09:00',
+      subject: '',
+      faculty: '',
+      facultyEmail: '',
+      semester: uploadSemester || '5th',
+      section: uploadSection || 'A',
+    });
+    setIsModalOpen(true);
+  };
+
+  // Save changes from Slot Modal
+  const handleSaveModal = async (e) => {
+    if (e) e.preventDefault();
+    setModalError('');
+
+    if (!slotFormData.subject.trim()) {
+      setModalError('Subject name is required.');
+      return;
+    }
+    if (!slotFormData.faculty.trim()) {
+      setModalError('Faculty name is required.');
+      return;
+    }
+    if (!slotFormData.roomId) {
+      setModalError('Please select a classroom / lab.');
+      return;
+    }
+    if (slotFormData.timeSlot === '13:10-14:10') {
+      setModalError('13:10-14:10 is the institutional break and cannot be assigned a class.');
+      return;
+    }
+
+    const [startTime, endTime] = slotFormData.timeSlot.split('-');
+    if (!startTime || !endTime) {
+      setModalError('Invalid time slot selected.');
+      return;
+    }
+
+    setModalSaving(true);
+    try {
+      const payload = {
+        roomId: slotFormData.roomId,
+        day: slotFormData.day,
+        startTime,
+        endTime,
+        subject: slotFormData.subject.trim(),
+        faculty: slotFormData.faculty.trim(),
+        facultyEmail: slotFormData.facultyEmail.trim(),
+        semester: slotFormData.semester,
+        section: slotFormData.section,
+        classGroup: `${slotFormData.semester} Sec ${slotFormData.section}`,
+      };
+
+      if (modalMode === 'EDIT') {
+        await updateTimetableEntry(slotFormData.id, payload);
+        setSuccess(`Updated slot: ${slotFormData.subject} (${slotFormData.day} ${slotFormData.timeSlot})`);
+      } else {
+        await createTimetableEntry(payload);
+        setSuccess(`Class slot added: ${slotFormData.subject} on ${slotFormData.day} (${slotFormData.timeSlot})`);
+      }
+
+      setIsModalOpen(false);
+      await fetchScheduleTable();
+    } catch (err) {
+      const errMsg = extractErrorMessage(err, `Failed to ${modalMode === 'EDIT' ? 'update' : 'create'} slot.`);
+      setModalError(errMsg);
+    } finally {
+      setModalSaving(false);
     }
   };
 
@@ -940,7 +1065,11 @@ export default function TimetableManager({ user, isAdmin = false }) {
                                   return (
                                     <td key={slot} className="p-1 border-r border-slate-100 align-top relative group h-[75px]">
                                       {entry ? (
-                                        <div className="h-full w-full bg-indigo-50/70 rounded p-1.5 border border-indigo-100/60 flex flex-col justify-between hover:bg-indigo-100 transition-colors">
+                                        <div
+                                          onClick={() => handleOpenEditModal(entry)}
+                                          className="h-full w-full bg-indigo-50/70 hover:bg-indigo-100/90 rounded p-1.5 border border-indigo-100 hover:border-indigo-300 flex flex-col justify-between transition-all cursor-pointer shadow-sm hover:shadow"
+                                          title={`Click to edit ${entry.subject}`}
+                                        >
                                           <div>
                                             <div className="text-[10px] font-bold text-slate-800 leading-tight line-clamp-2" title={entry.subject}>{entry.subject}</div>
                                             <div className="text-[9px] font-medium text-slate-600 truncate mt-0.5">{entry.faculty}</div>
@@ -952,13 +1081,39 @@ export default function TimetableManager({ user, isAdmin = false }) {
                                               </span>
                                             )}
                                           </div>
-                                          <div className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5 bg-white/90 shadow-sm rounded border border-slate-200 p-0.5">
-                                            
-                                            <button onClick={() => handleDeleteEntry(entry.id || entry._id)} className="p-1 text-slate-400 hover:text-rose-600 rounded bg-white"><Trash2 className="w-3 h-3"/></button>
+                                          <div
+                                            className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5 bg-white/95 shadow-sm rounded border border-slate-200 p-0.5 z-10"
+                                            onClick={(e) => e.stopPropagation()}
+                                          >
+                                            <button
+                                              type="button"
+                                              onClick={() => handleOpenEditModal(entry)}
+                                              title="Edit Slot"
+                                              className="p-1 text-slate-500 hover:text-mac-blue rounded bg-white hover:bg-indigo-50 transition-colors"
+                                            >
+                                              <Edit2 className="w-3 h-3" />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleDeleteEntry(entry.id || entry._id)}
+                                              title="Delete Slot"
+                                              className="p-1 text-slate-400 hover:text-rose-600 rounded bg-white hover:bg-rose-50 transition-colors"
+                                            >
+                                              <Trash2 className="w-3 h-3"/>
+                                            </button>
                                           </div>
                                         </div>
                                       ) : (
-                                        <div className="h-full w-full flex items-center justify-center text-[9px] text-slate-300 italic opacity-0 group-hover:opacity-100 transition-opacity">Free</div>
+                                        <div
+                                          onClick={() => handleOpenCreateModal(room, day, slot)}
+                                          className="h-full w-full rounded border border-transparent hover:border-dashed hover:border-indigo-300 hover:bg-indigo-50/40 transition-all cursor-pointer flex items-center justify-center group/free"
+                                          title={`Click to add class on ${day} (${slot})`}
+                                        >
+                                          <span className="text-[10px] font-semibold text-slate-300 group-hover/free:text-mac-blue group-hover/free:font-bold transition-colors flex items-center gap-0.5">
+                                            <Plus className="w-2.5 h-2.5 opacity-0 group-hover/free:opacity-100 transition-opacity" />
+                                            <span className="opacity-0 group-hover/free:opacity-100 transition-opacity">Add</span>
+                                          </span>
+                                        </div>
                                       )}
                                     </td>
                                   );
@@ -1042,6 +1197,15 @@ export default function TimetableManager({ user, isAdmin = false }) {
                           <td className="px-4 py-3.5 text-sm text-right space-x-1.5 whitespace-nowrap">
                             <button
                               type="button"
+                              onClick={() => handleOpenEditModal(entry)}
+                              disabled={isRowBusy}
+                              className="p-1.5 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-40"
+                              title="Edit Timetable Slot"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => handleDeleteEntry(entryId)}
                               disabled={isRowBusy}
                               className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-40"
@@ -1061,6 +1225,270 @@ export default function TimetableManager({ user, isAdmin = false }) {
 
         </div>
       </div>
+
+      {/* ── Interactive Direct Timetable Slot Edit / Create Modal ── */}
+      {isModalOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-fadeIn"
+          onClick={() => setIsModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden transform transition-all"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="bg-slate-50/80 px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${modalMode === 'EDIT' ? 'bg-indigo-50 text-mac-blue' : 'bg-emerald-50 text-emerald-600'}`}>
+                  {modalMode === 'EDIT' ? <Edit2 className="w-4 h-4" /> : <Plus className="w-5 h-5" />}
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">
+                    {modalMode === 'EDIT' ? 'Update Class & Teacher' : 'Add Class to Timetable'}
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    {modalMode === 'EDIT' ? 'Change course subject or assigned professor. Slot timing, classroom, and semester are fixed.' : 'Directly schedule a class without spreadsheet upload.'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="w-8 h-8 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex items-center justify-center transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body / Form */}
+            <form onSubmit={handleSaveModal} className="p-6 space-y-4">
+              {modalError && (
+                <div className="px-4 py-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start text-rose-800 text-xs font-semibold">
+                  <AlertCircle className="w-4 h-4 mr-2 text-rose-600 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1 whitespace-pre-line">{modalError}</div>
+                </div>
+              )}
+
+              {/* In EDIT mode: Fixed Slot Context Card (Read-Only) */}
+              {modalMode === 'EDIT' && (() => {
+                const currentRoom = rooms.find(r => String(r.id || r._id) === String(slotFormData.roomId));
+                const roomName = currentRoom?.name || 'Classroom';
+                const roomBldg = currentRoom?.building ? `(${currentRoom.building})` : '';
+
+                return (
+                  <div className="bg-slate-50/80 border border-slate-200 rounded-xl p-3.5 space-y-2">
+                    <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                      <span>Slot Context (Fixed)</span>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-400 lowercase">
+                        <Lock className="w-3 h-3 text-slate-400" /> cannot be changed
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="bg-white border border-slate-200/80 rounded-lg p-2 shadow-xs">
+                        <div className="text-[10px] font-medium text-slate-400">Classroom</div>
+                        <div className="text-xs font-bold text-slate-800 truncate flex items-center gap-1 mt-0.5" title={`${roomName} ${roomBldg}`}>
+                          <Building2 className="w-3 h-3 text-mac-blue flex-shrink-0" />
+                          <span className="truncate">{roomName}</span>
+                        </div>
+                      </div>
+
+                      <div className="bg-white border border-slate-200/80 rounded-lg p-2 shadow-xs">
+                        <div className="text-[10px] font-medium text-slate-400">Day & Slot</div>
+                        <div className="text-xs font-bold text-slate-800 truncate flex items-center gap-1 mt-0.5 font-mono">
+                          <Clock className="w-3 h-3 text-amber-500 flex-shrink-0" />
+                          <span className="truncate">{slotFormData.day.substring(0, 3)} {slotFormData.timeSlot}</span>
+                        </div>
+                      </div>
+
+                      <div className="bg-white border border-slate-200/80 rounded-lg p-2 shadow-xs">
+                        <div className="text-[10px] font-medium text-slate-400">Target Group</div>
+                        <div className="text-xs font-bold text-slate-800 truncate flex items-center gap-1 mt-0.5">
+                          <BookOpen className="w-3 h-3 text-indigo-500 flex-shrink-0" />
+                          <span className="truncate">{slotFormData.semester} • Sec {slotFormData.section}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Subject (Editable) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Subject / Course Name *
+                </label>
+                <div className="relative">
+                  <BookOpen className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    required
+                    value={slotFormData.subject}
+                    onChange={(e) => setSlotFormData({ ...slotFormData, subject: e.target.value })}
+                    placeholder="e.g. Operating Systems, Data Structures & Algorithms"
+                    className="w-full border border-slate-200 rounded-lg pl-9 pr-3.5 py-2 text-xs sm:text-sm bg-slate-50/40 text-slate-800 font-semibold placeholder:text-slate-400 placeholder:font-normal outline-none focus:bg-white focus:ring-2 focus:ring-mac-blue transition-all"
+                  />
+                </div>
+              </div>
+
+              {/* Faculty & Email (Editable) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Faculty / Teacher Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={slotFormData.faculty}
+                    onChange={(e) => setSlotFormData({ ...slotFormData, faculty: e.target.value })}
+                    placeholder="e.g. Dr. Dilip Singh Sisodia"
+                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2 text-xs sm:text-sm bg-slate-50/40 text-slate-800 font-semibold placeholder:text-slate-400 placeholder:font-normal outline-none focus:bg-white focus:ring-2 focus:ring-mac-blue transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Teacher Email <span className="text-slate-400 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="email"
+                    value={slotFormData.facultyEmail}
+                    onChange={(e) => setSlotFormData({ ...slotFormData, facultyEmail: e.target.value })}
+                    placeholder="e.g. drsisodia@cse.nitrr.ac.in"
+                    className="w-full border border-slate-200 rounded-lg px-3.5 py-2 text-xs sm:text-sm bg-slate-50/40 text-slate-800 font-medium placeholder:text-slate-400 placeholder:font-normal outline-none focus:bg-white focus:ring-2 focus:ring-mac-blue transition-all"
+                  />
+                </div>
+              </div>
+
+              {/* In CREATE mode only: Semester, Section, Room, Day, and Time Slot are selectable */}
+              {modalMode === 'CREATE' && (
+                <>
+                  {/* Semester & Section */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        Semester *
+                      </label>
+                      <select
+                        value={slotFormData.semester}
+                        onChange={(e) => setSlotFormData({ ...slotFormData, semester: e.target.value })}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs sm:text-sm bg-slate-50/40 font-semibold text-slate-800 outline-none focus:bg-white focus:ring-2 focus:ring-mac-blue"
+                      >
+                        {['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'].map((s) => (
+                          <option key={s} value={s}>{s} Semester</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        Section *
+                      </label>
+                      <select
+                        value={slotFormData.section}
+                        onChange={(e) => setSlotFormData({ ...slotFormData, section: e.target.value })}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs sm:text-sm bg-slate-50/40 font-semibold text-slate-800 outline-none focus:bg-white focus:ring-2 focus:ring-mac-blue"
+                      >
+                        {['A', 'B', 'C', 'D'].map((sec) => (
+                          <option key={sec} value={sec}>Section {sec}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Room & Day */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        Classroom / Lab *
+                      </label>
+                      <select
+                        value={slotFormData.roomId}
+                        onChange={(e) => setSlotFormData({ ...slotFormData, roomId: e.target.value })}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs sm:text-sm bg-slate-50/40 font-semibold text-slate-800 outline-none focus:bg-white focus:ring-2 focus:ring-mac-blue"
+                      >
+                        {rooms.map((r) => (
+                          <option key={r.id || r._id} value={r.id || r._id}>
+                            {r.name} ({r.department ? r.department.substring(0, 15) : ''})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        Day of Week *
+                      </label>
+                      <select
+                        value={slotFormData.day}
+                        onChange={(e) => setSlotFormData({ ...slotFormData, day: e.target.value })}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs sm:text-sm bg-slate-50/40 font-semibold text-slate-800 outline-none focus:bg-white focus:ring-2 focus:ring-mac-blue"
+                      >
+                        {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((d) => (
+                          <option key={d} value={d}>{d}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Time Slot */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                      <span>Institutional Time Slot *</span>
+                      <span className="text-[11px] text-slate-400 font-normal">50-min academic grid</span>
+                    </label>
+                    <div className="relative">
+                      <Clock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <select
+                        value={slotFormData.timeSlot}
+                        onChange={(e) => setSlotFormData({ ...slotFormData, timeSlot: e.target.value })}
+                        className="w-full border border-slate-200 rounded-lg pl-9 pr-3.5 py-2 text-xs sm:text-sm bg-slate-50/40 font-mono font-semibold text-slate-800 outline-none focus:bg-white focus:ring-2 focus:ring-mac-blue"
+                      >
+                        {VALID_TIMETABLE_SLOTS.map((slot) => (
+                          <option key={slot} value={slot} disabled={slot === '13:10-14:10'}>
+                            {slot} {slot === '13:10-14:10' ? '(Break - No Classes)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Modal Actions Footer */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                {modalMode === 'EDIT' ? (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteEntry(slotFormData.id)}
+                    className="px-3.5 py-2 text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Slot</span>
+                  </button>
+                ) : <div />}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(false)}
+                    disabled={modalSaving}
+                    className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={modalSaving}
+                    className="px-5 py-2 bg-mac-blue hover:bg-mac-blue-hover text-white rounded-lg text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all disabled:opacity-50"
+                  >
+                    {modalSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>{modalMode === 'EDIT' ? 'Save Changes' : 'Create Slot'}</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,3 +1,6 @@
+// Expand libuv worker threadpool for concurrent bcrypt password hashing under peak load
+process.env.UV_THREADPOOL_SIZE = process.env.UV_THREADPOOL_SIZE || '16';
+
 require('dotenv').config();
 
 const http = require('http');

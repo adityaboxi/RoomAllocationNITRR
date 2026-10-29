@@ -15,7 +15,7 @@ const normalizeFloor = (floorVal) => {
 };
 
 import { getRooms, createRoom, updateRoom, deleteRoom, getDepartments, getAllRoomsStatus, getAllUsers, deleteUser, resolveRoomIssue } from '../services/api';
-import { Building2, Plus, Edit2, Trash2, Eye, EyeOff, AlertTriangle, Loader2, X, CheckSquare, Square, Activity, Clock, Users, Search, Filter, RotateCcw, RefreshCw, RefreshCcw, Calendar, Palmtree, FileSpreadsheet, Terminal } from 'lucide-react';
+import { Building2, Plus, Edit2, Trash2, Eye, EyeOff, AlertTriangle, Loader2, X, CheckSquare, Square, Activity, Clock, Users, Search, Filter, RotateCcw, RefreshCw, RefreshCcw, Calendar, Palmtree, FileSpreadsheet, Terminal, ShieldCheck } from 'lucide-react';
 import { getSocket, onUserRegistered, offUserRegistered, onUserDeleted, offUserDeleted } from '../services/socket';
 import TimetableManager from './hod/TimetableManager';
 import HolidayManager from './hod/HolidayManager';
@@ -189,13 +189,15 @@ export default function AdminDashboard({ user, onLogout }) {
 
   const [adminUsersList, setAdminUsersList] = useState([]);
   const [userSearch, setUserSearch] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState('ALL');
 
   const fetchAdminUsers = async () => {
     try {
       const res = await getAllUsers();
-      setAdminUsersList(res.data?.data || []);
+      const list = Array.isArray(res) ? res : (res?.data || res?.users || []);
+      setAdminUsersList(list);
     } catch (err) {
-      console.error(err);
+      console.error('Failed to fetch users:', err);
     }
   };
 
@@ -543,20 +545,20 @@ export default function AdminDashboard({ user, onLogout }) {
         
         {activeTab === 'users' && (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
+            <div className="p-4 border-b border-slate-200 bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
-                <h3 className="font-semibold text-slate-800">User Management</h3>
-                <p className="text-xs text-slate-500 mt-1">Delete HODs or Faculty accounts on request.</p>
+                <h3 className="font-semibold text-slate-800">User & Institutional Account Management</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Manage administrators, department heads (HODs), and faculty accounts.</p>
               </div>
-              <div className="flex items-center gap-3">
-                <div className="relative">
+              <div className="flex items-center gap-3 w-full sm:w-auto">
+                <div className="relative flex-1 sm:flex-none">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 w-3.5 h-3.5" />
                   <input
                     type="text"
                     placeholder="Search name, email, or dept..."
                     value={userSearch}
                     onChange={(e) => setUserSearch(e.target.value)}
-                    className="pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-xs bg-white focus:ring-2 focus:ring-mac-blue/20 focus:border-indigo-500 outline-none w-64"
+                    className="pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-xs bg-white focus:ring-2 focus:ring-mac-blue/20 focus:border-indigo-500 outline-none w-full sm:w-64"
                   />
                 </div>
                 <button onClick={fetchAdminUsers} className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors bg-white border border-slate-200 rounded-lg shadow-sm" title="Refresh Users">
@@ -564,43 +566,122 @@ export default function AdminDashboard({ user, onLogout }) {
                 </button>
               </div>
             </div>
-            <div className="p-0">
+
+            {/* Quick Role Filter Pills */}
+            <div className="px-4 py-2.5 bg-slate-50/50 border-b border-slate-200 flex flex-wrap items-center gap-2">
+              {[
+                { val: 'ALL', label: 'All Accounts', count: adminUsersList.length },
+                { val: 'ADMIN', label: '👑 Administrators', count: adminUsersList.filter(u => u.role === 'ADMIN').length },
+                { val: 'HOD', label: '🏛️ HODs', count: adminUsersList.filter(u => u.role === 'HOD').length },
+                { val: 'FACULTY', label: '🎓 Faculty', count: adminUsersList.filter(u => u.role === 'FACULTY').length },
+              ].map(({ val, label, count }) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setUserRoleFilter(val)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    userRoleFilter === val
+                      ? 'bg-white text-slate-800 shadow-sm border border-slate-200'
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+                  }`}
+                >
+                  <span>{label}</span>
+                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${userRoleFilter === val ? 'bg-slate-100 text-slate-700 font-extrabold' : 'bg-slate-200/60 text-slate-600'}`}>
+                    {count}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600">
                     <th className="p-3 pl-4">Name</th>
                     <th className="p-3">Department</th>
-                    <th className="p-3">Designation</th>
-                    <th className="p-3 text-right pr-4">Email</th>
-                    
+                    <th className="p-3">Role / Designation</th>
+                    <th className="p-3">Email</th>
+                    <th className="p-3 text-right pr-4">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {adminUsersList.length === 0 ? (
                     <tr>
-                      <td colSpan="4" className="p-8 text-center text-slate-400 text-sm">No users found</td>
+                      <td colSpan="5" className="p-8 text-center text-slate-400 text-sm">
+                        No registered users found
+                      </td>
                     </tr>
-                  ) : (
-                    adminUsersList.filter(u => 
-                      (u.name || '').toLowerCase().includes((userSearch || '').toLowerCase()) || 
-                      (u.email || '').toLowerCase().includes((userSearch || '').toLowerCase()) || 
-                      (u.department && u.department.toLowerCase().includes(userSearch.toLowerCase()))
-                    ).map(u => (
-                      <tr key={u._id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
-                        <td className="p-3 pl-4 text-sm font-medium text-slate-700">{u.name}</td>
-                        <td className="p-3 text-sm text-slate-600">{u.department || 'N/A'}</td>
-                        <td className="p-3">
-                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold tracking-wider ${
-                            u.role === 'HOD' ? 'bg-amber-100 text-amber-700' : 'bg-blue-50 text-blue-700'
-                          }`}>
-                            {u.role === 'HOD' ? 'HOD' : 'Professor'}
-                          </span>
-                        </td>
-                        <td className="p-3 text-right pr-4 text-sm text-slate-500">{u.email}</td>
-                        
-                      </tr>
-                    ))
-                  )}
+                  ) : (() => {
+                    const filtered = adminUsersList.filter(u => {
+                      if (userRoleFilter !== 'ALL' && u.role !== userRoleFilter) return false;
+                      if (userSearch.trim()) {
+                        const q = userSearch.toLowerCase();
+                        const matchesName = (u.name || '').toLowerCase().includes(q);
+                        const matchesEmail = (u.email || '').toLowerCase().includes(q);
+                        const matchesDept = (u.department || '').toLowerCase().includes(q);
+                        if (!matchesName && !matchesEmail && !matchesDept) return false;
+                      }
+                      return true;
+                    });
+
+                    if (filtered.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan="5" className="p-8 text-center text-slate-400 text-sm">
+                            No accounts match "{userSearch || userRoleFilter}"
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return filtered.map(u => {
+                      const isSuperAdmin = u.role === 'ADMIN' && (u.email === 'admin@nitrr.ac.in' || u.isSystemAdmin);
+                      const userId = u._id || u.id;
+
+                      return (
+                        <tr key={userId || u.email} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
+                          <td className="p-3 pl-4 text-sm font-semibold text-slate-800">
+                            <div className="flex items-center gap-2">
+                              {u.name}
+                              {isSuperAdmin && (
+                                <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200/60 px-1.5 py-0.5 rounded">
+                                  <ShieldCheck className="w-3 h-3 text-amber-600" />
+                                  Primary
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-3 text-sm text-slate-600 font-medium">{u.department || 'Institute Administration'}</td>
+                          <td className="p-3">
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase inline-flex items-center gap-1 ${
+                              u.role === 'ADMIN'
+                                ? 'bg-purple-100 text-purple-800 border border-purple-200/50'
+                                : u.role === 'HOD'
+                                ? 'bg-amber-100 text-amber-800 border border-amber-200/50'
+                                : 'bg-blue-50 text-blue-700 border border-blue-200/50'
+                            }`}>
+                              {u.role === 'ADMIN' ? '👑 Administrator' : u.role === 'HOD' ? '🏛️ HOD' : '🎓 Faculty'}
+                            </span>
+                          </td>
+                          <td className="p-3 text-sm text-slate-600 font-mono text-xs">{u.email}</td>
+                          <td className="p-3 text-right pr-4">
+                            {isSuperAdmin ? (
+                              <span className="text-[11px] text-slate-400 font-medium italic">Protected</span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteUser(userId, u.name)}
+                                className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors"
+                                title={`Permanently delete ${u.name}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
                 </tbody>
               </table>
             </div>
@@ -1031,7 +1112,7 @@ export default function AdminDashboard({ user, onLogout }) {
 
         {/* ── Master Timetables Panel ──────────────────────────── */}
         {activeTab === 'timetable' && (
-          <TimetableManager user={{ role: 'ADMIN' }} isAdmin={true} />
+          <TimetableManager user={user || { role: 'ADMIN' }} isAdmin={true} />
         )}
 
         {activeTab === 'holidays' && (

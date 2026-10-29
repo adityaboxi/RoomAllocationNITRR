@@ -10,6 +10,7 @@ const {
   updateRoomDayTimetable,
   replaceTimetableFromFile,
   uploadTimetableFile,
+  createTimetableEntry,
   updateTimetableEntry,
   deleteTimetableEntry,
   generateTimetableReport,
@@ -29,6 +30,7 @@ router.get('/room/:roomId', getTimetableByRoom);
 
 // Modification Endpoints
 router.post('/', replaceTimetable);
+router.post('/entry', createTimetableEntry);
 router.post('/room-day', updateRoomDayTimetable);
 router.post(
   '/upload',

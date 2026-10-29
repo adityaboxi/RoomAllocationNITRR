@@ -196,6 +196,7 @@ export const getTimetableByFaculty = (facultyName, params = {}) =>
 export const getTimetableByRoom = (roomId, params = {}) =>
   api.get(`/api/timetable/room/${roomId}`, { params });
 export const replaceTimetable = (data) => api.post('/api/timetable', data);
+export const createTimetableEntry = (data) => api.post('/api/timetable/entry', data);
 export const updateRoomDayTimetable = (data) => api.post('/api/timetable/room-day', data);
 export const updateTimetableEntry = (id, data) => api.put(`/api/timetable/${id}`, data);
 export const deleteTimetableEntry = (id) => api.delete(`/api/timetable/${id}`);
