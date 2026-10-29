@@ -6,6 +6,8 @@ const { getIO } = require('../utils/socket');
 const { generateOTP, generateToken, getJwtSecret } = require('../utils/helpers');
 const { sendOTPEmail } = require('../utils/email');
 
+
+
 // Mapping of departments to allowed email subdomains at NIT Raipur
 const DEPARTMENT_SUBDOMAINS = {
   'Computer Science & Engineering': ['cse', 'cs'],
@@ -561,6 +563,15 @@ exports.sendSignupOtp = async (req, res) => {
 
     const otp = generateOTP();
     const expiryMinutes = parseInt(process.env.OTP_EXPIRY_MINUTES, 10);
+
+    console.log(`\n==========================================`);
+    console.log(`🔑 [SIGNUP OTP GENERATED]`);
+    console.log(`📧 User Email:  ${email}`);
+    console.log(`👤 User Name:   ${name}`);
+    console.log(`🏢 Department:  ${department} (${role})`);
+    console.log(`🔢 SIGNUP OTP:  \x1b[32m\x1b[1m${otp}\x1b[0m`);
+    console.log(`⏳ Valid For:   ${expiryMinutes} minutes`);
+    console.log(`==========================================\n`);
 
     const encryptedPassword = encryptTemporaryPassword(password);
 

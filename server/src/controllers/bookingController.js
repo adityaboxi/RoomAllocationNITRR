@@ -808,7 +808,14 @@ exports.unlockRoom = async (req, res) => {
     res.status(500).json({ success: false, message: 'Failed to unlock room', error: error.message });
   }
 };
-// ---------- GENERATE BOOKING USAGE REPORT (CSV) ----------
+// RFC 4180 CSV escaping helper
+const escapeCsv = (val) => {
+  if (val === null || val === undefined) return '""';
+  const str = String(val).trim();
+  return `"${str.replace(/"/g, '""')}"`;
+};
+
+// ---------- GENERATE BOOKING USAGE REPORT (CSV STREAMING) ----------
 exports.generateBookingReport = async (req, res) => {
   try {
     if (req.user.role !== 'ADMIN' && req.user.role !== 'SUPER_ADMIN') {
@@ -824,51 +831,224 @@ exports.generateBookingReport = async (req, res) => {
 
     if (startDate || endDate) {
       query.date = {};
-      if (startDate) query.date.$gte = startDate.trim();
-      if (endDate) query.date.$lte = endDate.trim();
+      if (startDate && startDate.trim()) query.date.$gte = startDate.trim();
+      if (endDate && endDate.trim()) query.date.$lte = endDate.trim();
     }
 
     if (department && department !== 'ALL') query.department = department.trim();
-    if (roomId && roomId !== 'ALL') query.roomId = roomId;
+    if (roomId && roomId !== 'ALL' && mongoose.Types.ObjectId.isValid(roomId)) {
+      query.roomId = roomId;
+    }
 
-    const bookingsData = await Booking.find(query)
+    const safeStart = startDate ? startDate.trim() : 'all';
+    const safeEnd = endDate ? endDate.trim() : 'all';
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="room_usage_${safeStart}_to_${safeEnd}.csv"`);
+
+    const headers = [
+      'Date',
+      'Day',
+      'Start Time',
+      'End Time',
+      'Room',
+      'Building',
+      'Floor',
+      'Department',
+      'Faculty Name',
+      'Faculty Email',
+      'Purpose',
+      'Status'
+    ];
+
+    res.write(headers.map(escapeCsv).join(',') + '\n');
+
+    // Streaming cursor: avoids holding entire 5+ years of records in memory
+    const cursor = Booking.find(query)
       .populate('roomId', 'name building floor')
       .sort({ date: 1, startTime: 1 })
-      .lean();
+      .lean()
+      .cursor();
 
-    // Format as CSV
-    const headers = ['Date', 'Day', 'Start Time', 'End Time', 'Room', 'Department', 'Faculty Name', 'Faculty Email', 'Purpose', 'Status'];
-    
-    const csvRows = [headers.join(',')];
-    
-    bookingsData.forEach(entry => {
-      const roomName = entry.roomId?.name || 'Unknown Room';
-            // Escape commas in text fields
-      const purpose = (entry.purpose || '').replace(/,/g, ' ');
-      
+    for await (const entry of cursor) {
+      const roomName = entry.roomId?.name || 'Classroom';
+      const building = entry.roomId?.building || '-';
+      const floor = entry.roomId?.floor !== undefined && entry.roomId?.floor !== null ? String(entry.roomId.floor) : '-';
+
       const row = [
-        entry.date,
-        entry.day,
-        entry.startTime,
-        entry.endTime,
-        `"${roomName}"`,
-        roomNum,
-        `"${entry.department}"`,
-        `"${entry.facultyName}"`,
-        entry.facultyEmail,
-        `"${purpose}"`,
-        entry.status
+        escapeCsv(entry.date),
+        escapeCsv(entry.day),
+        escapeCsv(entry.startTime),
+        escapeCsv(entry.endTime),
+        escapeCsv(roomName),
+        escapeCsv(building),
+        escapeCsv(floor),
+        escapeCsv(entry.department || '-'),
+        escapeCsv(entry.facultyName || '-'),
+        escapeCsv(entry.facultyEmail || '-'),
+        escapeCsv(entry.purpose || '-'),
+        escapeCsv(entry.status || '-')
       ];
-      csvRows.push(row.join(','));
-    });
 
-    const csvString = csvRows.join('\n');
-    
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="room_usage_report.csv"`);
-    res.status(200).send(csvString);
+      res.write(row.join(',') + '\n');
+    }
+
+    res.end();
   } catch (error) {
     console.error('❌ [BOOKING] generateBookingReport error:', error);
-    res.status(500).json({ success: false, message: error.message });
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, message: error.message || 'Error generating booking report' });
+    }
+  }
+};
+
+// ---------- GENERATE ROOM UTILIZATION & ANALYTICS REPORT (CSV) ----------
+exports.generateRoomUtilizationReport = async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN' && req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ success: false, message: 'Only Admins can generate this report' });
+    }
+
+    const { startDate, endDate, department, roomId } = req.query;
+
+    // 1. Fetch relevant rooms
+    const roomQuery = { isActive: true };
+    if (department && department !== 'ALL') roomQuery.department = department.trim();
+    if (roomId && roomId !== 'ALL' && mongoose.Types.ObjectId.isValid(roomId)) {
+      roomQuery._id = roomId;
+    }
+
+    const rooms = await Room.find(roomQuery).sort({ department: 1, name: 1 }).lean();
+
+    // Map to hold aggregated statistics per room
+    const statsMap = new Map();
+    for (const r of rooms) {
+      statsMap.set(r._id.toString(), {
+        name: r.name || 'Classroom',
+        building: r.building || '-',
+        floor: r.floor !== undefined && r.floor !== null ? String(r.floor) : '-',
+        department: r.department || '-',
+        type: r.type || 'Classroom',
+        capacity: r.capacity !== undefined ? String(r.capacity) : '-',
+        totalBookings: 0,
+        totalMinutes: 0,
+        uniqueDates: new Set(),
+        facultySet: new Set(),
+        purposes: {},
+      });
+    }
+
+    // 2. Query matching bookings
+    const bookingQuery = {
+      status: { $in: ['active', 'completed'] },
+      purpose: { $ne: 'TEMPORARY_LOCK' }
+    };
+
+    if (startDate || endDate) {
+      bookingQuery.date = {};
+      if (startDate && startDate.trim()) bookingQuery.date.$gte = startDate.trim();
+      if (endDate && endDate.trim()) bookingQuery.date.$lte = endDate.trim();
+    }
+
+    if (department && department !== 'ALL') bookingQuery.department = department.trim();
+    if (roomId && roomId !== 'ALL' && mongoose.Types.ObjectId.isValid(roomId)) {
+      bookingQuery.roomId = roomId;
+    }
+
+    // Streaming cursor to process large multi-year date ranges safely
+    const cursor = Booking.find(bookingQuery).lean().cursor();
+
+    for await (const b of cursor) {
+      const rId = b.roomId ? b.roomId.toString() : null;
+      if (!rId) continue;
+
+      let entry = statsMap.get(rId);
+      if (!entry) {
+        entry = {
+          name: 'Classroom (Decommissioned)',
+          building: '-',
+          floor: '-',
+          department: b.department || '-',
+          type: 'Classroom',
+          capacity: '-',
+          totalBookings: 0,
+          totalMinutes: 0,
+          uniqueDates: new Set(),
+          facultySet: new Set(),
+          purposes: {},
+        };
+        statsMap.set(rId, entry);
+      }
+
+      entry.totalBookings += 1;
+      if (b.date) entry.uniqueDates.add(b.date);
+      if (b.facultyEmail || b.facultyName) entry.facultySet.add(b.facultyEmail || b.facultyName);
+
+      if (b.startTime && b.endTime) {
+        const [sh, sm] = b.startTime.split(':').map(Number);
+        const [eh, em] = b.endTime.split(':').map(Number);
+        const diff = (eh * 60 + em) - (sh * 60 + sm);
+        if (diff > 0) entry.totalMinutes += diff;
+      }
+
+      const p = (b.purpose || 'General').trim();
+      entry.purposes[p] = (entry.purposes[p] || 0) + 1;
+    }
+
+    const safeStart = startDate ? startDate.trim() : 'all';
+    const safeEnd = endDate ? endDate.trim() : 'all';
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="room_utilization_${safeStart}_to_${safeEnd}.csv"`);
+
+    const headers = [
+      'Room Name',
+      'Building',
+      'Floor',
+      'Department',
+      'Room Type',
+      'Capacity (Seats)',
+      'Total Bookings Count',
+      'Total Hours Utilized',
+      'Unique Days Utilized',
+      'Avg Duration Per Booking (Hours)',
+      'Unique Faculty Count',
+      'Primary Booking Purpose'
+    ];
+
+    res.write(headers.map(escapeCsv).join(',') + '\n');
+
+    for (const stats of statsMap.values()) {
+      const totalHours = (stats.totalMinutes / 60).toFixed(2);
+      const avgDuration = stats.totalBookings > 0
+        ? (stats.totalMinutes / 60 / stats.totalBookings).toFixed(2)
+        : '0.00';
+
+      const topPurpose = Object.entries(stats.purposes).sort((a, b) => b[1] - a[1])[0]?.[0] || 'None';
+
+      const row = [
+        escapeCsv(stats.name),
+        escapeCsv(stats.building),
+        escapeCsv(stats.floor),
+        escapeCsv(stats.department),
+        escapeCsv(stats.type),
+        escapeCsv(stats.capacity),
+        escapeCsv(stats.totalBookings),
+        escapeCsv(totalHours),
+        escapeCsv(stats.uniqueDates.size),
+        escapeCsv(avgDuration),
+        escapeCsv(stats.facultySet.size),
+        escapeCsv(topPurpose)
+      ];
+
+      res.write(row.join(',') + '\n');
+    }
+
+    res.end();
+  } catch (error) {
+    console.error('❌ [BOOKING] generateRoomUtilizationReport error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, message: error.message || 'Error generating utilization report' });
+    }
   }
 };

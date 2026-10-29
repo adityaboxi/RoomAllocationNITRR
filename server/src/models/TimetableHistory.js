@@ -56,5 +56,7 @@ const TimetableHistorySchema = new mongoose.Schema(
 // High-Performance Query Index for Reports
 TimetableHistorySchema.index({ validFrom: 1, validTo: 1 });
 TimetableHistorySchema.index({ department: 1, validFrom: 1 });
+TimetableHistorySchema.index({ roomId: 1, validFrom: 1, validTo: 1 });
+TimetableHistorySchema.index({ department: 1, validFrom: 1, validTo: 1 });
 
 module.exports = mongoose.model('TimetableHistory', TimetableHistorySchema);

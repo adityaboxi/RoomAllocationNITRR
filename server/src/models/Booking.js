@@ -102,6 +102,8 @@ BookingSchema.index(
 );
 BookingSchema.index({ facultyEmail: 1, status: 1, date: -1 });
 BookingSchema.index({ department: 1, status: 1, date: 1 });
+BookingSchema.index({ roomId: 1, date: 1, status: 1 });
+BookingSchema.index({ date: 1, status: 1, department: 1 });
 BookingSchema.index({ roomId: 1, date: 1, status: 1, startTime: 1, endTime: 1 });
 
 // SAFE PARTIAL TTL INDEX: Auto-deletes temporary checkout locks after 5 minutes

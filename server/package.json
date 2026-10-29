@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "nodemon src/index.js"
+    "dev": "nodemon src/index.js",
+    "seed": "node src/scripts/seedUsers.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

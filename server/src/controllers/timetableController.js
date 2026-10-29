@@ -780,23 +780,27 @@ exports.updateRoomDayTimetable = async (req, res) => {
       }
     }
 
-    // 3. Deactivate previous slots ONLY for the matching (roomId, day, semester, section)
+    // 3. Archive and clear previous slots ONLY for the matching (roomId, day, semester, section)
     const distinctPairs = [
       ...new Set(validatedEntries.map((e) => `${e.semester}__${e.section}`)),
     ];
 
     for (const pair of distinctPairs) {
       const [sem, sec] = pair.split('__');
-      await Timetable.updateMany(
-        {
-          roomId: room._id,
-          day: day.trim(),
-          semester: sem,
-          section: sec,
-          isActive: true,
-        },
-        { $set: { isActive: false }, $inc: { version: 1 } }
-      );
+      const oldSlots = await Timetable.find({
+        roomId: room._id,
+        day: day.trim(),
+        semester: sem,
+        section: sec,
+        isActive: true,
+      });
+
+      if (oldSlots && oldSlots.length > 0) {
+        await archiveTimetableEntries(oldSlots, 'ROOM_DAY_UPDATE', req.user._id || req.user.id);
+        await Timetable.deleteMany({
+          _id: { $in: oldSlots.map((s) => s._id) }
+        });
+      }
     }
 
     let created = [];
@@ -1241,61 +1245,343 @@ exports.generateTimetableReport = async (req, res) => {
     }
 
     const { targetDate, department, roomId, semester, day } = req.query;
-    
-    // Parse target date or default to now
+
+    // Parse target date or default to current moment
     let snapshotTime = new Date();
-    if (targetDate) {
-      snapshotTime = new Date(targetDate);
-      snapshotTime.setHours(23, 59, 59, 999); // End of the target day
+    if (targetDate && targetDate.trim()) {
+      const parsed = new Date(targetDate.trim());
+      if (!isNaN(parsed.getTime())) {
+        snapshotTime = parsed;
+        snapshotTime.setHours(23, 59, 59, 999); // End of the target day
+      }
     }
 
-    const query = {
+    // Historical query: slots that were valid at snapshotTime
+    const historyQuery = {
       validFrom: { $lte: snapshotTime },
       $or: [
         { validTo: null },
-        { validTo: { $gt: snapshotTime } }
-      ]
+        { validTo: { $gt: snapshotTime } },
+      ],
     };
 
-    if (department && department !== 'ALL') query.department = department.trim();
-    if (roomId && roomId !== 'ALL') query.roomId = roomId;
-    if (semester && semester !== 'ALL') query.semester = semester.trim();
-    if (day && day !== 'ALL') query.day = day.trim();
+    // Live query: slots that were created on or before snapshotTime and remain active
+    const liveQuery = {
+      isActive: true,
+      createdAt: { $lte: snapshotTime },
+    };
 
-    const timetableData = await TimetableHistory.find(query)
-      .populate('roomId', 'name building floor')
-      .sort({ day: 1, startTime: 1 })
-      .lean();
+    if (department && department !== 'ALL') {
+      historyQuery.department = department.trim();
+      liveQuery.department = department.trim();
+    }
+    if (roomId && roomId !== 'ALL' && mongoose.Types.ObjectId.isValid(roomId)) {
+      historyQuery.roomId = roomId;
+      liveQuery.roomId = roomId;
+    }
+    if (semester && semester !== 'ALL') {
+      historyQuery.semester = semester.trim();
+      liveQuery.semester = semester.trim();
+    }
+    if (day && day !== 'ALL') {
+      historyQuery.day = day.trim();
+      liveQuery.day = day.trim();
+    }
+
+    // Fetch both historical records and currently active records in parallel
+    const [historyEntries, liveEntries] = await Promise.all([
+      TimetableHistory.find(historyQuery)
+        .populate('roomId', 'name building floor department')
+        .lean(),
+      Timetable.find(liveQuery)
+        .populate('roomId', 'name building floor department')
+        .lean(),
+    ]);
+
+    // Merge and deduplicate by slot key
+    const slotMap = new Map();
+
+    // 1. Add active live slots created on or before snapshotTime
+    for (const entry of liveEntries) {
+      const rId = entry.roomId?._id ? entry.roomId._id.toString() : String(entry.roomId || '');
+      const key = `${rId}_${entry.day}_${entry.startTime}_${entry.endTime}_${entry.semester}_${entry.section}`;
+      slotMap.set(key, entry);
+    }
+
+    // 2. Overlay historical snapshot records valid on snapshotTime (takes precedence for historical state)
+    for (const entry of historyEntries) {
+      const rId = entry.roomId?._id ? entry.roomId._id.toString() : String(entry.roomId || '');
+      const key = `${rId}_${entry.day}_${entry.startTime}_${entry.endTime}_${entry.semester}_${entry.section}`;
+      slotMap.set(key, entry);
+    }
+
+    const mergedEntries = Array.from(slotMap.values());
+
+    // Sort by logical day order, then time, then room
+    const DAY_ORDER = {
+      Monday: 1,
+      Tuesday: 2,
+      Wednesday: 3,
+      Thursday: 4,
+      Friday: 5,
+      Saturday: 6,
+      Sunday: 7,
+    };
+
+    mergedEntries.sort((a, b) => {
+      const dayDiff = (DAY_ORDER[a.day] || 99) - (DAY_ORDER[b.day] || 99);
+      if (dayDiff !== 0) return dayDiff;
+      const timeDiff = (a.startTime || '').localeCompare(b.startTime || '');
+      if (timeDiff !== 0) return timeDiff;
+      const roomA = a.roomId?.name || '';
+      const roomB = b.roomId?.name || '';
+      return roomA.localeCompare(roomB);
+    });
+
+    // RFC 4180 CSV escaping helper
+    const escapeCsv = (val) => {
+      if (val === null || val === undefined) return '""';
+      const str = String(val).trim();
+      return `"${str.replace(/"/g, '""')}"`;
+    };
 
     // Format as CSV
-    const headers = ['Day', 'Start Time', 'End Time', 'Room', 'Department', 'Subject', 'Faculty', 'Semester', 'Section'];
-    
-    const csvRows = [headers.join(',')];
-    
-    timetableData.forEach(entry => {
-      const roomName = entry.roomId?.name || 'Unknown Room';
-            const row = [
-        entry.day,
-        entry.startTime,
-        entry.endTime,
-        `"${roomName}"`,
-        roomNum,
-        `"${entry.department}"`,
-        `"${entry.subject}"`,
-        `"${entry.faculty}"`,
-        entry.semester,
-        entry.section
+    const headers = [
+      'Day',
+      'Start Time',
+      'End Time',
+      'Room',
+      'Building',
+      'Floor',
+      'Department',
+      'Subject',
+      'Faculty',
+      'Faculty Email',
+      'Semester',
+      'Section',
+      'Class Group',
+    ];
+
+    const csvRows = [headers.map(escapeCsv).join(',')];
+
+    mergedEntries.forEach((entry) => {
+      const roomName = entry.roomId?.name || 'Classroom';
+      const building = entry.roomId?.building || '-';
+      const floor = entry.roomId?.floor !== undefined && entry.roomId?.floor !== null ? String(entry.roomId.floor) : '-';
+
+      const row = [
+        escapeCsv(entry.day),
+        escapeCsv(entry.startTime),
+        escapeCsv(entry.endTime),
+        escapeCsv(roomName),
+        escapeCsv(building),
+        escapeCsv(floor),
+        escapeCsv(entry.department || '-'),
+        escapeCsv(entry.subject || '-'),
+        escapeCsv(entry.faculty || '-'),
+        escapeCsv(entry.facultyEmail || '-'),
+        escapeCsv(entry.semester || '-'),
+        escapeCsv(entry.section || '-'),
+        escapeCsv(entry.classGroup || '-'),
       ];
       csvRows.push(row.join(','));
     });
 
     const csvString = csvRows.join('\n');
-    
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="timetable_report_${targetDate || 'current'}.csv"`);
+    const safeDate = targetDate && targetDate.trim() ? targetDate.trim() : 'current';
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="timetable_blueprint_${safeDate}.csv"`);
     res.status(200).send(csvString);
   } catch (error) {
     console.error('❌ [TIMETABLE] generateTimetableReport error:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: error.message || 'Error generating timetable report' });
+  }
+};
+
+// ---------- COMPREHENSIVE ROOM SCHEDULE & BOOKING AUDIT CSV (OPTIMIZED STREAMING) ----------
+exports.generateRoomScheduleAuditReport = async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN' && req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ success: false, message: 'Only Admins can generate this audit report' });
+    }
+
+    const { roomId, targetDate, startDate, endDate, year, department } = req.query;
+
+    // 1. Resolve date boundaries (supports single date, year, or custom multi-year range)
+    let effectiveStart;
+    let effectiveEnd;
+
+    if (year && String(year).trim().length === 4) {
+      const y = String(year).trim();
+      effectiveStart = `${y}-01-01`;
+      effectiveEnd = `${y}-12-31`;
+    } else if (targetDate && targetDate.trim()) {
+      effectiveStart = targetDate.trim();
+      effectiveEnd = targetDate.trim();
+    } else if (startDate || endDate) {
+      effectiveStart = startDate ? startDate.trim() : '2020-01-01';
+      effectiveEnd = endDate ? endDate.trim() : new Date().toISOString().split('T')[0];
+    } else {
+      // Default to past 1 year up to today
+      effectiveStart = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      effectiveEnd = new Date().toISOString().split('T')[0];
+    }
+
+    // 2. Resolve room(s)
+    const roomFilter = { isActive: true };
+    if (roomId && roomId !== 'ALL' && mongoose.Types.ObjectId.isValid(roomId)) {
+      roomFilter._id = roomId;
+    }
+    if (department && department !== 'ALL') {
+      roomFilter.department = department.trim();
+    }
+
+    const rooms = await Room.find(roomFilter).lean();
+    if (!rooms || rooms.length === 0) {
+      return res.status(404).json({ success: false, message: 'No rooms found matching the criteria.' });
+    }
+
+    // Build room map for O(1) lookup
+    const roomMap = new Map();
+    for (const r of rooms) {
+      roomMap.set(r._id.toString(), r);
+    }
+    const targetRoomIds = Array.from(roomMap.keys());
+
+    // 3. RFC 4180 CSV escaping helper
+    const escapeCsv = (val) => {
+      if (val === null || val === undefined) return '""';
+      const str = String(val).trim();
+      return `"${str.replace(/"/g, '""')}"`;
+    };
+
+    // CSV Headers
+    const headers = [
+      'Date',
+      'Day',
+      'Time Slot',
+      'Room Name',
+      'Building',
+      'Floor',
+      'Allocation Type',
+      'Schedule Status',
+      'Branch / Department',
+      'Faculty / Booked By',
+      'Faculty Email',
+      'Course Subject / Purpose',
+      'Semester',
+      'Section',
+      'Booking Status'
+    ];
+
+    const safeFilename = `room_audit_${effectiveStart}_to_${effectiveEnd}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
+
+    res.write(headers.map(escapeCsv).join(',') + '\n');
+
+    // 4. Pre-fetch timetable slots for target rooms to enable O(1) schedule classification
+    const timetableSlots = await Timetable.find({
+      roomId: { $in: targetRoomIds },
+      isActive: true,
+    }).lean();
+
+    // Map: roomId_day_slotKey -> timetable slot
+    const scheduledSlotMap = new Map();
+    for (const slot of timetableSlots) {
+      const key = `${slot.roomId.toString()}_${slot.day}_${slot.startTime}-${slot.endTime}`;
+      scheduledSlotMap.set(key, slot);
+    }
+
+    // If single day is requested, also stream the scheduled timetable classes for that day
+    const isSingleDay = effectiveStart === effectiveEnd;
+    if (isSingleDay) {
+      const requestedDayOfWeek = getDayOfWeek(effectiveStart);
+
+      for (const slot of timetableSlots) {
+        if (slot.day === requestedDayOfWeek) {
+          const roomObj = roomMap.get(slot.roomId.toString()) || {};
+          const row = [
+            escapeCsv(effectiveStart),
+            escapeCsv(slot.day),
+            escapeCsv(`${slot.startTime} - ${slot.endTime}`),
+            escapeCsv(roomObj.name || 'Classroom'),
+            escapeCsv(roomObj.building || '-'),
+            escapeCsv(roomObj.floor !== undefined ? String(roomObj.floor) : '-'),
+            escapeCsv('OFFICIAL_TIMETABLE_CLASS'),
+            escapeCsv('Inside Timetable Schedule (Regular Academic Class)'),
+            escapeCsv(slot.department || roomObj.department || '-'),
+            escapeCsv(slot.faculty || '-'),
+            escapeCsv(slot.facultyEmail || '-'),
+            escapeCsv(slot.subject || '-'),
+            escapeCsv(slot.semester || '-'),
+            escapeCsv(slot.section || '-'),
+            escapeCsv('SCHEDULED')
+          ];
+          res.write(row.join(',') + '\n');
+        }
+      }
+    }
+
+    // 5. Stream Bookings using cursor (O(1) memory, O(B) streaming with zero nested loops)
+    const bookingQuery = {
+      roomId: { $in: targetRoomIds },
+      date: { $gte: effectiveStart, $lte: effectiveEnd },
+      status: { $in: ['active', 'completed'] },
+      purpose: { $ne: 'TEMPORARY_LOCK' }
+    };
+
+    const bookingsCursor = Booking.find(bookingQuery)
+      .sort({ date: 1, startTime: 1 })
+      .lean()
+      .cursor();
+
+    for await (const b of bookingsCursor) {
+      const roomObj = roomMap.get(b.roomId?.toString()) || {};
+      const slotKey = `${b.roomId?.toString()}_${b.day}_${b.startTime}-${b.endTime}`;
+      const isOfficialClassSlot = scheduledSlotMap.has(slotKey);
+
+      let scheduleStatus;
+      if (isOfficialClassSlot) {
+        scheduleStatus = 'Ad-Hoc Booking Over Scheduled Slot (Authorized Replacement)';
+      } else if (b.startTime < '08:10' || b.endTime > '18:20') {
+        scheduleStatus = 'Out of Timetable Schedule (Early Morning / After-Hours Extra Slot)';
+      } else if (
+        (b.startTime >= '13:10' && b.startTime < '14:10') ||
+        (b.endTime > '13:10' && b.endTime <= '14:10')
+      ) {
+        scheduleStatus = 'Out of Timetable Schedule (Lunch Break Extra Hour)';
+      } else {
+        scheduleStatus = 'Inside Academic Hours (Free Slot Booking)';
+      }
+
+      const row = [
+        escapeCsv(b.date),
+        escapeCsv(b.day || getDayOfWeek(b.date)),
+        escapeCsv(`${b.startTime} - ${b.endTime}`),
+        escapeCsv(roomObj.name || 'Classroom'),
+        escapeCsv(roomObj.building || '-'),
+        escapeCsv(roomObj.floor !== undefined ? String(roomObj.floor) : '-'),
+        escapeCsv('AD_HOC_BOOKING'),
+        escapeCsv(scheduleStatus),
+        escapeCsv(b.department || '-'), // Professor's Department
+        escapeCsv(b.facultyName || '-'),
+        escapeCsv(b.facultyEmail || '-'),
+        escapeCsv(b.purpose || '-'),
+        escapeCsv('-'),
+        escapeCsv('-'),
+        escapeCsv(b.status || 'active')
+      ];
+
+      res.write(row.join(',') + '\n');
+    }
+
+    res.end();
+  } catch (error) {
+    console.error('❌ [TIMETABLE] generateRoomScheduleAuditReport error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, message: error.message || 'Error generating audit report' });
+    }
   }
 };

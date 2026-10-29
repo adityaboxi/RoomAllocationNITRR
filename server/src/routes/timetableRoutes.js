@@ -13,12 +13,14 @@ const {
   updateTimetableEntry,
   deleteTimetableEntry,
   generateTimetableReport,
+  generateRoomScheduleAuditReport,
 } = require('../controllers/timetableController');
 
 // All timetable routes require authentication
 router.use(protect);
 
 // Query Endpoints
+router.get('/report/room-audit/csv', generateRoomScheduleAuditReport);
 router.get('/report/csv', generateTimetableReport);
 router.get('/', getTimetable);
 router.get('/department/:department', getTimetableByDepartment);

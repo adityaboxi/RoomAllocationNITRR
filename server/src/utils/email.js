@@ -53,11 +53,11 @@ exports.sendOTPEmail = async (email, otp, purpose = 'forgot') => {
   </div>`;
 
   if (!transporter || isLoggingOnly) {
-    // console.log(`\n📧 [EMAIL SIMULATION] To: ${email} | Subject: ${subject} | OTP: ${otp}`);
+    console.log(`📧 [EMAIL SIMULATION] To: ${email} | Purpose: ${purpose.toUpperCase()} | OTP: ${otp}`);
     return;
   }
 
-  console.log(`🔑 [DEV-OTP-LOG] Generated OTP for ${email}: [36m${otp}[0m`);
+  console.log(`🔑 [EMAIL DISPATCH] Generated OTP for ${email}: ${otp}`);
 
   try {
     await transporter.sendMail({

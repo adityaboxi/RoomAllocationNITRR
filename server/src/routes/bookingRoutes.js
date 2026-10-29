@@ -12,12 +12,14 @@ const {
   lockRoom,
   unlockRoom,
   generateBookingReport,
+  generateRoomUtilizationReport,
 } = require('../controllers/bookingController');
 
 // All booking routes require authentication
 router.use(protect);
 
 // Booking Query Endpoints
+router.get('/report/utilization/csv', generateRoomUtilizationReport);
 router.get('/report/csv', generateBookingReport);
 router.get('/', getBookings);
 router.get('/my', getMyBookings);
