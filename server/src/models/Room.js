@@ -79,6 +79,22 @@ const RoomSchema = new mongoose.Schema(
       trim: true,
       default: 'Department Admin',
     },
+    issues: [
+      {
+        issueType: {
+          type: String,
+          enum: ['Projector Down', 'AC Not Working', 'Audio / Mic Issue', 'Cleanliness / Maintenance', 'Power / Lighting', 'Other'],
+          required: true,
+        },
+        description: { type: String, trim: true, default: '' },
+        reportedBy: { type: String, required: true },
+        reportedByName: { type: String, default: '' },
+        reportedAt: { type: Date, default: Date.now },
+        status: { type: String, enum: ['OPEN', 'RESOLVED'], default: 'OPEN', index: true },
+        resolvedAt: { type: Date },
+        resolvedBy: { type: String },
+      },
+    ],
   },
   {
     timestamps: true,

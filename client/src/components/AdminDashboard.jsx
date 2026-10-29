@@ -14,7 +14,7 @@ const normalizeFloor = (floorVal) => {
   return String(floorVal).trim();
 };
 
-import { getRooms, createRoom, updateRoom, deleteRoom, getDepartments, getAllRoomsStatus, getAllUsers, deleteUser } from '../services/api';
+import { getRooms, createRoom, updateRoom, deleteRoom, getDepartments, getAllRoomsStatus, getAllUsers, deleteUser, resolveRoomIssue } from '../services/api';
 import { Building2, Plus, Edit2, Trash2, Eye, EyeOff, AlertTriangle, Loader2, X, CheckSquare, Square, Activity, Clock, Users, Search, Filter, RotateCcw, RefreshCw, RefreshCcw, Calendar, Palmtree, FileSpreadsheet, Terminal } from 'lucide-react';
 import { getSocket, onUserRegistered, offUserRegistered, onUserDeleted, offUserDeleted } from '../services/socket';
 import TimetableManager from './hod/TimetableManager';
@@ -990,6 +990,26 @@ export default function AdminDashboard({ user, onLogout }) {
                       {room.hasSmartBoard && <span className="bg-slate-50 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">🖥️ SmartBoard</span>}
                       {room.hasWiFi && <span className="bg-slate-50 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">📶 Wi-Fi</span>}
                     </div>
+
+                    {/* Open Equipment Issue Alert with 1-click Resolve */}
+                    {Array.isArray(room.issues) && room.issues.filter((i) => i.status === 'OPEN').map((iss) => (
+                      <div key={iss._id || iss.id} className="mt-2.5 p-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 font-medium">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span><strong>{iss.issueType}</strong>: {iss.description || 'Reported by faculty'}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await resolveRoomIssue(room.id || room._id, iss._id || iss.id);
+                            fetchAdminRooms();
+                          }}
+                          className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-600 hover:bg-amber-700 text-white transition shrink-0"
+                        >
+                          Mark Fixed
+                        </button>
+                      </div>
+                    ))}
                   </div>
 
                   <div className="flex gap-1.5 flex-shrink-0">

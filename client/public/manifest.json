@@ -1,0 +1,24 @@
+{
+  "name": "NIT Raipur Room Allocation & Scheduling System",
+  "short_name": "NITRR Rooms",
+  "description": "Enterprise Academic Classroom Allocation & Facility Management for NIT Raipur",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#0f172a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/nitrr_new_logo_new.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/nitrr_new_logo_new.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

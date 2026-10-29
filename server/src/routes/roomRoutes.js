@@ -14,6 +14,9 @@ const {
   toggleRoomAvailability,
   deleteRoom,
   getRoomAvailability,
+  getInstantAvailableRooms,
+  reportRoomIssue,
+  resolveRoomIssue,
 } = require('../controllers/roomController');
 
 // All room routes require authentication
@@ -21,6 +24,7 @@ router.use(protect);
 
 // Query Endpoints
 router.get('/', getRooms);
+router.get('/instant-available', getInstantAvailableRooms);
 router.get('/available', getAvailableRooms);
 router.get('/status', getAllRoomsStatus);
 router.get('/floors', getRoomsByFloor);
@@ -29,10 +33,12 @@ router.get('/department/:department', getRoomsByDepartment);
 router.get('/:roomId/availability', getRoomAvailability);
 router.get('/:id', getRoom);
 
-// Modification Endpoints (Creator or HOD verified in controller)
+// Modification & Issue Endpoints
 router.post('/', createRoom);
-router.put('/:id', updateRoom);
+router.post('/:id/report-issue', reportRoomIssue);
+router.put('/:id/resolve-issue/:issueId', resolveRoomIssue);
 router.put('/:id/toggle', toggleRoomAvailability);
+router.put('/:id', updateRoom);
 router.delete('/:id', deleteRoom);
 
 module.exports = router;

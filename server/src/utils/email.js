@@ -105,13 +105,34 @@ exports.sendBookingConfirmationEmail = async (booking) => {
   }
 
   try {
+    const { generateIcsContent } = require('./calendarIcs');
+    const icsData = generateIcsContent({
+      bookingId: booking._id || booking.id,
+      roomName,
+      building,
+      floor,
+      date: booking.date,
+      startTime: booking.startTime,
+      endTime: booking.endTime,
+      purpose: booking.purpose,
+      facultyName: booking.facultyName,
+      facultyEmail: booking.facultyEmail,
+    });
+
     await transporter.sendMail({
       from: getSenderAddress(),
       to: booking.facultyEmail,
       subject: `✅ Booking Confirmed: ${roomName} (${booking.date})`,
       html,
+      attachments: [
+        {
+          filename: `invite-${String(roomName).replace(/\s+/g, '_')}.ics`,
+          content: icsData,
+          contentType: 'text/calendar; charset=utf-8; method=REQUEST',
+        },
+      ],
     });
-    console.log(`📧 [EMAIL] Booking confirmation sent to ${booking.facultyEmail}`);
+    console.log(`📧 [EMAIL] Booking confirmation & calendar invite sent to ${booking.facultyEmail}`);
   } catch (error) {
     console.error(`❌ [EMAIL ERROR] Failed sending booking confirmation to ${booking.facultyEmail}:`, error.message);
   }

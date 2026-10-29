@@ -25,6 +25,8 @@ const getFloorRegex = (floorVal) => {
   return new RegExp(`^${escapeRegex(f)}$`, 'i');
 };
 
+
+
 const getTodayDateString = () => {
   const now = new Date();
   const year = now.getFullYear();
@@ -1051,6 +1053,184 @@ exports.getRoomAvailability = async (req, res) => {
 
     res.json({ success: true, available: true, message: 'Room is available' });
   } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ---------- ⚡ INSTANT AVAILABLE ROOM FINDER (1-Click Free Room Right Now) ----------
+exports.getInstantAvailableRooms = async (req, res) => {
+  try {
+    const userDept = req.query.department || req.user?.department || '';
+    const durationMinutes = parseInt(req.query.duration, 10) || 60;
+
+    // Current Date and Time in IST
+    const now = new Date();
+    // Convert to IST
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    const istTime = new Date(now.getTime() + istOffset);
+
+    const year = istTime.getUTCFullYear();
+    const month = String(istTime.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(istTime.getUTCDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
+
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dayOfWeek = days[istTime.getUTCDay()];
+
+    const startH = istTime.getUTCHours();
+    const startM = istTime.getUTCMinutes();
+    const startTime = `${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}`;
+
+    const endTotalMinutes = startH * 60 + startM + durationMinutes;
+    const endH = Math.floor(endTotalMinutes / 60) % 24;
+    const endM = endTotalMinutes % 60;
+    const endTime = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+
+    // 1. Fetch active and available rooms
+    const allRooms = await Room.find({ isActive: true, isAvailable: true }).lean();
+    if (!allRooms.length) {
+      return res.json({ success: true, count: 0, date: dateStr, startTime, endTime, data: [] });
+    }
+
+    // 2. Fetch timetable clashes for today and slot
+    const timetableClashes = await Timetable.find({
+      day: dayOfWeek,
+      startTime: { $lt: endTime },
+      endTime: { $gt: startTime },
+    }).select('roomId subject classGroup faculty').lean();
+
+    const busyRoomIds = new Set();
+    timetableClashes.forEach((tt) => {
+      if (tt.roomId) busyRoomIds.add(tt.roomId.toString());
+    });
+
+    // 3. Fetch active booking clashes for today and slot
+    const bookingClashes = await Booking.find({
+      date: dateStr,
+      status: { $in: ['active', 'confirmed', 'APPROVED'] },
+      startTime: { $lt: endTime },
+      endTime: { $gt: startTime },
+    }).select('roomId purpose facultyName').lean();
+
+    bookingClashes.forEach((b) => {
+      if (b.roomId) busyRoomIds.add(b.roomId.toString());
+    });
+
+    // 4. Filter free rooms
+    const freeRooms = allRooms.filter((r) => !busyRoomIds.has(r._id.toString()));
+
+    // 5. Prioritize by department match, then common, then capacity
+    freeRooms.sort((a, b) => {
+      const aDeptMatch = a.department === userDept ? 2 : a.department.includes('Common') ? 1 : 0;
+      const bDeptMatch = b.department === userDept ? 2 : b.department.includes('Common') ? 1 : 0;
+      if (bDeptMatch !== aDeptMatch) return bDeptMatch - aDeptMatch;
+      return b.capacity - a.capacity;
+    });
+
+    res.json({
+      success: true,
+      count: freeRooms.length,
+      date: dateStr,
+      day: dayOfWeek,
+      startTime,
+      endTime,
+      data: freeRooms,
+    });
+  } catch (error) {
+    console.error('❌ [ROOM] getInstantAvailableRooms error:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ---------- 🚨 REPORT EQUIPMENT ISSUE (Classroom Health Tracker) ----------
+exports.reportRoomIssue = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { issueType, description } = req.body;
+
+    if (!issueType) {
+      return res.status(400).json({ success: false, message: 'Issue type is required.' });
+    }
+
+    const room = await Room.findById(id);
+    if (!room) {
+      return res.status(404).json({ success: false, message: 'Room not found.' });
+    }
+
+    const newIssue = {
+      issueType,
+      description: (description || '').trim(),
+      reportedBy: req.user?.email || 'Faculty',
+      reportedByName: req.user?.name || 'Faculty Member',
+      reportedAt: new Date(),
+      status: 'OPEN',
+    };
+
+    if (!Array.isArray(room.issues)) {
+      room.issues = [];
+    }
+
+    room.issues.push(newIssue);
+    await room.save();
+
+    // Broadcast socket alert so admin & HOD dashboards update in real time
+    try {
+      getIO().emit('room-issue-reported', {
+        roomId: room._id,
+        roomName: room.name,
+        building: room.building,
+        department: room.department,
+        issue: newIssue,
+      });
+    } catch (_) {}
+
+    res.json({
+      success: true,
+      message: `Issue "${issueType}" reported for room ${room.name}. Estate maintenance notified.`,
+      data: room.issues,
+    });
+  } catch (error) {
+    console.error('❌ [ROOM] reportRoomIssue error:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ---------- 🛠️ RESOLVE EQUIPMENT ISSUE (Admin & HOD) ----------
+exports.resolveRoomIssue = async (req, res) => {
+  try {
+    const { id, issueId } = req.params;
+
+    const room = await Room.findById(id);
+    if (!room) {
+      return res.status(404).json({ success: false, message: 'Room not found.' });
+    }
+
+    const issue = room.issues.id(issueId);
+    if (!issue) {
+      return res.status(404).json({ success: false, message: 'Issue not found on room.' });
+    }
+
+    issue.status = 'RESOLVED';
+    issue.resolvedAt = new Date();
+    issue.resolvedBy = req.user?.name || req.user?.email || 'Administrator';
+
+    await room.save();
+
+    try {
+      getIO().emit('room-issue-resolved', {
+        roomId: room._id,
+        roomName: room.name,
+        issueId,
+      });
+    } catch (_) {}
+
+    res.json({
+      success: true,
+      message: `Issue marked as resolved for room ${room.name}.`,
+      data: room.issues,
+    });
+  } catch (error) {
+    console.error('❌ [ROOM] resolveRoomIssue error:', error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 };

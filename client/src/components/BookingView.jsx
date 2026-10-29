@@ -35,6 +35,8 @@ import {
   offHolidayDeleted,
 } from '../services/socket';
 import ReviewsModal from './ReviewsModal';
+import ReportIssueModal from './ReportIssueModal';
+import { getGoogleCalendarUrl, downloadIcsFile } from '../utils/calendarHelper';
 import {
   Calendar,
   Clock,
@@ -44,6 +46,8 @@ import {
   Star,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
+  Download,
   X,
   Sparkles,
   Loader2,
@@ -295,6 +299,7 @@ export default function BookingView({ user }) {
     return Array.from(set).sort((a, b) => getFloorNumeric(a) - getFloorNumeric(b));
   }, [rooms]);
   const [myBookings, setMyBookings] = useState([]);
+  const [reportingRoom, setReportingRoom] = useState(null);
   const [initialLoading, setInitialLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [cancellingBookingId, setCancellingBookingId] = useState(null);
@@ -1434,6 +1439,13 @@ export default function BookingView({ user }) {
                       )}
                     </div>
 
+                    {room.issues && room.issues.some((i) => i.status === 'OPEN') && (
+                      <div className="mt-2.5 p-2 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-800 flex items-center gap-1.5 font-medium">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        <span>Issue: {room.issues.find((i) => i.status === 'OPEN')?.issueType}</span>
+                      </div>
+                    )}
+
                     {!available && (
                       <div className="mt-3 p-2.5 rounded-lg bg-rose-50/80 border border-rose-200/90 text-xs text-slate-800 space-y-1">
                         <div className="flex items-center justify-between">
@@ -1485,13 +1497,24 @@ export default function BookingView({ user }) {
                           {avgRating ? `${avgRating}` : '—'}
                         </span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleViewReviews(room)}
-                        className="text-xs font-medium text-mac-blue hover:text-indigo-800"
-                      >
-                        {roomReviews.length > 0 ? `${roomReviews.length} reviews` : 'Reviews'}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setReportingRoom(room)}
+                          className="text-[11px] font-medium text-amber-700 hover:text-amber-800 flex items-center gap-1"
+                          title="Report hardware issue (projector, AC, etc.)"
+                        >
+                          <AlertTriangle className="w-3 h-3 text-amber-500" /> Report Issue
+                        </button>
+                        <span className="text-slate-300">•</span>
+                        <button
+                          type="button"
+                          onClick={() => handleViewReviews(room)}
+                          className="text-xs font-medium text-mac-blue hover:text-indigo-800"
+                        >
+                          {roomReviews.length > 0 ? `${roomReviews.length} reviews` : 'Reviews'}
+                        </button>
+                      </div>
                     </div>
                   </div>
 
@@ -1690,16 +1713,37 @@ export default function BookingView({ user }) {
                       </td>
 
                       <td className="px-4 py-3 text-right">
-                        {isActive && (
-                          <button
-                            type="button"
-                            onClick={() => handleCancelBooking(bookingId)}
-                            disabled={isCancelling}
-                            className="text-xs font-bold text-rose-600 hover:text-rose-800 disabled:opacity-40"
-                          >
-                            {isCancelling ? 'Cancelling...' : 'Cancel'}
-                          </button>
-                        )}
+                        <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                          {isActive && (
+                            <>
+                              <a
+                                href={getGoogleCalendarUrl(b)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Add event to Google Calendar"
+                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 transition"
+                              >
+                                <Calendar className="w-3 h-3" /> G-Cal
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => downloadIcsFile(b)}
+                                title="Download .ics for Outlook / Apple Calendar"
+                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded border border-slate-200 transition"
+                              >
+                                <Download className="w-3 h-3" /> iCal
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleCancelBooking(bookingId)}
+                                disabled={isCancelling}
+                                className="text-xs font-bold text-rose-600 hover:text-rose-800 disabled:opacity-40 ml-1"
+                              >
+                                {isCancelling ? 'Cancelling...' : 'Cancel'}
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1715,6 +1759,18 @@ export default function BookingView({ user }) {
         <ReviewsModal
           room={selectedReviewRoom}
           onClose={() => setSelectedReviewRoom(null)}
+        />
+      )}
+
+      {/* Equipment Issue Reporter Modal */}
+      {reportingRoom && (
+        <ReportIssueModal
+          isOpen={Boolean(reportingRoom)}
+          room={reportingRoom}
+          onClose={() => setReportingRoom(null)}
+          onIssueReported={() => {
+            fetchRoomsData();
+          }}
         />
       )}
     </div>

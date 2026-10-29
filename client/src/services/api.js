@@ -176,6 +176,12 @@ export const toggleRoomAvailability = (id) => api.put(`/api/rooms/${id}/toggle`)
 export const deleteRoom = (id, adminPassword) => api.delete(`/api/rooms/${id}`, { data: { adminPassword } });
 export const getRoomAvailability = (roomId, day, time, date) =>
   api.get(`/api/rooms/${roomId}/availability`, { params: { day, time, date } });
+export const getInstantAvailableRooms = (params = {}) =>
+  api.get('/api/rooms/instant-available', { params });
+export const reportRoomIssue = (roomId, data) =>
+  api.post(`/api/rooms/${roomId}/report-issue`, data);
+export const resolveRoomIssue = (roomId, issueId) =>
+  api.put(`/api/rooms/${roomId}/resolve-issue/${issueId}`);
 
 // Timetable Endpoints
 export const getTimetable = (params = {}) => api.get('/api/timetable', { params });

@@ -20,6 +20,7 @@ const AuthPage = React.lazy(() => import('./components/AuthPage'));
 const Dashboard = React.lazy(() => import('./components/Dashboard'));
 const AdminDashboard = React.lazy(() => import('./components/AdminDashboard'));
 const NotificationCenter = React.lazy(() => import('./components/NotificationCenter'));
+const KioskDisplay = React.lazy(() => import('./components/KioskDisplay'));
 
 // Safely lazy load System Diagnostics only if present (git-ignored test script)
 const diagModules = import.meta.glob('./components/SystemDiagnostics.jsx');
@@ -326,6 +327,8 @@ function MainApp() {
               <Route path="/" element={<ProtectedRoute user={currentUser}><Dashboard user={currentUser} onLogout={handleLogout} /></ProtectedRoute>} />
               <Route path="/admin" element={<ProtectedRoute user={currentUser} requiredRole="ADMIN"><AdminDashboard user={currentUser} onLogout={handleLogout} /></ProtectedRoute>} />
               <Route path="/notifications" element={<ProtectedRoute user={currentUser}><NotificationCenter user={currentUser} notifications={notifications} setNotifications={setNotifications} onRefresh={fetchUserNotifications} /></ProtectedRoute>} />
+              <Route path="/display" element={<KioskDisplay />} />
+              <Route path="/kiosk" element={<KioskDisplay />} />
               {SystemDiagnostics && (
                 <Route path="/system-test" element={<div className="max-w-7xl mx-auto px-4 py-8"><SystemDiagnostics /></div>} />
               )}

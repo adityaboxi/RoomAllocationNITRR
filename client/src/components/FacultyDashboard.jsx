@@ -1,17 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
 import BookingView from './BookingView';
 import ReviewPopup from './ReviewPopup';
+import InstantRoomFinderModal from './InstantRoomFinderModal';
 import { getPendingReviews } from '../services/api';
 import { getSocket } from '../services/socket';
 import {
   GraduationCap,
   Star,
   CheckCircle2,
+  Zap,
+  Tv,
 } from 'lucide-react';
 
 export default function FacultyDashboard({ user }) {
   const [pendingReviews, setPendingReviews] = useState([]);
   const [activeReviewBooking, setActiveReviewBooking] = useState(null);
+  const [showInstantFinder, setShowInstantFinder] = useState(false);
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -106,10 +110,53 @@ export default function FacultyDashboard({ user }) {
         </div>
       )}
 
+      {/* Quick Action Bar for Instant Room Finder & Kiosk */}
+      <div className="bg-gradient-to-r from-blue-900/10 via-indigo-900/10 to-transparent border border-blue-200/80 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+        <div>
+          <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+            <Zap className="w-4 h-4 fill-amber-500 text-amber-500" />
+            Need an extra classroom or lab right now?
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            1-click instant booking scans today's active timetable and locks an empty room immediately.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          <a
+            href="/display"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 transition shadow-sm flex items-center gap-1.5"
+          >
+            <Tv className="w-3.5 h-3.5 text-blue-600" /> Corridor Display
+          </a>
+
+          <button
+            type="button"
+            onClick={() => setShowInstantFinder(true)}
+            className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 shadow-md shadow-blue-500/20 active:scale-95 transition flex items-center gap-1.5"
+          >
+            <Zap className="w-3.5 h-3.5 fill-white" /> Find Free Room Now
+          </button>
+        </div>
+      </div>
+
       {/* Unified Live Room Status & Booking Section */}
       <div>
         <BookingView user={user} />
       </div>
+
+      {/* Instant Free Room Finder Modal */}
+      <InstantRoomFinderModal
+        isOpen={showInstantFinder}
+        onClose={() => setShowInstantFinder(false)}
+        user={user}
+        onBookingSuccess={() => {
+          setShowInstantFinder(false);
+          window.location.reload();
+        }}
+      />
 
       {/* Review Submission Modal Popup */}
       {activeReviewBooking && (
