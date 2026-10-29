@@ -89,6 +89,11 @@ const BookingSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    reviewSkipped: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
   },
   {
     timestamps: true,

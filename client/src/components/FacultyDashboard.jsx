@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import BookingView from './BookingView';
 import ReviewPopup from './ReviewPopup';
 import InstantRoomFinderModal from './InstantRoomFinderModal';
-import { getPendingReviews } from '../services/api';
+import { getPendingReviews, skipReview } from '../services/api';
 import { getSocket } from '../services/socket';
 import {
   GraduationCap,
@@ -25,15 +25,35 @@ export default function FacultyDashboard({ user }) {
     };
   }, []);
 
+  const getSkippedIds = () => {
+    try {
+      return JSON.parse(localStorage.getItem(`nitrr_skipped_reviews_${user?.id || user?._id}`) || '[]');
+    } catch {
+      return [];
+    }
+  };
+
+  const markSkippedLocal = (bookingId) => {
+    if (!bookingId || !user) return;
+    try {
+      const skipped = getSkippedIds();
+      if (!skipped.includes(bookingId)) {
+        skipped.push(bookingId);
+        localStorage.setItem(`nitrr_skipped_reviews_${user?.id || user?._id}`, JSON.stringify(skipped));
+      }
+    } catch {}
+  };
+
   const checkPendingReviews = async () => {
     try {
       const res = await getPendingReviews();
       const list = res?.data || [];
+      const skipped = getSkippedIds();
+      const filtered = list.filter((b) => !skipped.includes(b.id || b._id));
       if (isMountedRef.current) {
-        setPendingReviews(list);
-        if (list.length > 0 && !activeReviewBooking) {
-          setActiveReviewBooking(list[0]);
-        }
+        setPendingReviews(filtered);
+        // CRITICAL: NEVER auto-popup uninvitedly on interval loop!
+        // Only show the polite banner so user can click "Review Now" if they wish.
       }
     } catch (err) {
       console.error('Failed to fetch pending reviews in FacultyDashboard:', err);
@@ -47,7 +67,7 @@ export default function FacultyDashboard({ user }) {
         if (isMountedRef.current) {
           checkPendingReviews();
         }
-      }, 20000);
+      }, 30000);
 
       return () => clearInterval(interval);
     }
@@ -79,13 +99,25 @@ export default function FacultyDashboard({ user }) {
     };
   }, []);
 
-  const handleReviewSubmitted = () => {
+  const handleReviewSubmitted = (result) => {
+    const bId = (typeof result === 'string' ? result : result?.bookingId) || (activeReviewBooking ? (activeReviewBooking.id || activeReviewBooking._id) : null);
+    if (bId) markSkippedLocal(bId);
     setActiveReviewBooking(null);
     checkPendingReviews();
   };
 
-  const handleSkipReview = () => {
+  const handleSkipReview = async (bookingId) => {
+    const bId = (typeof bookingId === 'string' ? bookingId : bookingId?.bookingId) || (activeReviewBooking ? (activeReviewBooking.id || activeReviewBooking._id) : null);
+    if (bId) {
+      markSkippedLocal(bId);
+      try {
+        await skipReview(bId);
+      } catch (e) {
+        console.warn('Skip review failed on backend:', e);
+      }
+    }
     setActiveReviewBooking(null);
+    checkPendingReviews();
   };
 
   return (

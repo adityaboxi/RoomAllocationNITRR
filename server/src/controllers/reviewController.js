@@ -51,6 +51,7 @@ exports.getPendingReviews = async (req, res) => {
     const candidateBookings = await Booking.find({
       facultyEmail: req.user.email,
       status: { $in: ['active', 'completed'] },
+      reviewSkipped: { $ne: true },
       _id: { $nin: reviewedBookingIds },
       date: { $lte: todayStr, $gte: lookbackDateStr },
     })
@@ -213,6 +214,35 @@ exports.getMyReviews = async (req, res) => {
     });
   } catch (error) {
     console.error("❌ [REVIEW]", 'Get my reviews error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ---------- SKIP REVIEW (PERMANENTLY SUPPRESS POPUP) ----------
+exports.skipReview = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
+      return res.status(400).json({ success: false, message: 'Invalid booking ID format' });
+    }
+
+    const booking = await Booking.findById(bookingId);
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Booking not found' });
+    }
+
+    // Must be owner or admin
+    if (booking.facultyEmail !== req.user.email && req.user.role !== 'ADMIN') {
+      return res.status(403).json({ success: false, message: 'Unauthorized to skip this review' });
+    }
+
+    booking.reviewSkipped = true;
+    await booking.save();
+
+    console.log(`⏩ [REVIEW] Booking ${bookingId} marked as reviewSkipped by ${req.user.email}`);
+    res.json({ success: true, message: 'Review skipped successfully and suppressed from reminders.' });
+  } catch (error) {
+    console.error("❌ [REVIEW]", 'Skip review error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

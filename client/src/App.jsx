@@ -7,7 +7,7 @@ import {
   onTimetableUpdated, offTimetableUpdated, onRoomDeleted, offRoomDeleted, onHolidayAdded, offHolidayAdded,
   onHolidayDeleted, offHolidayDeleted,
 } from './services/socket';
-import { getPendingReviews, getNotifications, getMe } from './services/api';
+import { getPendingReviews, getNotifications, getMe, skipReview } from './services/api';
 import NetworkBanner from './components/NetworkBanner';
 import { Loader2, RefreshCcw, AlertTriangle } from 'lucide-react';
 
@@ -185,22 +185,48 @@ function MainApp() {
   }, [currentUser]);
 
   const fetchingReviewsRef = useRef(false);
+  const hasDismissedPopupThisSession = useRef(false);
 
-  const fetchPendingReviews = useCallback(async () => {
+  const getSkippedReviewIds = (userId) => {
+    if (!userId) return [];
+    try {
+      return JSON.parse(localStorage.getItem(`nitrr_skipped_reviews_${userId}`) || '[]');
+    } catch {
+      return [];
+    }
+  };
+
+  const markReviewAsSkippedLocal = (userId, bookingId) => {
+    if (!userId || !bookingId) return;
+    try {
+      const list = getSkippedReviewIds(userId);
+      if (!list.includes(bookingId)) {
+        list.push(bookingId);
+        localStorage.setItem(`nitrr_skipped_reviews_${userId}`, JSON.stringify(list));
+      }
+    } catch (err) {
+      console.warn('Failed saving skipped review to localStorage:', err);
+    }
+  };
+
+  const fetchPendingReviews = useCallback(async (isInitial = false) => {
     if (!currentUser || currentUser.role === 'ADMIN' || fetchingReviewsRef.current) return;
     fetchingReviewsRef.current = true;
     try {
       const res = await getPendingReviews();
-      const pending = res?.data || [];
+      const rawList = res?.data || [];
+      const userId = currentUser.id || currentUser._id;
+      const skippedIds = getSkippedReviewIds(userId);
+      const pending = rawList.filter((b) => !skippedIds.includes(b.id || b._id));
+
       if (isMountedRef.current) {
         setPendingReviews(pending);
-        setCurrentPending((prev) => {
-          if (!prev && pending.length > 0) {
-            setShowReviewPopup(true);
-            return pending[0];
-          }
-          return prev;
-        });
+        // Only politely auto-prompt on the first check of a session if not already dismissed
+        if (isInitial && !hasDismissedPopupThisSession.current && pending.length > 0) {
+          hasDismissedPopupThisSession.current = true;
+          setCurrentPending(pending[0]);
+          setShowReviewPopup(true);
+        }
       }
     } catch (err) {
       console.error('❌ [APP] Failed to fetch pending reviews:', err.message || err);
@@ -213,11 +239,11 @@ function MainApp() {
     if (!currentUser) return;
     fetchUserNotifications();
     if (currentUser.role !== 'ADMIN') {
-      fetchPendingReviews();
+      fetchPendingReviews(true);
     }
     const reviewInterval = currentUser.role !== 'ADMIN'
       ? setInterval(() => {
-          if (isMountedRef.current) fetchPendingReviews();
+          if (isMountedRef.current) fetchPendingReviews(false);
         }, 30000)
       : null;
     return () => { if (reviewInterval) clearInterval(reviewInterval); };
@@ -294,18 +320,39 @@ function MainApp() {
     setCurrentPending(null);
   };
 
-  const advanceReviewQueue = (completedId) => {
-    setPendingReviews((prevList) => {
-      const nextList = prevList.filter((p) => (p.id || p._id) !== completedId);
-      if (nextList.length > 0) {
-        setCurrentPending(nextList[0]);
-        setShowReviewPopup(true);
-      } else {
-        setCurrentPending(null);
-        setShowReviewPopup(false);
+  const handleReviewSkip = async (bookingId) => {
+    const targetId = bookingId || (currentPending ? (currentPending.id || currentPending._id) : null);
+    const userId = currentUser?.id || currentUser?._id;
+    if (targetId && userId) {
+      markReviewAsSkippedLocal(userId, targetId);
+      try {
+        await skipReview(targetId);
+      } catch (e) {
+        console.warn('Could not record review skip on backend:', e?.message || e);
       }
-      return nextList;
-    });
+    }
+    // Permanently close modal for this session - do not disturb user again
+    hasDismissedPopupThisSession.current = true;
+    setShowReviewPopup(false);
+    setCurrentPending(null);
+    if (targetId) {
+      setPendingReviews((prev) => prev.filter((p) => (p.id || p._id) !== targetId));
+    }
+  };
+
+  const handleReviewSubmit = async (bData) => {
+    const targetId = (typeof bData === 'string' ? bData : bData?.bookingId) || (currentPending ? (currentPending.id || currentPending._id) : null);
+    const userId = currentUser?.id || currentUser?._id;
+    if (targetId && userId) {
+      markReviewAsSkippedLocal(userId, targetId);
+    }
+    // Successfully submitted - close modal immediately and do not disturb with another popup
+    hasDismissedPopupThisSession.current = true;
+    setShowReviewPopup(false);
+    setCurrentPending(null);
+    if (targetId) {
+      setPendingReviews((prev) => prev.filter((p) => (p.id || p._id) !== targetId));
+    }
   };
 
   if (authChecking) {
@@ -346,7 +393,11 @@ function MainApp() {
         </main>
 
         {showReviewPopup && currentPending && (
-          <ReviewPopup booking={currentPending} onSubmit={() => advanceReviewQueue(currentPending.id || currentPending._id)} onSkip={() => advanceReviewQueue(currentPending.id || currentPending._id)} />
+          <ReviewPopup
+            booking={currentPending}
+            onSubmit={handleReviewSubmit}
+            onSkip={handleReviewSkip}
+          />
         )}
       </div>
     </BrowserRouter>

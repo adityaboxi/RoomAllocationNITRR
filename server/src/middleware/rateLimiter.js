@@ -19,7 +19,7 @@ const authRateLimiter = rateLimit({
     if (process.env.NODE_ENV !== 'production') return true;
     return req.path === '/api/health' || req.path === '/health';
   },
-  validate: { keyGeneratorIpFallback: false },
+  validate: false,
   message: {
     success: false,
     message: 'Too many authentication attempts for this account. Please try again after 15 minutes.',
@@ -34,7 +34,7 @@ const globalApiLimiter = rateLimit({
   max: 1000, // Up to 1000 requests per IP per window
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { keyGeneratorIpFallback: false },
+  validate: false,
   message: {
     success: false,
     message: 'Rate limit exceeded. Please slow down your requests.',

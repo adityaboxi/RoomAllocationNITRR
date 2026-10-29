@@ -20,6 +20,13 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
   const bookingId = booking.id || booking._id;
   const roomName = booking.roomId?.name || 'Classroom';
 
+  const handleSkipClick = () => {
+    if (loading) return;
+    if (onSkip) {
+      onSkip(bookingId);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (loading) return;
@@ -60,7 +67,7 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
   return (
     <div
       className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-50 px-5 py-3 animate-fadeIn font-sans"
-      onClick={onSkip}
+      onClick={handleSkipClick}
     >
       <div
         className="bg-white rounded-lg shadow-[0_20px_40px_rgba(0,0,0,0.08)] max-w-md w-full px-8 py-5 sm:p-7 relative border border-slate-200"
@@ -68,9 +75,10 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
       >
         <button
           type="button"
-          onClick={onSkip}
+          onClick={handleSkipClick}
           className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center transition-colors"
           disabled={loading}
+          aria-label="Close review popup"
         >
           <X className="w-4 h-4" />
         </button>
@@ -161,7 +169,7 @@ export default function ReviewPopup({ booking, onSubmit, onSkip }) {
 
             <button
               type="button"
-              onClick={onSkip}
+              onClick={handleSkipClick}
               disabled={loading}
               className="px-5 py-3.5 bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-200 transition-colors disabled:opacity-50"
             >

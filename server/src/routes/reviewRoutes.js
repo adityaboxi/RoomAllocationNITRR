@@ -6,6 +6,7 @@ const {
   getPendingReviews,
   getMyReviews,
   submitReview,
+  skipReview,
 } = require('../controllers/reviewController');
 
 // All review routes require authentication
@@ -16,7 +17,8 @@ router.get('/pending', getPendingReviews);
 router.get('/my', getMyReviews); // Resolves frontend api.js getMyReviews call
 router.get('/room/:roomId', getRoomReviews);
 
-// Review Submission Endpoint
+// Review Submission and Skip Endpoints
 router.post('/', submitReview);
+router.post('/skip/:bookingId', skipReview);
 
 module.exports = router;

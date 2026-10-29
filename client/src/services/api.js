@@ -237,6 +237,7 @@ export const deleteAll = () => api.delete('/api/notifications');
 // Reviews
 export const createReview = (bookingId, rating, comment) =>
   api.post('/api/reviews', { bookingId, rating, comment });
+export const skipReview = (bookingId) => api.post(`/api/reviews/skip/${bookingId}`);
 export const getRoomReviews = (roomId, page = 1) => api.get(`/api/reviews/room/${roomId}?page=${page}`);
 export const getPendingReviews = () => api.get('/api/reviews/pending');
 export const getMyReviews = () => api.get('/api/reviews/my');
