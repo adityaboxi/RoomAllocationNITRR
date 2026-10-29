@@ -103,7 +103,11 @@ const sanitizeErrorMessage = (rawMessage, status) => {
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
-    if (error.response?.status === 401) {
+    const isLoginOrAuthCheck =
+      error.config?.url?.includes('/api/auth/login') ||
+      error.config?.url?.includes('/api/auth/send-signup-otp');
+
+    if (error.response?.status === 401 && !isLoginOrAuthCheck) {
       localStorage.removeItem('token');
       localStorage.removeItem('currentUser');
       if (typeof window !== 'undefined') {

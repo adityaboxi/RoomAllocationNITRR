@@ -146,11 +146,19 @@ function MainApp() {
       }
       try {
         const res = await getMe();
-        if (isMountedRef.current) {
-          setCurrentUser(res.data.user);
+        const verifiedUser = res?.user || res?.data?.user || res?.data;
+        if (isMountedRef.current && verifiedUser) {
+          setCurrentUser(verifiedUser);
+          localStorage.setItem('currentUser', JSON.stringify(verifiedUser));
         }
       } catch (err) {
-        if (isMountedRef.current) {
+        const isAuthRejection =
+          err?.response?.status === 401 ||
+          err?.message?.toLowerCase().includes('expired') ||
+          err?.message?.toLowerCase().includes('unauthorized') ||
+          err?.message?.toLowerCase().includes('not authorized');
+
+        if (isMountedRef.current && isAuthRejection) {
           localStorage.removeItem('token');
           localStorage.removeItem('currentUser');
           setCurrentUser(null);
