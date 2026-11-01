@@ -7,13 +7,39 @@ const http = require('http');
 const mongoose = require('mongoose');
 const app = require('./app');
 const connectDB = require('./config/db');
+const { connectReportDB } = require('./config/reportDb');
 const { initSocket } = require('./utils/socket');
 const { startCleanupScheduler, stopCleanupScheduler } = require('./utils/cleanup');
+const { startReportSyncScheduler, stopReportSyncScheduler } = require('./services/reportSyncService');
 
-const PORT = parseInt(process.env.PORT, 10);
+const PORT = parseInt(process.env.PORT, 10) || 3000;
 
 let server = null;
 let isShuttingDown = false;
+
+// ---------- AUTO-BOOTSTRAP SUPER ADMIN ACCOUNT ----------
+async function ensureAdminAccount() {
+  try {
+    const AdminUser = require('./models/AdminUser');
+    const adminEmail = (process.env.ADMIN_EMAIL || 'admin@nitrr.ac.in').trim().toLowerCase();
+    const adminPassword = process.env.ADMIN_PASSWORD || 'adminsecret123';
+
+    const existingAdmin = await AdminUser.findOne({ email: adminEmail });
+    if (!existingAdmin) {
+      await AdminUser.create({
+        name: 'System Administrator',
+        email: adminEmail,
+        password: adminPassword,
+        role: 'ADMIN',
+        department: 'ALL',
+        isFirstLogin: false,
+      });
+      console.log(`👤 [BOOTSTRAP] Default Super Admin account initialized (${adminEmail})`);
+    }
+  } catch (err) {
+    console.warn('⚠️  [BOOTSTRAP] Note: Super Admin verification skipped:', err.message);
+  }
+}
 
 // ---------- GLOBAL PROCESS ERROR HANDLERS ----------
 process.on('uncaughtException', (err) => {
@@ -35,6 +61,7 @@ const handleGracefulShutdown = async (signal) => {
 
   isShuttingDown = true;
   console.log(`\n🛑 [SERVER] Received ${signal}. Starting graceful shutdown...`);
+  stopReportSyncScheduler();
 
   const forceExitTimer = setTimeout(() => {
     console.warn('[SERVER] Force exit after 2.5s timeout');
@@ -68,17 +95,21 @@ process.once('SIGINT', () => handleGracefulShutdown('SIGINT'));
 // ---------- BOOTSTRAP APPLICATION ----------
 async function startServer() {
   try {
-    // 1. Connect to MongoDB
+    // 1. Connect to MongoDB (Primary Operational DB & Dedicated Report DB)
     await connectDB();
+    await connectReportDB();
 
-    // 2. Create HTTP Server
+    // 2. Ensure Super Admin Account Exists
+    await ensureAdminAccount();
+
+    // 3. Create HTTP Server
     server = http.createServer(app);
 
-    // 3. Attach Socket.IO
+    // 4. Attach Socket.IO
     initSocket(server);
 
-    // 4. Start Background Cleanup Scheduler (Disabled per user request)
-    // startCleanupScheduler();
+    // 5. Start Background Report Database Sync Scheduler (30-day Cycle)
+    startReportSyncScheduler();
 
     // Production Security Verification
     if (process.env.NODE_ENV === 'production') {

@@ -3,8 +3,9 @@ const jwt = require('jsonwebtoken');
 
 // ---------- TIMEZONE-SAFE IST DATE STRING (YYYY-MM-DD) ----------
 exports.getTodayDateString = () => {
+  const tz = process.env.TIMEZONE || 'Asia/Kolkata';
   const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: process.env.TIMEZONE,
+    timeZone: tz,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -14,8 +15,9 @@ exports.getTodayDateString = () => {
 
 // ---------- TIMEZONE-SAFE IST TIME STRING (HH:mm) ----------
 exports.getCurrentTimeHHMM = () => {
+  const tz = process.env.TIMEZONE || 'Asia/Kolkata';
   const formatter = new Intl.DateTimeFormat('en-GB', {
-    timeZone: process.env.TIMEZONE,
+    timeZone: tz,
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
@@ -94,6 +96,6 @@ exports.getJwtSecret = () => {
 // ---------- JWT TOKEN GENERATOR (Wired to .env) ----------
 exports.generateToken = (userId) => {
   const secret = exports.getJwtSecret();
-  const expiresIn = process.env.JWT_EXPIRES_IN;
+  const expiresIn = process.env.JWT_EXPIRES_IN || '7d';
   return jwt.sign({ userId }, secret, { expiresIn });
 };

@@ -220,7 +220,7 @@ exports.getBookingsByFaculty = async (req, res) => {
 exports.createBooking = async (req, res) => {
   let lockKey = null;
   try {
-    let { roomId, date, startTime, endTime, purpose, comment, lockId } = req.body;
+    let { roomId, date, startTime, endTime, purpose, comment, lockId } = req.body || {};
 
     if (!roomId || !date || !startTime || !endTime || !purpose) {
       return res.status(400).json({
@@ -231,6 +231,15 @@ exports.createBooking = async (req, res) => {
 
     if (!mongoose.Types.ObjectId.isValid(roomId)) {
       return res.status(400).json({ success: false, message: 'Invalid room ID format' });
+    }
+
+    if (
+      typeof date !== 'string' ||
+      typeof startTime !== 'string' ||
+      typeof endTime !== 'string' ||
+      typeof purpose !== 'string'
+    ) {
+      return res.status(400).json({ success: false, message: 'Date, start time, end time, and purpose must be valid text.' });
     }
 
     startTime = startTime.trim();
@@ -270,7 +279,7 @@ exports.createBooking = async (req, res) => {
       return res.status(409).json({ success: false, message: 'Room is currently being processed by another user. Please wait a moment and try again.' });
     }
     activeProcessingLocks.add(lockKey);
-    const maxDaysAdvance = parseInt(process.env.MAX_BOOKING_DAYS_ADVANCE, 10);
+    const maxDaysAdvance = parseInt(process.env.MAX_BOOKING_DAYS_ADVANCE, 10) || 14;
     const todayDate = new Date(todayStr);
     const maxBookingDate = new Date(todayDate);
     maxBookingDate.setDate(maxBookingDate.getDate() + maxDaysAdvance);
@@ -281,7 +290,7 @@ exports.createBooking = async (req, res) => {
     }
 
     // 🧹 Auto-clean expired temporary locks so they never cause false collision
-    const lockExpirySecs = parseInt(process.env.LOCK_EXPIRY_SECONDS, 10);
+    const lockExpirySecs = parseInt(process.env.LOCK_EXPIRY_SECONDS, 10) || 300;
     const lockCutoff = new Date(Date.now() - lockExpirySecs * 1000);
     await Booking.deleteMany({
       purpose: 'TEMPORARY_LOCK',
@@ -609,7 +618,7 @@ exports.cancelBooking = async (req, res) => {
 // ---------- LOCK ROOM (WITH HOLIDAY GUARD) ----------
 exports.lockRoom = async (req, res) => {
   try {
-    let { roomId, date, startTime, endTime } = req.body;
+    let { roomId, date, startTime, endTime } = req.body || {};
 
     if (!roomId || !date || !startTime || !endTime) {
       return res.status(400).json({
@@ -620,6 +629,14 @@ exports.lockRoom = async (req, res) => {
 
     if (!mongoose.Types.ObjectId.isValid(roomId)) {
       return res.status(400).json({ success: false, message: 'Invalid room ID format' });
+    }
+
+    if (
+      typeof date !== 'string' ||
+      typeof startTime !== 'string' ||
+      typeof endTime !== 'string'
+    ) {
+      return res.status(400).json({ success: false, message: 'Date, start time, and end time must be valid text.' });
     }
 
     startTime = startTime.trim();
@@ -640,7 +657,7 @@ exports.lockRoom = async (req, res) => {
     }
 
     // 🧹 Auto-clean expired temporary locks
-    const lockExpirySecs = parseInt(process.env.LOCK_EXPIRY_SECONDS, 10);
+    const lockExpirySecs = parseInt(process.env.LOCK_EXPIRY_SECONDS, 10) || 300;
     const lockCutoff = new Date(Date.now() - lockExpirySecs * 1000);
     await Booking.deleteMany({
       purpose: 'TEMPORARY_LOCK',
@@ -764,7 +781,7 @@ exports.lockRoom = async (req, res) => {
       success: true,
       message: 'Room locked successfully',
       lockId,
-      expiresIn: `${parseInt(process.env.LOCK_EXPIRY_SECONDS, 10)} seconds`,
+      expiresIn: `${parseInt(process.env.LOCK_EXPIRY_SECONDS, 10) || 300} seconds`,
       data: lock,
     });
   } catch (error) {
@@ -822,7 +839,7 @@ exports.generateBookingReport = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Only Admins can generate this report' });
     }
 
-    const { startDate, endDate, department, roomId } = req.query;
+    const { startDate, endDate, department, roomId, facultyEmail } = req.query;
 
     const query = {
       status: { $in: ['active', 'completed'] }, // Exclude cancelled/conflicted
@@ -838,6 +855,9 @@ exports.generateBookingReport = async (req, res) => {
     if (department && department !== 'ALL') query.department = department.trim();
     if (roomId && roomId !== 'ALL' && mongoose.Types.ObjectId.isValid(roomId)) {
       query.roomId = roomId;
+    }
+    if (facultyEmail && facultyEmail !== 'ALL') {
+      query.facultyEmail = facultyEmail.trim().toLowerCase();
     }
 
     const safeStart = startDate ? startDate.trim() : 'all';
@@ -863,21 +883,28 @@ exports.generateBookingReport = async (req, res) => {
 
     res.write(headers.map(escapeCsv).join(',') + '\n');
 
+    // 🛡️ DEDICATED REPORT DATABASE ISOLATION:
+    // Read from roomallocation_reports to ensure zero query load on operational database
+    const { getReportModels } = require('../models/reportModels');
+    const reportModels = getReportModels();
+    const UseReportDB = reportModels && reportModels.ReportBooking;
+    const DataSource = UseReportDB ? reportModels.ReportBooking : Booking;
+
     // Streaming cursor: avoids holding entire 5+ years of records in memory
-    const cursor = Booking.find(query)
-      .populate('roomId', 'name building floor')
-      .sort({ date: 1, startTime: 1 })
-      .lean()
-      .cursor();
+    const queryBuilder = DataSource.find(query);
+    if (!UseReportDB) {
+      queryBuilder.populate('roomId', 'name building floor');
+    }
+    const cursor = queryBuilder.sort({ date: 1, startTime: 1 }).lean().cursor();
 
     for await (const entry of cursor) {
-      const roomName = entry.roomId?.name || 'Classroom';
-      const building = entry.roomId?.building || '-';
-      const floor = entry.roomId?.floor !== undefined && entry.roomId?.floor !== null ? String(entry.roomId.floor) : '-';
+      const roomName = entry.roomName || entry.roomId?.name || 'Classroom';
+      const building = entry.building || entry.roomId?.building || '-';
+      const floor = entry.floor !== undefined && entry.floor !== null ? String(entry.floor || entry.roomId?.floor || '-') : '-';
 
       const row = [
         escapeCsv(entry.date),
-        escapeCsv(entry.day),
+        escapeCsv(entry.day || getDayOfWeek(entry.date)),
         escapeCsv(entry.startTime),
         escapeCsv(entry.endTime),
         escapeCsv(roomName),
@@ -909,7 +936,7 @@ exports.generateRoomUtilizationReport = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Only Admins can generate this report' });
     }
 
-    const { startDate, endDate, department, roomId } = req.query;
+    const { startDate, endDate, department, roomId, facultyEmail } = req.query;
 
     // 1. Fetch relevant rooms
     const roomQuery = { isActive: true };
@@ -954,9 +981,18 @@ exports.generateRoomUtilizationReport = async (req, res) => {
     if (roomId && roomId !== 'ALL' && mongoose.Types.ObjectId.isValid(roomId)) {
       bookingQuery.roomId = roomId;
     }
+    if (facultyEmail && facultyEmail !== 'ALL') {
+      bookingQuery.facultyEmail = facultyEmail.trim().toLowerCase();
+    }
+
+    // 🛡️ DEDICATED REPORT DATABASE ISOLATION:
+    // Read from roomallocation_reports to ensure zero query load on operational database
+    const { getReportModels: getRepModels } = require('../models/reportModels');
+    const rModels = getRepModels();
+    const UtilizationSource = (rModels && rModels.ReportBooking) ? rModels.ReportBooking : Booking;
 
     // Streaming cursor to process large multi-year date ranges safely
-    const cursor = Booking.find(bookingQuery).lean().cursor();
+    const cursor = UtilizationSource.find(bookingQuery).lean().cursor();
 
     for await (const b of cursor) {
       const rId = b.roomId ? b.roomId.toString() : null;

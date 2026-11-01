@@ -6,8 +6,8 @@ const { protect, authorize } = require('../middleware/auth');
 router.use(protect);
 
 router.get('/', holidayController.getHolidays);
-router.post('/', authorize('HOD', 'SUPER_ADMIN'), holidayController.createHoliday);
-router.put('/:id', authorize('HOD', 'SUPER_ADMIN'), holidayController.updateHoliday);
-router.delete('/:id', authorize('HOD', 'SUPER_ADMIN'), holidayController.deleteHoliday);
+router.post('/', authorize('HOD', 'ADMIN', 'SUPER_ADMIN'), holidayController.createHoliday);
+router.put('/:id', authorize('HOD', 'ADMIN', 'SUPER_ADMIN'), holidayController.updateHoliday);
+router.delete('/:id', authorize('HOD', 'ADMIN', 'SUPER_ADMIN'), holidayController.deleteHoliday);
 
 module.exports = router;

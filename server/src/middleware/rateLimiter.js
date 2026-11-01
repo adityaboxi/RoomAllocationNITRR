@@ -4,7 +4,7 @@ const rateLimit = require('express-rate-limit');
 // Prevents credential stuffing, OTP email flooding, and brute-force attacks
 // Uses email-aware keying so institutional faculty sharing the campus WiFi NAT proxy don't throttle one another
 const authRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: parseInt(process.env.AUTH_RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000, // Configurable window
   max: parseInt(process.env.AUTH_RATE_LIMIT_MAX, 10) || 2000, // Allows peak simultaneous campus signups
   standardHeaders: true, // Return standard RateLimit headers
   legacyHeaders: false, // Disable X-RateLimit-* headers
@@ -30,8 +30,8 @@ const authRateLimiter = rateLimit({
 // 2. Global Rate Limiter for general API Endpoints
 // Absorbs rapid bursts while protecting the database from denial-of-service
 const globalApiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // Up to 1000 requests per IP per window
+  windowMs: parseInt(process.env.GLOBAL_RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000,
+  max: parseInt(process.env.GLOBAL_RATE_LIMIT_MAX, 10) || 1000, // Up to configured requests per IP per window
   standardHeaders: true,
   legacyHeaders: false,
   validate: false,

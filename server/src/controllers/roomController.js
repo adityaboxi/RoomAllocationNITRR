@@ -363,7 +363,7 @@ exports.getAvailableRooms = async (req, res) => {
     if (hasWiFi === 'true') baseQuery.hasWiFi = true;
 
     // 🧹 Auto-clean expired temporary locks so they never show as falsely occupied
-    const lockExpirySecs = parseInt(process.env.LOCK_EXPIRY_SECONDS, 10);
+    const lockExpirySecs = parseInt(process.env.LOCK_EXPIRY_SECONDS, 10) || 300;
     const lockCutoff = new Date(Date.now() - lockExpirySecs * 1000);
     await Booking.deleteMany({
       purpose: 'TEMPORARY_LOCK',
@@ -1148,9 +1148,16 @@ exports.reportRoomIssue = async (req, res) => {
     const { id } = req.params;
     const { issueType, description } = req.body;
 
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid room ID format.' });
+    }
+
     if (!issueType) {
       return res.status(400).json({ success: false, message: 'Issue type is required.' });
     }
+
+    const validIssues = ['Projector Down', 'AC Not Working', 'Audio / Mic Issue', 'Cleanliness / Maintenance', 'Power / Lighting', 'Other'];
+    const safeIssueType = validIssues.includes(issueType) ? issueType : 'Other';
 
     const room = await Room.findById(id);
     if (!room) {
@@ -1158,8 +1165,8 @@ exports.reportRoomIssue = async (req, res) => {
     }
 
     const newIssue = {
-      issueType,
-      description: (description || '').trim(),
+      issueType: safeIssueType,
+      description: (description || (safeIssueType !== issueType ? `[${issueType}]` : '')).trim(),
       reportedBy: req.user?.email || 'Faculty',
       reportedByName: req.user?.name || 'Faculty Member',
       reportedAt: new Date(),
@@ -1186,7 +1193,7 @@ exports.reportRoomIssue = async (req, res) => {
 
     res.json({
       success: true,
-      message: `Issue "${issueType}" reported for room ${room.name}. Estate maintenance notified.`,
+      message: `Issue "${safeIssueType}" reported for room ${room.name}. Estate maintenance notified.`,
       data: room.issues,
     });
   } catch (error) {
@@ -1200,12 +1207,20 @@ exports.resolveRoomIssue = async (req, res) => {
   try {
     const { id, issueId } = req.params;
 
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid room ID format.' });
+    }
+
     const room = await Room.findById(id);
     if (!room) {
       return res.status(404).json({ success: false, message: 'Room not found.' });
     }
 
-    const issue = room.issues.id(issueId);
+    if (!mongoose.Types.ObjectId.isValid(issueId)) {
+      return res.status(400).json({ success: false, message: 'Invalid issue ID format.' });
+    }
+
+    const issue = room.issues && typeof room.issues.id === 'function' ? room.issues.id(issueId) : null;
     if (!issue) {
       return res.status(404).json({ success: false, message: 'Issue not found on room.' });
     }

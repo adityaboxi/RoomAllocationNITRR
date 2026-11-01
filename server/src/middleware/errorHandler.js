@@ -1,7 +1,12 @@
 // ---------- GLOBAL CENTRALIZED ERROR HANDLER ----------
 exports.errorHandler = (err, req, res, next) => {
-  let error = { ...err };
-  error.message = err.message || 'Internal Server Error';
+  // 🛡️ If response headers have already been sent to client, delegate to default Express handler
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  let error = (err && typeof err === 'object') ? { ...err } : {};
+  error.message = (err && err.message) || (typeof err === 'string' ? err : 'Internal Server Error');
 
   // ✅ Always log errors for debugging
   const label = `[${req.method}] ${req.originalUrl}`;

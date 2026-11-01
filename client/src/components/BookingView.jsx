@@ -74,8 +74,9 @@ const getTodayDateString = () => {
 };
 
 const getMaxBookingDateString = () => {
+  const maxDays = parseInt(import.meta.env.VITE_MAX_BOOKING_DAYS_ADVANCE || '14', 10);
   const d = new Date();
-  d.setDate(d.getDate() + 14); // 14 days in advance
+  d.setDate(d.getDate() + maxDays); // Advance window configured via .env
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');

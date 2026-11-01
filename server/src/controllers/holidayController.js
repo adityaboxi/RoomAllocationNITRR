@@ -11,13 +11,13 @@ const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // Helper to check holiday for a specific date (handles both single date and multi-year recurring)
 const findHolidayForDate = async (date, department) => {
+  if (!date) return null;
   const monthDay = date.slice(5); // Extracts 'MM-DD'
   return await Holiday.findOne({
-    $or: [{ department }, { department: 'ALL' }],
-    $or: [
-      { date },
-      { isRecurring: true, monthDay },
-    ],
+    $and: [
+      { $or: [{ department }, { department: 'ALL' }] },
+      { $or: [{ date }, { isRecurring: true, monthDay }] }
+    ]
   });
 };
 
@@ -27,18 +27,20 @@ exports.getHolidays = async (req, res) => {
     const { department, year } = req.query;
     const targetDept = department ? department.trim() : req.user.department;
 
-    const query = {
-      $or: [{ department: targetDept }, { department: 'ALL' }],
-    };
+    const conditions = [
+      { $or: [{ department: targetDept }, { department: 'ALL' }] }
+    ];
 
     if (year) {
-      query.$or = [
-        { date: { $regex: `^${year}` } },
-        { isRecurring: true }, // National recurring holidays always apply
-      ];
+      conditions.push({
+        $or: [
+          { date: { $regex: `^${year}` } },
+          { isRecurring: true }, // National recurring holidays always apply
+        ]
+      });
     }
 
-    const holidays = await Holiday.find(query).sort({ date: 1 }).lean();
+    const holidays = await Holiday.find({ $and: conditions }).sort({ date: 1 }).lean();
 
     const formatted = holidays.map((h) => ({
       ...h,

@@ -246,3 +246,8 @@ export default api;
 // Admin User Management Endpoints
 export const getAllUsers = () => api.get('/api/auth/users');
 export const deleteUser = (userId) => api.delete(`/api/auth/users/${userId}`);
+
+// Isolated Report Database Endpoints
+export const getReportDbStatus = () => api.get('/api/stats/report-db-status');
+export const syncReportDb = () => api.post('/api/stats/sync-report-db');
+

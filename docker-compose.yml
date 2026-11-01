@@ -1,0 +1,80 @@
+services:
+  # ============================================================================
+  # 1. Unified Fullstack Application (Frontend + Backend + Sockets on Port 3000)
+  # ============================================================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: roomallocation-app
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - CLIENT_DIST_PATH=/app/client/dist
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongo:27017/roomallocation}
+      - REPORT_MONGODB_URI=${REPORT_MONGODB_URI:-mongodb://mongo:27017/roomallocation_reports}
+      - JWT_SECRET=${JWT_SECRET:-nitrr_production_jwt_secret_random_secure_key_2026_x89!}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - CLIENT_URL=${CLIENT_URL:-http://localhost:3000}
+      - TIMEZONE=${TIMEZONE:-Asia/Kolkata}
+      - BODY_LIMIT=${BODY_LIMIT:-10mb}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@nitrr.ac.in}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-adminsecret123}
+      - MAX_BOOKING_DAYS_ADVANCE=${MAX_BOOKING_DAYS_ADVANCE:-14}
+      - LOCK_EXPIRY_SECONDS=${LOCK_EXPIRY_SECONDS:-300}
+      - OTP_EXPIRY_MINUTES=${OTP_EXPIRY_MINUTES:-5}
+      - ENABLE_EMAIL_LOGGING_ONLY=${ENABLE_EMAIL_LOGGING_ONLY:-true}
+      - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_SECURE=${SMTP_SECURE:-false}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - FROM_NAME=${FROM_NAME:-NIT Raipur Room Allocation}
+      - FROM_EMAIL=${FROM_EMAIL:-admin@nitrr.ac.in}
+      - AUTH_RATE_LIMIT_MAX=${AUTH_RATE_LIMIT_MAX:-2000}
+      - AUTH_RATE_LIMIT_WINDOW_MS=${AUTH_RATE_LIMIT_WINDOW_MS:-900000}
+      - GLOBAL_RATE_LIMIT_MAX=${GLOBAL_RATE_LIMIT_MAX:-1000}
+      - GLOBAL_RATE_LIMIT_WINDOW_MS=${GLOBAL_RATE_LIMIT_WINDOW_MS:-900000}
+      - REPORT_SYNC_INTERVAL_HOURS=${REPORT_SYNC_INTERVAL_HOURS:-24}
+      - REPORT_ARCHIVE_AGE_DAYS=${REPORT_ARCHIVE_AGE_DAYS:-30}
+    depends_on:
+      mongo:
+        condition: service_healthy
+        required: false
+    networks:
+      - roomallocation-network
+
+  # ============================================================================
+  # 2. MongoDB Database (Primary & Dedicated Report Databases)
+  # ============================================================================
+  mongo:
+    image: mongo:7.0
+    container_name: roomallocation-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - roomallocation-network
+
+# ==============================================================================
+# Persistent Volumes & Custom Network Bridge
+# ==============================================================================
+volumes:
+  mongodb_data:
+    driver: local
+
+networks:
+  roomallocation-network:
+    driver: bridge

@@ -65,7 +65,7 @@ const VALID_TIMETABLE_SLOTS = [
 ];
 
 // ---------- MULTER STORAGE ----------
-const maxUploadBytes = parseInt(process.env.MAX_FILE_UPLOAD_MB, 10) * 1024 * 1024;
+const maxUploadBytes = (parseInt(process.env.MAX_FILE_UPLOAD_MB, 10) || 5) * 1024 * 1024;
 const upload = multer({
   storage: multer.memoryStorage(),
   fileFilter: (req, file, cb) => {
@@ -1416,7 +1416,7 @@ exports.generateTimetableReport = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Only Admins can generate this report' });
     }
 
-    const { targetDate, department, roomId, semester, day } = req.query;
+    const { targetDate, department, roomId, semester, day, facultyEmail } = req.query;
 
     // Parse target date or default to current moment
     let snapshotTime = new Date();
@@ -1452,12 +1452,20 @@ exports.generateTimetableReport = async (req, res) => {
       liveQuery.roomId = roomId;
     }
     if (semester && semester !== 'ALL') {
-      historyQuery.semester = semester.trim();
-      liveQuery.semester = semester.trim();
+      const semRegex = normalizeSemesterRegex(semester);
+      if (semRegex) {
+        historyQuery.semester = semRegex;
+        liveQuery.semester = semRegex;
+      }
     }
     if (day && day !== 'ALL') {
       historyQuery.day = day.trim();
       liveQuery.day = day.trim();
+    }
+    if (facultyEmail && facultyEmail !== 'ALL') {
+      const cleanEmail = facultyEmail.trim().toLowerCase();
+      historyQuery.facultyEmail = cleanEmail;
+      liveQuery.facultyEmail = cleanEmail;
     }
 
     // Fetch both historical records and currently active records in parallel
@@ -1578,7 +1586,7 @@ exports.generateRoomScheduleAuditReport = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Only Admins can generate this audit report' });
     }
 
-    const { roomId, targetDate, startDate, endDate, year, department } = req.query;
+    const { roomId, targetDate, startDate, endDate, year, department, facultyEmail } = req.query;
 
     // 1. Resolve date boundaries (supports single date, year, or custom multi-year range)
     let effectiveStart;
@@ -1673,6 +1681,9 @@ exports.generateRoomScheduleAuditReport = async (req, res) => {
 
       for (const slot of timetableSlots) {
         if (slot.day === requestedDayOfWeek) {
+          if (facultyEmail && facultyEmail !== 'ALL' && slot.facultyEmail?.toLowerCase() !== facultyEmail.trim().toLowerCase()) {
+            continue;
+          }
           const roomObj = roomMap.get(slot.roomId.toString()) || {};
           const row = [
             escapeCsv(effectiveStart),
@@ -1704,7 +1715,17 @@ exports.generateRoomScheduleAuditReport = async (req, res) => {
       purpose: { $ne: 'TEMPORARY_LOCK' }
     };
 
-    const bookingsCursor = Booking.find(bookingQuery)
+    if (facultyEmail && facultyEmail !== 'ALL') {
+      bookingQuery.facultyEmail = facultyEmail.trim().toLowerCase();
+    }
+
+    // 🛡️ DEDICATED REPORT DATABASE ISOLATION:
+    // Read from roomallocation_reports to ensure zero query load on operational database
+    const { getReportModels } = require('../models/reportModels');
+    const repModels = getReportModels();
+    const BookingModel = (repModels && repModels.ReportBooking) ? repModels.ReportBooking : Booking;
+
+    const bookingsCursor = BookingModel.find(bookingQuery)
       .sort({ date: 1, startTime: 1 })
       .lean()
       .cursor();

@@ -12,6 +12,7 @@ RoomAllocationNITRR_ios/.env.*
 ios_app/.env
 ios_app/.env.*
 !.env.example
+!.env.docker.example
 !server/.env.example
 !client/.env.example
 !RoomAllocationNITRR_ios/.env.example

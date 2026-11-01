@@ -24,7 +24,7 @@ const DEPARTMENT_SUBDOMAINS = {
 
 // Helper to validate institutional email subdomain against selected department
 const validateEmailDepartmentMatch = (email, department) => {
-  if (!email || !department) return { valid: true };
+  if (!email || !department || typeof email !== 'string' || typeof department !== 'string') return { valid: true };
 
   const cleanEmail = email.trim().toLowerCase();
   const domainPart = cleanEmail.split('@')[1] || '';
@@ -116,9 +116,9 @@ exports.getDepartments = async (req, res) => {
 // ---------- LOGIN ----------
 exports.login = async (req, res) => {
   try {
-    let { email, password, role } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ success: false, message: 'Email and password required' });
+    let { email, password, role } = req.body || {};
+    if (!email || !password || typeof email !== 'string' || typeof password !== 'string') {
+      return res.status(400).json({ success: false, message: 'Valid email and password strings are required' });
     }
 
     email = email.trim().toLowerCase();
@@ -377,7 +377,7 @@ exports.forgotPassword = async (req, res) => {
     await OTP.deleteMany({ email, purpose: 'forgot' });
 
     const otp = generateOTP();
-    const expiryMinutes = parseInt(process.env.OTP_EXPIRY_MINUTES, 10);
+    const expiryMinutes = parseInt(process.env.OTP_EXPIRY_MINUTES, 10) || 5;
 
     await OTP.create({
       email,
@@ -513,9 +513,14 @@ exports.getMe = async (req, res) => {
 // ---------- SEND SIGNUP OTP (NON-BLOCKING FAST DISPATCH) ----------
 exports.sendSignupOtp = async (req, res) => {
   try {
-    let { name, email, password, confirmPassword, department, role: requestedRole } = req.body;
-    if (!name || !email || !password || !confirmPassword || !department) {
-      return res.status(400).json({ success: false, message: 'All fields are required' });
+    let { name, email, password, confirmPassword, department, role: requestedRole } = req.body || {};
+    if (
+      !name || !email || !password || !confirmPassword || !department ||
+      typeof name !== 'string' || typeof email !== 'string' ||
+      typeof password !== 'string' || typeof confirmPassword !== 'string' ||
+      typeof department !== 'string'
+    ) {
+      return res.status(400).json({ success: false, message: 'All registration fields must be valid text strings' });
     }
 
     name = name.trim();
@@ -577,7 +582,7 @@ exports.sendSignupOtp = async (req, res) => {
     await OTP.deleteMany({ email, purpose: 'signup' });
 
     const otp = generateOTP();
-    const expiryMinutes = parseInt(process.env.OTP_EXPIRY_MINUTES, 10);
+    const expiryMinutes = parseInt(process.env.OTP_EXPIRY_MINUTES, 10) || 5;
 
     console.log(`\n==========================================`);
     console.log(`🔑 [SIGNUP OTP GENERATED]`);
@@ -617,9 +622,9 @@ exports.sendSignupOtp = async (req, res) => {
 // ---------- VERIFY SIGNUP OTP ----------
 exports.verifySignupOtp = async (req, res) => {
   try {
-    let { email, otp } = req.body;
-    if (!email || !otp) {
-      return res.status(400).json({ success: false, message: 'Email and OTP required' });
+    let { email, otp } = req.body || {};
+    if (!email || !otp || typeof email !== 'string' || typeof otp !== 'string') {
+      return res.status(400).json({ success: false, message: 'Valid email and OTP strings are required' });
     }
 
     email = email.trim().toLowerCase();

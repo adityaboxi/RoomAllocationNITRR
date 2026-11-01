@@ -117,3 +117,66 @@ exports.getDepartmentStats = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// ---------- GET REPORT DATABASE HEALTH & SYNC METADATA ----------
+exports.getReportDbStatus = async (req, res) => {
+  try {
+    const { getReportModels } = require('../models/reportModels');
+    const { getReportConnection } = require('../config/reportDb');
+    const models = getReportModels();
+    const conn = getReportConnection();
+
+    if (!conn || conn.readyState !== 1 || !models) {
+      return res.json({
+        success: true,
+        status: 'STANDBY',
+        databaseName: 'roomallocation_reports',
+        isIsolated: true,
+        message: 'Report database connecting or in standby.',
+      });
+    }
+
+    const { ReportBooking, ReportTimetable, ReportSyncMeta } = models;
+    const [totalBookings, totalTimetables, lastMeta] = await Promise.all([
+      ReportBooking.countDocuments({}),
+      ReportTimetable.countDocuments({}),
+      ReportSyncMeta.findOne({}).sort({ createdAt: -1 }).lean(),
+    ]);
+
+    res.json({
+      success: true,
+      status: 'ACTIVE',
+      databaseName: conn.name || 'roomallocation_reports',
+      isIsolated: true,
+      totalArchivedBookings: totalBookings,
+      totalArchivedTimetables: totalTimetables,
+      lastSyncTimestamp: lastMeta?.lastSyncTimestamp || null,
+      primaryDatabasePreserved: true,
+      archiveAgeDays: parseInt(process.env.REPORT_ARCHIVE_AGE_DAYS || '30', 10),
+    });
+  } catch (error) {
+    console.error('❌ [STATS] getReportDbStatus error:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ---------- TRIGGER MANUAL REPORT DATABASE SYNCHRONIZATION (ADMIN ONLY) ----------
+exports.triggerReportDbSync = async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN') {
+      return res.status(403).json({ success: false, message: 'Forbidden. Only administrators can trigger report sync.' });
+    }
+
+    const { syncToReportDatabase } = require('../services/reportSyncService');
+    const result = await syncToReportDatabase({ force: true });
+
+    res.json({
+      success: true,
+      message: 'Report database synchronized successfully. Zero data pruned from operational database.',
+      data: result,
+    });
+  } catch (error) {
+    console.error('❌ [STATS] triggerReportDbSync error:', error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

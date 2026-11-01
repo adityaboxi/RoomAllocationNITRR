@@ -4,7 +4,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "seed": "node src/scripts/seedUsers.js"
+    "seed": "node src/scripts/seedUsers.js",
+    "test": "node src/scripts/runAllTests.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

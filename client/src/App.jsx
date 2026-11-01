@@ -53,14 +53,14 @@ function TopProgressBar() {
 }
 
 // ============================================================================
-// 🛡️ SELF-HEALING ERROR BOUNDARY (Like YouTube's Crash Recovery)
-// If any React component crashes due to bad code or data, this catches it,
-// prevents the "White Screen of Death", and safely auto-reloads the app.
+// 🛡️ SELF-HEALING ERROR BOUNDARY (Crash Recovery with Loop Prevention)
+// Catches unhandled React render errors, prevents white screens, and offers
+// auto-recovery with a fallback to clear cache if errors persist.
 // ============================================================================
 class GlobalErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, isLoop: false };
   }
 
   static getDerivedStateFromError(error) {
@@ -69,27 +69,86 @@ class GlobalErrorBoundary extends React.Component {
 
   componentDidCatch(error, errorInfo) {
     console.error("💥 [CRITICAL] React Component Crashed:", error, errorInfo);
-    // Auto-recover after 3 seconds
-    setTimeout(() => {
-      window.location.reload();
-    }, 3000);
+    try {
+      const crashCount = parseInt(sessionStorage.getItem('app_crash_count') || '0', 10);
+      if (crashCount < 2) {
+        sessionStorage.setItem('app_crash_count', String(crashCount + 1));
+        setTimeout(() => {
+          window.location.reload();
+        }, 2000);
+      } else {
+        this.setState({ isLoop: true });
+      }
+    } catch {
+      this.setState({ isLoop: true });
+    }
   }
+
+  componentDidMount() {
+    // If running smoothly for 5 seconds, clear the crash counter
+    this.resetTimer = setTimeout(() => {
+      try {
+        sessionStorage.removeItem('app_crash_count');
+      } catch {}
+    }, 5000);
+  }
+
+  componentWillUnmount() {
+    if (this.resetTimer) clearTimeout(this.resetTimer);
+  }
+
+  handleReload = () => {
+    window.location.reload();
+  };
+
+  handleResetAndLogin = () => {
+    try {
+      localStorage.removeItem('currentUser');
+      localStorage.removeItem('token');
+      sessionStorage.clear();
+    } catch {}
+    window.location.href = '/auth';
+  };
 
   render() {
     if (this.state.hasError) {
+      const isLoop = this.state.isLoop;
       return (
         <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
-          <div className="bg-slate-900 border border-red-500/30 p-8 rounded-2xl max-w-md w-full text-center space-y-4">
-            <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+          <div className="bg-slate-900 border border-red-500/30 p-8 rounded-2xl max-w-md w-full text-center space-y-4 shadow-2xl">
+            <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-2">
               <AlertTriangle className="w-8 h-8 text-red-500 animate-pulse" />
             </div>
-            <h2 className="text-xl font-bold text-white tracking-tight">System Recovering...</h2>
+            <h2 className="text-xl font-bold text-white tracking-tight">
+              {isLoop ? 'Application Recovery' : 'System Recovering...'}
+            </h2>
             <p className="text-slate-400 text-sm">
-              We encountered an unexpected glitch. Don't worry, we are auto-restarting the application to restore functionality.
+              {isLoop
+                ? 'An unexpected glitch occurred and persisted. You can reload the page or clear your local session to sign in fresh.'
+                : "We encountered an unexpected glitch. Auto-restarting the application to restore functionality."}
             </p>
-            <div className="flex justify-center pt-4">
-              <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
-            </div>
+            {isLoop ? (
+              <div className="flex flex-col sm:flex-row gap-3 pt-4 justify-center">
+                <button
+                  type="button"
+                  onClick={this.handleReload}
+                  className="px-4 py-2 text-sm font-semibold rounded-xl bg-slate-800 text-slate-200 hover:bg-slate-700 transition"
+                >
+                  Reload Page
+                </button>
+                <button
+                  type="button"
+                  onClick={this.handleResetAndLogin}
+                  className="px-4 py-2 text-sm font-semibold rounded-xl bg-blue-600 text-white hover:bg-blue-500 transition shadow-lg shadow-blue-500/20"
+                >
+                  Clear Session & Return to Login
+                </button>
+              </div>
+            ) : (
+              <div className="flex justify-center pt-4">
+                <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+              </div>
+            )}
           </div>
         </div>
       );

@@ -6,6 +6,8 @@ const mongoose = require('mongoose');
 const mongoSanitize = require('express-mongo-sanitize');
 const xss = require('xss-clean');
 const hpp = require('hpp');
+const path = require('path');
+const fs = require('fs');
 
 
 // Route Imports
@@ -51,15 +53,16 @@ const corsOptions = {
       !origin ||
       origin.startsWith('capacitor://') ||
       origin.startsWith('ionic://') ||
-      (process.env.NODE_ENV !== 'production' && origin.includes('localhost'))
+      origin.includes('localhost') ||
+      origin.includes('127.0.0.1')
     ) {
       return callback(null, true);
     }
 
     // 2. Check allowed origins list from environment variables
     if (
-      allowedOrigins.includes(origin) ||
-      (process.env.NODE_ENV !== 'production' && allowedOrigins.includes('*'))
+      allowedOrigins.includes('*') ||
+      allowedOrigins.includes(origin)
     ) {
       return callback(null, true);
     }
@@ -144,6 +147,21 @@ app.use('/api/reviews', reviewRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/holidays', holidayRoutes);
+
+// ---------- SERVE STATIC FRONTEND IN PRODUCTION (SAME PORT DEPLOYMENT) ----------
+const clientDistPath = process.env.CLIENT_DIST_PATH || path.resolve(__dirname, '../../client/dist');
+
+if (fs.existsSync(clientDistPath)) {
+  app.use(express.static(clientDistPath));
+
+  // SPA Route Fallback: Any non-API route serves index.html on same port
+  app.get('*', (req, res, next) => {
+    if (req.originalUrl.startsWith('/api') || req.originalUrl.startsWith('/health')) {
+      return next();
+    }
+    res.sendFile(path.join(clientDistPath, 'index.html'));
+  });
+}
 
 // ---------- 404 UNMAPPED ROUTE HANDLER ----------
 app.use((req, res) => {
