@@ -140,5 +140,3 @@ test*.js
 *.spec.js
 tests/
 server/src/scripts/
-client/src/services/systemTestSuite.js
-client/src/components/SystemDiagnostics.jsx

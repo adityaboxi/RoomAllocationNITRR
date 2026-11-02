@@ -15,17 +15,11 @@ const normalizeFloor = (floorVal) => {
 };
 
 import { getRooms, createRoom, updateRoom, deleteRoom, getDepartments, getAllRoomsStatus, getAllUsers, deleteUser, resolveRoomIssue } from '../services/api';
-import { Building2, Plus, Edit2, Trash2, Eye, EyeOff, AlertTriangle, Loader2, X, CheckSquare, Square, Activity, Clock, Users, Search, Filter, RotateCcw, RefreshCw, RefreshCcw, Calendar, Palmtree, FileSpreadsheet, Terminal, ShieldCheck } from 'lucide-react';
+import { Building2, Plus, Edit2, Trash2, Eye, EyeOff, AlertTriangle, Loader2, X, CheckSquare, Square, Activity, Clock, Users, Search, Filter, RotateCcw, RefreshCw, RefreshCcw, Calendar, Palmtree, FileSpreadsheet, ShieldCheck } from 'lucide-react';
 import { getSocket, onUserRegistered, offUserRegistered, onUserDeleted, offUserDeleted } from '../services/socket';
 import TimetableManager from './hod/TimetableManager';
 import HolidayManager from './hod/HolidayManager';
 import ReportGenerator from './ReportGenerator';
-
-// Safely load System Diagnostics if present (gitignored test suite)
-const diagModules = import.meta.glob('./SystemDiagnostics.jsx');
-const SystemDiagnostics = diagModules['./SystemDiagnostics.jsx']
-  ? React.lazy(diagModules['./SystemDiagnostics.jsx'])
-  : null;
 
 // ── Delete Confirmation Modal ──────────────────────────────────────────────
 function DeleteConfirmModal({ room, onConfirm, onCancel }) {
@@ -523,18 +517,6 @@ export default function AdminDashboard({ user, onLogout }) {
           >
             <Users className="w-3.5 h-3.5" /> Users & HODs
           </button>
-          {SystemDiagnostics && (
-            <button
-              onClick={() => setActiveTab('diagnostics')}
-              className={`px-5 py-3 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                activeTab === 'diagnostics'
-                  ? 'bg-white text-blue-600 shadow-sm border border-slate-200'
-                  : 'text-mac-subtext hover:text-slate-700'
-              }`}
-            >
-              <Terminal className="w-3.5 h-3.5" /> Diagnostics & Tests
-            </button>
-          )}
         </div>
 
         
@@ -1122,11 +1104,6 @@ export default function AdminDashboard({ user, onLogout }) {
         {/* ── Reports Panel ──────────────────────────── */}
         {activeTab === 'reports' && (
           <ReportGenerator departments={departments} />
-        )}
-
-        {/* ── System Diagnostics & Test Suite ────────────── */}
-        {activeTab === 'diagnostics' && SystemDiagnostics && (
-          <SystemDiagnostics />
         )}
 
       </div>
