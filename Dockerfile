@@ -40,15 +40,15 @@ FROM node:20-alpine AS server-builder
 WORKDIR /app/server
 
 COPY server/package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev && npm cache clean --force
 
 # ------------------------------------------------------------------------------
 # STAGE 3: Production Runtime
 # ------------------------------------------------------------------------------
 FROM node:20-alpine AS runner
 
-# Install curl for container health check probes
-RUN apk add --no-cache curl
+# Install curl for healthcheck probes and dumb-init for PID 1 signal forwarding
+RUN apk add --no-cache curl dumb-init
 
 WORKDIR /app
 
@@ -57,19 +57,16 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV CLIENT_DIST_PATH=/app/client/dist
 
-# Copy compiled frontend assets from Stage 1
-COPY --from=client-builder /app/client/dist /app/client/dist
+# Copy compiled frontend assets from Stage 1 with correct unprivileged ownership
+COPY --chown=node:node --from=client-builder /app/client/dist /app/client/dist
 
-# Copy production node_modules from Stage 2
-COPY --from=server-builder /app/server/node_modules /app/server/node_modules
+# Copy production node_modules from Stage 2 with correct unprivileged ownership
+COPY --chown=node:node --from=server-builder /app/server/node_modules /app/server/node_modules
 
-# Copy server application source code
-COPY server/ /app/server/
+# Copy server application source code with correct unprivileged ownership
+COPY --chown=node:node server/ /app/server/
 
-# Set file permissions for non-root node user
-RUN chown -R node:node /app
-
-# Switch to unprivileged user for security compliance
+# Switch to unprivileged user for enterprise security compliance
 USER node
 
 WORKDIR /app/server
@@ -79,7 +76,10 @@ EXPOSE 3000
 
 # Docker Healthcheck on unified health endpoint
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD curl -f http://localhost:3000/api/health || exit 1
+  CMD curl -fsS http://localhost:3000/api/health || exit 1
+
+# Forward UNIX signals (SIGTERM/SIGINT) cleanly for zero-downtime graceful shutdowns
+ENTRYPOINT ["dumb-init", "--"]
 
 # Launch the unified server
 CMD ["node", "src/index.js"]

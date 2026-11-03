@@ -121,7 +121,7 @@ export default function FacultyDashboard({ user }) {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 font-sans">
+    <div className="max-w-7xl 2xl:max-w-[1680px] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 font-sans">
 
       {/* Pending Reviews Banner */}
       {pendingReviews.length > 0 && !activeReviewBooking && (

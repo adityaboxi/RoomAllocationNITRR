@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { protect } = require('../middleware/auth');
+const { protect, authorize } = require('../middleware/auth');
 const {
   login,
   signup,
@@ -30,7 +30,8 @@ router.post('/reset-password', resetPassword);
 router.get('/me', protect, getMe);
 router.post('/change-password', protect, changePassword);
 
-module.exports = router;
 // Admin User Management
-router.get('/users', protect, getUsersForAdmin);
-router.delete('/users/:id', protect, deleteUserByAdmin);
+router.get('/users', protect, authorize('ADMIN', 'SUPER_ADMIN'), getUsersForAdmin);
+router.delete('/users/:id', protect, authorize('ADMIN', 'SUPER_ADMIN'), deleteUserByAdmin);
+
+module.exports = router;

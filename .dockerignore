@@ -3,9 +3,24 @@ node_modules
 client/node_modules
 server/node_modules
 
-# Build outputs
+# Build outputs & caches
 client/dist
 client/dist_backup
+.vite
+.npm
+.cache
+
+# Environment & Secret files (inject via docker-compose / runtime env)
+.env
+.env.*
+!.env.example
+!.env.docker.example
+server/.env
+server/.env.*
+!server/.env.example
+client/.env
+client/.env.*
+!client/.env.example
 
 # Version control & system files
 .git
@@ -21,8 +36,4 @@ yarn-debug.log*
 yarn-error.log*
 logs
 server/logs
-
-# Local environment overrides
-.env.local
-.env.*.local
 *.tmp

@@ -87,7 +87,6 @@ const buildDepartmentRoomMap = async (department) => {
   rooms.forEach((r) => {
     roomMap.set(r._id.toString(), r);
     roomMap.set(r.name.trim().toLowerCase(), r);
-    roomMap.set(r.name.trim().toLowerCase(), r);
   });
 
   return { rooms, roomMap };
@@ -571,7 +570,11 @@ exports.replaceTimetable = async (req, res) => {
     if (!department || !semester || !section || !entries || !Array.isArray(entries)) {
       return res.status(400).json({ success: false, message: 'department, semester, section and entries array are required' });
     }
-    if (req.user.department !== department) {
+    const isAdmin = req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN';
+    if (!isAdmin && req.user.role !== 'HOD') {
+      return res.status(403).json({ success: false, message: 'Forbidden: Only HOD or Administrator can manage department timetables' });
+    }
+    if (!isAdmin && req.user.department !== department) {
       return res.status(403).json({ success: false, message: `You can only manage timetable for your own department (${req.user.department})` });
     }
     if (department === 'Common / Institute Level') {
@@ -631,6 +634,9 @@ exports.updateRoomDayTimetable = async (req, res) => {
     }
 
     const isAdmin = req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN';
+    if (!isAdmin && req.user.role !== 'HOD') {
+      return res.status(403).json({ success: false, message: 'Forbidden: Only HOD or Administrator can manage department timetables' });
+    }
     if (!isAdmin && room.department !== req.user.department) {
       return res.status(403).json({ success: false, message: 'You can only update schedules for your department rooms' });
     }
@@ -836,6 +842,11 @@ exports.uploadTimetableFile = upload.single('file');
 
 exports.replaceTimetableFromFile = async (req, res) => {
   try {
+    const isAdmin = req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN';
+    if (!isAdmin && req.user.role !== 'HOD') {
+      return res.status(403).json({ success: false, message: 'Forbidden: Only HOD or Administrator can upload department timetables' });
+    }
+
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'Please select a spreadsheet file (.csv, .xlsx) to upload.' });
     }
@@ -911,7 +922,7 @@ exports.replaceTimetableFromFile = async (req, res) => {
       if (targetRoom.department === 'Common / Institute Level') {
         return res.status(403).json({ success: false, message: '🚫 Timetables cannot be managed for "Common / Institute Level" rooms. These rooms are available for ad-hoc booking only.' });
       }
-      if (targetRoom.department !== req.user.department) {
+      if (!isAdmin && targetRoom.department !== req.user.department) {
         return res.status(403).json({ success: false, message: `This room belongs to "${targetRoom.department}". You can only manage rooms in your own department (${req.user.department}).` });
       }
     }
@@ -1047,6 +1058,9 @@ exports.createTimetableEntry = async (req, res) => {
   try {
     const { roomId, day, startTime, endTime, subject, faculty, facultyEmail, semester, section, classGroup } = req.body;
     const isAdmin = req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN';
+    if (!isAdmin && req.user.role !== 'HOD') {
+      return res.status(403).json({ success: false, message: 'Forbidden: Only HOD or Administrator can manage department timetables' });
+    }
 
     if (!roomId || !day || !startTime || !endTime || !subject || !faculty) {
       return res.status(400).json({
@@ -1211,6 +1225,9 @@ exports.updateTimetableEntry = async (req, res) => {
     const { startTime, endTime, subject, classGroup, faculty, facultyEmail, roomId, day, semester, section } = req.body;
     const targetRoomId = roomId && typeof roomId === 'object' ? roomId._id || roomId.id : roomId;
     const isAdmin = req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN';
+    if (!isAdmin && req.user.role !== 'HOD') {
+      return res.status(403).json({ success: false, message: 'Forbidden: Only HOD or Administrator can manage department timetables' });
+    }
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, message: 'Invalid timetable entry ID' });
@@ -1376,6 +1393,9 @@ exports.deleteTimetableEntry = async (req, res) => {
   try {
     const { id } = req.params;
     const isAdmin = req.user.role === 'ADMIN' || req.user.role === 'SUPER_ADMIN';
+    if (!isAdmin && req.user.role !== 'HOD') {
+      return res.status(403).json({ success: false, message: 'Forbidden: Only HOD or Administrator can manage department timetables' });
+    }
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, message: 'Invalid timetable entry ID' });

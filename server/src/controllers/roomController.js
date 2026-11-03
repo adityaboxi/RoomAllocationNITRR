@@ -7,7 +7,7 @@ const Notification = require('../models/Notification');
 const Holiday = require('../models/Holiday');
 const { sendBookingCancellationEmail, sendRoomDeletedNotificationEmail, sendNewRoomAddedEmail } = require('../utils/email');
 const { getIO, emitToUser } = require('../utils/socket');
-const { getDayOfWeek } = require('../utils/helpers');
+const { getDayOfWeek, getTodayDateString, getCurrentTimeHHMM } = require('../utils/helpers');
 
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -23,16 +23,6 @@ const getFloorRegex = (floorVal) => {
     return new RegExp(`^(${num}|${num}(st|nd|rd|th)?(\\s*floor)?)$`, 'i');
   }
   return new RegExp(`^${escapeRegex(f)}$`, 'i');
-};
-
-
-
-const getTodayDateString = () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
 };
 
 // ---------- GET ROOMS (Branch Filter & Search Support) ----------

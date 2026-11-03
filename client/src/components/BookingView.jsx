@@ -57,6 +57,8 @@ import {
   RotateCcw,
   BookOpen,
   User as UserIcon,
+  RefreshCw,
+  History,
 } from 'lucide-react';
 
 const extractErrorMessage = (err, fallback) => {
@@ -300,6 +302,90 @@ export default function BookingView({ user }) {
     return Array.from(set).sort((a, b) => getFloorNumeric(a) - getFloorNumeric(b));
   }, [rooms]);
   const [myBookings, setMyBookings] = useState([]);
+  const [bookingListTab, setBookingListTab] = useState('upcoming'); // 'upcoming' | 'previous' | 'all'
+  const [bookingSearchTerm, setBookingSearchTerm] = useState('');
+  const [refreshingBookings, setRefreshingBookings] = useState(false);
+
+  const handleRefreshMyBookings = async () => {
+    setRefreshingBookings(true);
+    try {
+      await fetchMyBookings();
+    } finally {
+      if (isMountedRef.current) {
+        setRefreshingBookings(false);
+      }
+    }
+  };
+
+  const { upcomingBookings, previousBookings } = useMemo(() => {
+    const upcoming = [];
+    const previous = [];
+
+    (myBookings || []).forEach((b) => {
+      const isCancelled = b.status === 'cancelled';
+      const isCompleted = b.status === 'completed';
+
+      if (isCancelled || isCompleted) {
+        previous.push(b);
+        return;
+      }
+
+      // Active status: evaluate against current date & time
+      if (b.date > todayStr) {
+        upcoming.push(b);
+      } else if (b.date === todayStr) {
+        const curTime = getCurrentTimeHHMM();
+        if ((b.endTime || '') >= curTime) {
+          upcoming.push(b);
+        } else {
+          previous.push(b);
+        }
+      } else {
+        previous.push(b);
+      }
+    });
+
+    upcoming.sort((a, b) => {
+      if (a.date !== b.date) return (a.date || '').localeCompare(b.date || '');
+      return (a.startTime || '').localeCompare(b.startTime || '');
+    });
+
+    previous.sort((a, b) => {
+      if (a.date !== b.date) return (b.date || '').localeCompare(a.date || '');
+      return (b.startTime || '').localeCompare(a.startTime || '');
+    });
+
+    return { upcomingBookings: upcoming, previousBookings: previous };
+  }, [myBookings, todayStr]);
+
+  const displayedBookings = useMemo(() => {
+    let list = [];
+    if (bookingListTab === 'upcoming') {
+      list = upcomingBookings;
+    } else if (bookingListTab === 'previous') {
+      list = previousBookings;
+    } else {
+      list = [...upcomingBookings, ...previousBookings];
+    }
+
+    if (!bookingSearchTerm.trim()) return list;
+
+    const term = bookingSearchTerm.toLowerCase();
+    return list.filter((b) => {
+      const roomName = (b.roomId?.name || '').toLowerCase();
+      const purpose = (b.purpose || '').toLowerCase();
+      const date = (b.date || '').toLowerCase();
+      const status = (b.status || '').toLowerCase();
+      const day = (b.day || '').toLowerCase();
+      return (
+        roomName.includes(term) ||
+        purpose.includes(term) ||
+        date.includes(term) ||
+        status.includes(term) ||
+        day.includes(term)
+      );
+    });
+  }, [bookingListTab, upcomingBookings, previousBookings, bookingSearchTerm]);
   const [reportingRoom, setReportingRoom] = useState(null);
   const [initialLoading, setInitialLoading] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -757,6 +843,7 @@ export default function BookingView({ user }) {
 
       setSuccess(`Room "${selectedRoom.name}" reserved.`);
       setBookingData((prev) => ({ ...prev, purpose: '', comment: '' }));
+      setBookingListTab('upcoming');
       setSelectedRoom(null);
       setActiveLockId(null);
 
@@ -985,16 +1072,20 @@ export default function BookingView({ user }) {
         </div>
       )}
 
-      {/* 1. Date, Time & Branch Slot Selector */}
-      <div className="bg-white border border-slate-200 rounded-lg px-8 py-5 shadow-sm">
-        <div className="flex items-center gap-2 pb-3 mb-4 border-b border-slate-100">
-          <Clock className="w-4 h-4 text-mac-blue" />
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-            Reservation Slot
-          </h3>
-        </div>
+      {/* 2-Column Responsive Layout: Left = Room Booking & Availability, Right = Bookings & Previous Bookings Panel */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Left Column: Room Search, Filters & Availability Grid */}
+        <div className="lg:col-span-7 xl:col-span-8 space-y-6 min-w-0">
+          {/* 1. Date, Time & Branch Slot Selector */}
+          <div className="bg-white border border-slate-200 rounded-lg px-6 py-5 shadow-sm">
+            <div className="flex items-center gap-2 pb-3 mb-4 border-b border-slate-100">
+              <Clock className="w-4 h-4 text-mac-blue" />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                Reservation Slot
+              </h3>
+            </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3.5">
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1">
               <Filter className="w-3.5 h-3.5 text-mac-blue" />
@@ -1153,7 +1244,7 @@ export default function BookingView({ user }) {
       )}
 
       {/* 2. Unified Search & Filters */}
-      <div className="bg-white border border-slate-200 rounded-lg px-8 py-5 shadow-sm space-y-3.5">
+      <div className="bg-white border border-slate-200 rounded-lg px-6 py-5 shadow-sm space-y-3.5">
         <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <Building2 className="w-4 h-4 text-mac-blue" />
@@ -1203,7 +1294,7 @@ export default function BookingView({ user }) {
         </div>
 
         {/* Inputs & Sorting Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
           <div className="relative">
             <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
@@ -1308,8 +1399,8 @@ export default function BookingView({ user }) {
         </div>
 
         {initialLoading ? (
-          <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+          <div className="p-4 grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-4">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
               <div key={i} className="bg-white border border-slate-100 rounded-lg p-4 shadow-sm animate-pulse flex flex-col gap-3">
                 <div className="flex justify-between items-start">
                   <div className="h-4 bg-slate-200 rounded w-1/2"></div>
@@ -1320,9 +1411,6 @@ export default function BookingView({ user }) {
                   <div className="h-6 w-12 bg-slate-100 rounded-full"></div>
                   <div className="h-6 w-12 bg-slate-100 rounded-full"></div>
                   <div className="h-6 w-12 bg-slate-100 rounded-full"></div>
-                </div>
-                <div className="grid grid-cols-5 gap-1 mt-4">
-                  {[...Array(10)].map((_, j) => <div key={j} className="h-6 bg-slate-100 rounded"></div>)}
                 </div>
               </div>
             ))}
@@ -1340,7 +1428,7 @@ export default function BookingView({ user }) {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-4">
             {filteredRooms.map((room) => {
               const roomId = String(room.id || room._id);
               const available = isRoomAvailable(room);
@@ -1631,77 +1719,174 @@ export default function BookingView({ user }) {
           </div>
         </div>
       )}
-
-      {/* 5. User Scheduled Bookings Table */}
-      <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
-        <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-mac-blue" />
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
-              My Bookings ({myBookings.length})
-            </h3>
-          </div>
         </div>
 
-        {myBookings.length === 0 ? (
-          <div className="px-[3.25rem] py-8 text-center text-slate-400 text-xs">
-            No scheduled reservations.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-100 text-left text-xs">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="px-5 py-3.5 font-bold text-slate-700 uppercase tracking-wider">
-                    Room
-                  </th>
-                  <th className="px-5 py-3.5 font-bold text-slate-700 uppercase tracking-wider">
-                    Slot
-                  </th>
-                  <th className="px-5 py-3.5 font-bold text-slate-700 uppercase tracking-wider">
-                    Purpose
-                  </th>
-                  <th className="px-5 py-3.5 font-bold text-slate-700 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="text-right px-5 py-3.5 font-bold text-slate-700 uppercase tracking-wider">
-                    Action
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 bg-white">
-                {myBookings.map((b) => {
+        {/* Right Column: Bookings & Previous Bookings Panel */}
+        <div className="lg:col-span-5 xl:col-span-4 lg:sticky lg:top-20 space-y-4 min-w-0">
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden flex flex-col">
+            {/* Panel Header */}
+            <div className="px-4 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-mac-blue" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                  My Bookings
+                </h3>
+                <span className="bg-blue-50 text-mac-blue border border-blue-100 text-[11px] font-bold px-2 py-0.5 rounded-full font-mono">
+                  {myBookings.length}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleRefreshMyBookings}
+                disabled={refreshingBookings}
+                title="Refresh my bookings"
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${refreshingBookings ? 'animate-spin text-mac-blue' : ''}`} />
+              </button>
+            </div>
+
+            {/* Segmented Tab Switcher */}
+            <div className="p-3 border-b border-slate-100 bg-white space-y-2.5">
+              <div className="grid grid-cols-3 bg-slate-100 p-1 rounded-lg gap-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setBookingListTab('upcoming')}
+                  className={`py-1.5 px-1.5 font-bold rounded-md transition-all flex items-center justify-center gap-1.5 ${
+                    bookingListTab === 'upcoming'
+                      ? 'bg-white text-mac-blue shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span>Upcoming</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                    bookingListTab === 'upcoming' ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'
+                  }`}>
+                    {upcomingBookings.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setBookingListTab('previous')}
+                  className={`py-1.5 px-1.5 font-bold rounded-md transition-all flex items-center justify-center gap-1.5 ${
+                    bookingListTab === 'previous'
+                      ? 'bg-white text-mac-blue shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span>Previous</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                    bookingListTab === 'previous' ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'
+                  }`}>
+                    {previousBookings.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setBookingListTab('all')}
+                  className={`py-1.5 px-1.5 font-bold rounded-md transition-all flex items-center justify-center gap-1.5 ${
+                    bookingListTab === 'all'
+                      ? 'bg-white text-mac-blue shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span>All</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                    bookingListTab === 'all' ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'
+                  }`}>
+                    {myBookings.length}
+                  </span>
+                </button>
+              </div>
+
+              {/* Quick Search inside Bookings */}
+              {myBookings.length > 3 && (
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={bookingSearchTerm}
+                    onChange={(e) => setBookingSearchTerm(e.target.value)}
+                    placeholder="Filter by room, date, purpose..."
+                    className="w-full pl-8 pr-7 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-1 focus:ring-mac-blue/30 outline-none text-slate-800"
+                  />
+                  {bookingSearchTerm && (
+                    <button
+                      type="button"
+                      onClick={() => setBookingSearchTerm('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Bookings Scrollable List */}
+            <div className="p-3 max-h-[calc(100vh-17rem)] overflow-y-auto space-y-3">
+              {displayedBookings.length === 0 ? (
+                <div className="py-12 px-4 text-center">
+                  <Calendar className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                  <p className="text-xs font-semibold text-slate-600">
+                    {bookingListTab === 'upcoming'
+                      ? 'No upcoming reservations'
+                      : bookingListTab === 'previous'
+                      ? 'No previous bookings'
+                      : 'No bookings found'}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1 max-w-xs mx-auto">
+                    {bookingListTab === 'upcoming'
+                      ? 'Select an available classroom on the left to reserve a slot.'
+                      : 'Completed and past session reservations appear here.'}
+                  </p>
+                  {bookingListTab === 'upcoming' && previousBookings.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setBookingListTab('previous')}
+                      className="mt-3 text-xs font-bold text-mac-blue hover:underline inline-flex items-center gap-1"
+                    >
+                      <History className="w-3.5 h-3.5" />
+                      View {previousBookings.length} previous bookings
+                    </button>
+                  )}
+                </div>
+              ) : (
+                displayedBookings.map((b) => {
                   const bookingId = b.id || b._id;
                   const isCancelled = b.status === 'cancelled';
                   const isActive = b.status === 'active';
                   const isCancelling = cancellingBookingId === bookingId;
 
                   return (
-                    <tr key={bookingId} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="px-4 py-3">
-                        <div className="font-bold text-mac-text">{b.roomId?.name || 'Room'}</div>
-                        <div className="text-[11px] text-mac-subtext font-mono">
-                          
+                    <div
+                      key={bookingId}
+                      className={`p-3 rounded-xl border transition-all ${
+                        isActive
+                          ? 'bg-white border-slate-200/90 hover:border-blue-300 hover:shadow-sm'
+                          : isCancelled
+                          ? 'bg-rose-50/30 border-rose-100 opacity-75'
+                          : 'bg-slate-50/70 border-slate-200/80'
+                      }`}
+                    >
+                      {/* Top Header: Room Name & Status */}
+                      <div className="flex items-start justify-between gap-2 mb-1.5">
+                        <div className="min-w-0">
+                          <div className="font-bold text-xs text-slate-800 flex items-center gap-1.5 truncate">
+                            <Building2 className="w-3.5 h-3.5 text-mac-blue flex-shrink-0" />
+                            <span className="truncate">{b.roomId?.name || 'Classroom'}</span>
+                          </div>
+                          <div className="text-[10px] text-slate-500 truncate mt-0.5">
+                            {b.roomId?.building || ''}
+                            {b.roomId?.floor ? ` • Floor ${normalizeFloor(b.roomId.floor)}` : ''}
+                          </div>
                         </div>
-                      </td>
 
-                      <td className="px-4 py-3 text-slate-700">
-                        <div className="font-medium">{b.date}</div>
-                        <div className="text-[11px] text-mac-subtext font-mono">
-                          {b.startTime} - {b.endTime}
-                        </div>
-                      </td>
-
-                      <td className="px-4 py-3 text-slate-700">
-                        <div className="font-medium">{b.purpose}</div>
-                        {b.comment && b.comment !== 'No comment provided' && (
-                          <div className="text-[11px] text-mac-subtext italic mt-0.5">{b.comment}</div>
-                        )}
-                      </td>
-
-                      <td className="px-4 py-3">
                         <span
-                          className={`inline-flex items-center px-2 py-0.5 text-[11px] font-bold rounded-md border ${
+                          className={`px-2 py-0.5 text-[10px] font-bold rounded-md border flex items-center gap-1 flex-shrink-0 ${
                             isActive
                               ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                               : isCancelled
@@ -1709,50 +1894,92 @@ export default function BookingView({ user }) {
                               : 'bg-slate-100 text-slate-700 border-slate-200'
                           }`}
                         >
-                          {b.status}
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              isActive
+                                ? 'bg-emerald-500'
+                                : isCancelled
+                                ? 'bg-rose-500'
+                                : 'bg-slate-400'
+                            }`}
+                          />
+                          <span className="capitalize">{b.status}</span>
                         </span>
-                      </td>
+                      </div>
 
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                          {isActive && (
-                            <>
-                              <a
-                                href={getGoogleCalendarUrl(b)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                title="Add event to Google Calendar"
-                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 transition"
-                              >
-                                <Calendar className="w-3 h-3" /> G-Cal
-                              </a>
-                              <button
-                                type="button"
-                                onClick={() => downloadIcsFile(b)}
-                                title="Download .ics for Outlook / Apple Calendar"
-                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded border border-slate-200 transition"
-                              >
-                                <Download className="w-3 h-3" /> iCal
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleCancelBooking(bookingId)}
-                                disabled={isCancelling}
-                                className="text-xs font-bold text-rose-600 hover:text-rose-800 disabled:opacity-40 ml-1"
-                              >
-                                {isCancelling ? 'Cancelling...' : 'Cancel'}
-                              </button>
-                            </>
-                          )}
+                      {/* Date & Slot Badge */}
+                      <div className="flex items-center gap-1.5 text-[11px] text-slate-600 font-medium my-2 flex-wrap">
+                        <span className="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded text-slate-700 font-mono text-[11px]">
+                          <Calendar className="w-3 h-3 text-slate-400" />
+                          {b.date} {b.day ? `(${b.day.slice(0, 3)})` : ''}
+                        </span>
+                        <span className="inline-flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded text-slate-700 font-mono text-[11px]">
+                          <Clock className="w-3 h-3 text-slate-400" />
+                          {b.startTime} - {b.endTime}
+                        </span>
+                      </div>
+
+                      {/* Purpose & Note */}
+                      <div className="bg-slate-50 border border-slate-100 rounded-lg p-2 text-xs text-slate-700 my-2">
+                        <div className="font-semibold text-slate-800 flex items-center gap-1">
+                          <BookOpen className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                          <span className="truncate">{b.purpose}</span>
                         </div>
-                      </td>
-                    </tr>
+                        {b.comment && b.comment !== 'No comment provided' && (
+                          <div className="text-[10px] text-slate-500 italic mt-0.5 truncate">
+                            {b.comment}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Actions */}
+                      {isActive && (
+                        <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-slate-100 flex-wrap">
+                          <div className="flex items-center gap-1">
+                            <a
+                              href={getGoogleCalendarUrl(b)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Add to Google Calendar"
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 transition"
+                            >
+                              <Calendar className="w-2.5 h-2.5" /> G-Cal
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => downloadIcsFile(b)}
+                              title="Download .ics for Outlook / Apple Calendar"
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded border border-slate-200 transition"
+                            >
+                              <Download className="w-2.5 h-2.5" /> iCal
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleCancelBooking(bookingId)}
+                            disabled={isCancelling}
+                            className="text-[11px] font-bold text-rose-600 hover:text-rose-800 disabled:opacity-40 px-2 py-0.5 rounded hover:bg-rose-50 transition"
+                          >
+                            {isCancelling ? 'Cancelling...' : 'Cancel'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   );
-                })}
-              </tbody>
-            </table>
+                })
+              )}
+            </div>
+
+            {/* Footer Summary */}
+            <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-medium">
+              <span>Showing {displayedBookings.length} of {myBookings.length}</span>
+              <span className="text-[10px] text-slate-400">
+                {upcomingBookings.length} upcoming • {previousBookings.length} previous
+              </span>
+            </div>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Reviews Modal */}

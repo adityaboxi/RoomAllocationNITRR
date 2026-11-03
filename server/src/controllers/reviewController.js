@@ -2,21 +2,7 @@ const mongoose = require('mongoose');
 const Review = require('../models/Review');
 const Booking = require('../models/Booking');
 const { getIO } = require('../utils/socket');
-
-const getTodayDateString = () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-const getCurrentTimeHHMM = () => {
-  const now = new Date();
-  const h = String(now.getHours()).padStart(2, '0');
-  const m = String(now.getMinutes()).padStart(2, '0');
-  return `${h}:${m}`;
-};
+const { getTodayDateString, getCurrentTimeHHMM } = require('../utils/helpers');
 
 const isBookingEnded = (booking) => {
   const todayStr = getTodayDateString();

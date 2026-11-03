@@ -89,7 +89,7 @@ export default function HODDashboard({ user }) {
   }, []);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 font-sans">
+    <div className="max-w-7xl 2xl:max-w-[1680px] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 font-sans">
       {/* Top Header Card */}
       <div className="bg-white border border-slate-200 rounded-lg px-8 py-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         {/* Tab Navigation Controls */}
