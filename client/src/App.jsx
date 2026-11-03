@@ -114,12 +114,12 @@ class GlobalErrorBoundary extends React.Component {
               <AlertTriangle className="w-8 h-8 text-red-500 animate-pulse" />
             </div>
             <h2 className="text-xl font-bold text-white tracking-tight">
-              {isLoop ? 'Application Recovery' : 'System Recovering...'}
+              {isLoop ? 'Session Notice' : 'Loading Application...'}
             </h2>
             <p className="text-slate-400 text-sm">
               {isLoop
-                ? 'An unexpected glitch occurred and persisted. You can reload the page or clear your local session to sign in fresh.'
-                : "We encountered an unexpected glitch. Auto-restarting the application to restore functionality."}
+                ? 'Unable to complete your request. Please reload the page or sign in again.'
+                : 'Restoring your session, please wait a moment.'}
             </p>
             {isLoop ? (
               <div className="flex flex-col sm:flex-row gap-3 pt-4 justify-center">
